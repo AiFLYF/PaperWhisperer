@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PaperWhisperer</title>
+    
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
+    
+    <style>
+        /* Apple & Grok 融合风格变量 */
+        :root {
+            --bg-body: #f5f5f7;
+            --bg-card: #ffffff;
+            --text-primary: #1d1d1f;
+            --text-secondary: #86868b;
+            --border-color: #d2d2d7;
+            --input-bg: #f5f5f7;
+            --primary-color: #0071e3;
+            --primary-hover: #0077ed;
+            --code-bg: #1d1d1f;
+            --quote-bg: #f5f5f7;
+            --quote-border: #86868b;
+            --chat-user: #f5f5f7;
+            --chat-assistant: #ffffff;
+            --canvas-bg: #ffffff;
+            --radius-lg: 18px;
+            --radius-md: 12px;
+            --radius-sm: 8px;
+            --shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+            --font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+            --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        [data-theme="dark"] {
+            --bg-body: #000000;
+            --bg-card: #1c1c1e;
+            --text-primary: #f5f5f7;
+            --text-secondary: #86868b;
+            --border-color: #38383a;
+            --input-bg: #2c2c2e;
+            --primary-color: #2997ff;
+            --primary-hover: #3a9fff;
+            --code-bg: #000000;
+            --quote-bg: #2c2c2e;
+            --quote-border: #555557;
+            --chat-user: #2c2c2e;
+            --chat-assistant: #1c1c1e;
+            --canvas-bg: #1c1c1e;
+            --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: var(--font-stack);
+            background-color: var(--bg-body);
+            color: var(--text-primary);
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            transition: background-color 0.4s ease;
+            padding: 40px 20px;
+        }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+
+        .container { max-width: 860px; margin: 0 auto; position: relative; }
+
+        /* 顶部导航 */
+        .nav-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
+        .logo { font-size: 24px; font-weight: 600; letter-spacing: -0.5px; color: var(--text-primary); }
+        .logo span { color: var(--text-secondary); font-weight: 400; font-size: 16px; margin-left: 8px; }
+
+        .theme-toggle {
+            background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 50%;
+            width: 36px; height: 36px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            color: var(--text-primary); transition: var(--transition);
+        }
+        .theme-toggle:hover { border-color: var(--text-secondary); }
+
+        .card {
+            background: var(--bg-card); border-radius: var(--radius-lg); padding: 32px;
+            margin-bottom: 24px; box-shadow: var(--shadow); border: 1px solid rgba(134, 134, 139, 0.1);
+        }
+
+        .section-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; letter-spacing: -0.3px; }
+        .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+        .section-header .section-title { margin-bottom: 0; }
+
+        .form-group { margin-bottom: 24px; }
+        .form-group label {
+            display: block; font-size: 13px; font-weight: 500; color: var(--text-secondary);
+            margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+
+        input[type="text"], input[type="file"] {
+            width: 100%; padding: 14px 16px; background-color: var(--input-bg);
+            border: 1px solid transparent; border-radius: var(--radius-md); font-size: 15px;
+            color: var(--text-primary); transition: var(--transition); font-family: inherit;
+        }
+        input[type="file"] { padding: 10px; cursor: pointer; }
+        input[type="file"]::file-selector-button {
+            background: var(--bg-card); border: 1px solid var(--border-color); padding: 6px 12px;
+            border-radius: var(--radius-sm); color: var(--text-primary); cursor: pointer;
+            margin-right: 12px; font-weight: 500; transition: var(--transition);
+        }
+        input:focus { outline: none; background-color: var(--bg-card); border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.1); }
+
+        .options-group { display: flex; gap: 24px; margin-bottom: 32px; }
+        .checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; color: var(--text-primary); user-select: none; }
+        .checkbox-label input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary-color); cursor: pointer; }
+
+        .btn {
+            background: var(--primary-color); color: #ffffff; border: none; border-radius: var(--radius-md);
+            padding: 14px 24px; font-size: 15px; font-weight: 500; cursor: pointer; width: 100%;
+            transition: var(--transition); letter-spacing: -0.2px;
+        }
+        .btn:hover:not(:disabled) { background: var(--primary-hover); }
+        .btn:disabled { background: var(--border-color); color: #ffffff; cursor: not-allowed; opacity: 0.6; }
+
+        .loading, .error { display: none; margin-bottom: 24px; }
+        .loading.active { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; }
+        .spinner {
+            width: 24px; height: 24px; border: 2px solid var(--border-color); border-top-color: var(--primary-color);
+            border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;
+        }
+        .loading-text { font-size: 14px; color: var(--text-secondary); }
+
+        .error { background: transparent; color: #ff3b30; padding: 16px; border: 1px solid #ff3b30; border-radius: var(--radius-md); font-size: 14px; }
+        .file-info { font-size: 13px; color: var(--text-secondary); margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; }
+
+        .result-section { display: none; opacity: 0; transition: opacity 0.5s ease; }
+        .result-section.active { display: block; opacity: 1; }
+        
+        .result-card { background: var(--bg-card); border-radius: var(--radius-lg); padding: 32px; margin-bottom: 24px; box-shadow: var(--shadow); border: 1px solid rgba(134, 134, 139, 0.1); }
+
+        /* 画布工具栏与容器设计 */
+        .canvas-toolbar { display: flex; gap: 8px; }
+        .tool-btn {
+            background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-secondary);
+            width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: var(--transition); padding: 6px;
+        }
+        .tool-btn:hover { background: var(--bg-body); color: var(--text-primary); border-color: var(--text-secondary); }
+        .tool-btn svg { width: 100%; height: 100%; }
+
+        .mermaid-wrapper {
+            width: 100%; height: 500px; border: 1px solid var(--border-color);
+            border-radius: var(--radius-md); overflow: hidden; background: var(--canvas-bg);
+            position: relative; cursor: grab;
+        }
+        .mermaid-wrapper:active { cursor: grabbing; }
+        .mermaid-container { width: 100%; height: 100%; }
+        .mermaid-container svg { width: 100% !important; height: 100% !important; }
+
+        .content { font-size: 15px; line-height: 1.6; color: var(--text-primary); }
+        .content p { margin-bottom: 1.2em; }
+        .content h1, .content h2, .content h3 { font-weight: 600; margin: 1.5em 0 0.8em; letter-spacing: -0.3px; }
+        .content ul, .content ol { padding-left: 20px; margin-bottom: 1.2em; }
+        .content li { margin-bottom: 0.4em; }
+        .content code { font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.85em; background: var(--input-bg); padding: 0.2em 0.4em; border-radius: 4px; }
+        .content pre { background: var(--code-bg); color: #f5f5f7; padding: 16px; border-radius: var(--radius-md); overflow-x: auto; margin-bottom: 1.2em; font-size: 0.9em; }
+        .content pre code { background: transparent; padding: 0; color: inherit; }
+        .content blockquote { border-left: 3px solid var(--quote-border); padding-left: 16px; color: var(--text-secondary); margin-bottom: 1.2em; background: var(--quote-bg); padding: 12px 16px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-style: italic; }
+
+        .ask-section { margin-top: 40px; }
+        .ask-input-group { display: flex; gap: 12px; margin-bottom: 24px; }
+        .ask-input-group input { flex: 1; }
+        .ask-input-group .btn { width: auto; padding: 0 24px; }
+
+        .chat-history { display: flex; flex-direction: column; gap: 16px; }
+        .chat-item { max-width: 85%; padding: 16px 20px; border-radius: var(--radius-md); font-size: 15px; line-height: 1.5; position: relative; }
+        .chat-question { background: var(--chat-user); align-self: flex-end; border-bottom-right-radius: 4px; color: var(--text-primary); }
+        .chat-answer { background: var(--chat-assistant); align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid var(--border-color); width: 100%; max-width: 100%; }
+        .chat-header { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; display: flex; justify-content: space-between; align-items: center; }
+        
+        .action-btn { background: transparent; border: none; color: var(--text-secondary); font-size: 12px; cursor: pointer; transition: color 0.2s; }
+        .action-btn:hover { color: var(--text-primary); }
+
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        
+        /* 页脚设计 */
+        .site-footer {
+            margin-top: 60px;
+            padding: 24px 0;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 13px;
+            letter-spacing: 0.5px;
+            transition: var(--transition);
+        }
+        .site-footer span { display: inline-flex; align-items: center; gap: 6px; }
+        .site-footer strong { color: var(--text-primary); font-weight: 600; }
+        .site-footer .heart { color: #ff3b30; animation: heartbeat 2s infinite; }
+
+        @keyframes heartbeat {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.15); }
+        }
+
+        @media (max-width: 768px) {
+            body { padding: 20px 16px; }
+            .card, .result-card { padding: 20px; }
+            .ask-input-group { flex-direction: column; }
+            .ask-input-group .btn { width: 100%; padding: 14px 0; }
+            .chat-item { max-width: 95%; }
+            .mermaid-wrapper { height: 350px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header class="nav-header">
+            <div class="logo">PaperWhisperer<span>Workspace</span></div>
+            <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn" aria-label="Toggle Theme">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+            </button>
+        </header>
+        
+        <div class="card">
+            <div class="form-group">
+                <label>API Key (Optional)</label>
+                <input type="text" id="apiKey" placeholder="Enter your API Key" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>Document Source</label>
+                <input type="file" id="file" accept=".txt,.pdf">
+            </div>
+            <div class="options-group">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="generateMermaid" checked> Enable structure diagram
+                </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="generateEvaluation" checked> Enable critical evaluation
+                </label>
+            </div>
+            <button class="btn" id="analyzeBtn" onclick="analyze()">Analyze Document</button>
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div class="loading-text">Processing document structure...</div>
+        </div>
+        <div class="error" id="error"></div>
+        
+        <div class="result-section" id="result">
+            <div class="file-info" id="fileInfo"></div>
+            
+            <div class="result-card">
+                <h3 class="section-title">Overview</h3>
+                <div class="content" id="summary"></div>
+            </div>
+            
+            <div class="result-card">
+                <h3 class="section-title">Key Citations</h3>
+                <div class="content" id="quotes"></div>
+            </div>
+            
+            <div class="result-card">
+                <h3 class="section-title">Text Structure</h3>
+                <div class="content" id="mindmap"></div>
+            </div>
+            
+            <div class="result-card" id="mermaidCard" style="display: none;">
+                <div class="section-header">
+                    <h3 class="section-title">Visual Map</h3>
+                    <div class="canvas-toolbar">
+                        <button class="tool-btn" onclick="zoomIn()" title="Zoom In"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+                        <button class="tool-btn" onclick="zoomOut()" title="Zoom Out"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+                        <button class="tool-btn" onclick="zoomReset()" title="Reset View"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></button>
+                        <button class="tool-btn" onclick="downloadMermaidSVG()" title="Download SVG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
+                    </div>
+                </div>
+                <div class="mermaid-wrapper" id="mermaidWrapper">
+                    <div class="mermaid-container" id="mermaidChart"></div>
+                </div>
+            </div>
+            
+            <div class="result-card">
+                <h3 class="section-title">Evaluation</h3>
+                <div class="content" id="evaluation"></div>
+            </div>
+            
+            <div class="ask-section">
+                <h3 class="section-title">Ask Questions</h3>
+                <div class="ask-input-group">
+                    <input type="text" id="questionInput" placeholder="Query data, methods, or specific formulas..." onkeypress="handleKeyPress(event)">
+                    <button class="btn" id="askBtn" onclick="askQuestion()">Send</button>
+                </div>
+                <div class="chat-history" id="chatHistory"></div>
+            </div>
+        </div>
+        
+        <footer class="site-footer">
+            <div class="footer-content">
+                <span>
+                    Crafted with <span class="heart">♥</span> by <strong>FLYF</strong> & <strong>Gemini</strong>
+                </span>
+            </div>
+        </footer>
+    </div>
+    
+    <script>
+        let currentSessionId = '';
+        let panZoomInstance = null;
+        let mermaidInstance = null; // 全局存储 mermaid
+
+        // ✅ 动态导入 ESM 版本的 Mermaid
+        import('https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.esm.min.mjs')
+            .then(module => {
+                mermaidInstance = module.default;
+                mermaidInstance.initialize({ startOnLoad: false, theme: 'base', securityLevel: 'loose' });
+            }).catch(err => console.error("Mermaid 加载失败:", err));
+
+        // 主题切换逻辑
+        const sunIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
+        const moonIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+            document.body.setAttribute('data-theme', 'dark');
+            document.getElementById('themeBtn').innerHTML = sunIcon;
+        }
+
+        function toggleTheme() {
+            const body = document.body;
+            const btn = document.getElementById('themeBtn');
+            if (body.getAttribute('data-theme') === 'dark') {
+                body.removeAttribute('data-theme');
+                btn.innerHTML = moonIcon;
+            } else {
+                body.setAttribute('data-theme', 'dark');
+                btn.innerHTML = sunIcon;
+            }
+        }
+
+        marked.setOptions({ breaks: true, gfm: true });
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !document.getElementById('askBtn').disabled) askQuestion();
+        }
+        
+        function renderMath(element) {
+            renderMathInElement(element, {
+                delimiters: [
+                    {left: '$$', right: '$$', display: true}, {left: '\\[', right: '\\]', display: true},
+                    {left: '$', right: '$', display: false}, {left: '\\(', right: '\\)', display: false}
+                ],
+                throwOnError: false, output: 'html'
+            });
+        }
+
+        function formatContent(content) {
+            if (!content) return '<p style="color:var(--text-secondary); font-style:italic;">No content available.</p>';
+            let processedContent = content;
+            processedContent = processedContent.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$'); 
+            processedContent = processedContent.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
+            const mathTokens = {}; let counter = 0;
+
+            processedContent = processedContent.replace(/\$\$([\s\S]*?)\$\$/g, (match) => {
+                const token = `@@MATHBLOCK${counter}@@`; mathTokens[token] = match; counter++; return `\n${token}\n`;
+            });
+
+            processedContent = processedContent.replace(/\$((?!\s)[^$]+?(?!\s))\$/g, (match) => {
+                const token = `@@MATHINLINE${counter}@@`; mathTokens[token] = match; counter++; return token;
+            });
+
+            let htmlContent = marked.parse(processedContent);
+            for (const [token, mathStr] of Object.entries(mathTokens)) {
+                const pWrappedToken = new RegExp(`<p>${token}</p>`, 'g');
+                if (pWrappedToken.test(htmlContent)) { 
+                    htmlContent = htmlContent.replace(pWrappedToken, mathStr); 
+                } else { 
+                    htmlContent = htmlContent.replace(new RegExp(token, 'g'), mathStr); 
+                }
+            }
+            return htmlContent;
+        }
+
+        function copyText(elementId, btnElement) {
+            const content = document.getElementById(elementId).innerText;
+            navigator.clipboard.writeText(content).then(() => {
+                const originalText = btnElement.innerText;
+                btnElement.innerText = "Copied";
+                setTimeout(() => { btnElement.innerText = originalText; }, 2000);
+            });
+        }
+        
+        function zoomIn() { if (panZoomInstance) panZoomInstance.zoomIn(); }
+        function zoomOut() { if (panZoomInstance) panZoomInstance.zoomOut(); }
+        function zoomReset() { if (panZoomInstance) { panZoomInstance.resetZoom(); panZoomInstance.center(); } }
+
+        function downloadMermaidSVG() {
+            const svgElement = document.querySelector('#mermaidChart svg');
+            if (!svgElement) return;
+            const serializer = new XMLSerializer();
+            let source = serializer.serializeToString(svgElement);
+            if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+            if(!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)) source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+            source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
+            const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `paper_map_${Date.now()}.svg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+        
+        async function analyze() {
+            const apiKey = document.getElementById('apiKey').value;
+            const fileInput = document.getElementById('file');
+            const file = fileInput.files[0];
+            const generateMermaid = document.getElementById('generateMermaid').checked;
+            const generateEvaluation = document.getElementById('generateEvaluation').checked;
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            
+            if (!file) { showError('Please select a document first.'); return; }
+            
+            analyzeBtn.disabled = true;
+            analyzeBtn.innerText = 'Analyzing...';
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            if (apiKey) formData.append('api_key', apiKey);
+            formData.append('generate_mermaid', generateMermaid);
+            formData.append('generate_evaluation', generateEvaluation);
+            
+            currentSessionId = 'session_' + Date.now();
+            formData.append('session_id', currentSessionId);
+            
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('result').classList.remove('active');
+            document.getElementById('error').style.display = 'none';
+            document.getElementById('mermaidCard').style.display = 'none';
+            document.getElementById('chatHistory').innerHTML = ''; 
+            
+            if (panZoomInstance) {
+                panZoomInstance.destroy();
+                panZoomInstance = null;
+            }
+            
+            try {
+                const response = await fetch('/api/analyze', { method: 'POST', body: formData });
+                const data = await response.json();
+                
+                if (!response.ok) throw new Error(data.error || 'Connection failed.');
+                
+                document.getElementById('fileInfo').innerHTML = `
+                    <span>Document: <strong>${file.name}</strong></span>
+                    <span>Tokens/Chars: ${data.char_count || 'N/A'}</span>
+                `;
+                
+                const elements = ['summary', 'quotes', 'mindmap', 'evaluation'];
+                elements.forEach(id => {
+                    const el = document.getElementById(id);
+                    if(el && data[id]) {
+                        el.innerHTML = formatContent(data[id]);
+                        renderMath(el); 
+                    }
+                });
+                
+                // --- 【核心修复区域：提前显示容器并等待渲染】 ---
+                document.getElementById('result').classList.add('active');
+                if (generateMermaid && data.mermaid) {
+                    document.getElementById('mermaidCard').style.display = 'block';
+                }
+                
+                // 等待浏览器执行完整的重排和重绘，确保 DOM 节点尺寸不再是 0x0
+                await new Promise(resolve => requestAnimationFrame(resolve));
+                // ------------------------------------------------
+                
+                if (generateMermaid && data.mermaid && mermaidInstance) {
+                    const mermaidDiv = document.getElementById('mermaidChart');
+                    mermaidDiv.innerHTML = '';
+                    try {
+                        const id = 'mermaid-' + Date.now();
+                        let cleanMermaid = data.mermaid.replace(/```mermaid\n?/g, '').replace(/```\n?/g, '').trim();
+                        
+                        const isDark = document.body.getAttribute('data-theme') === 'dark';
+                        mermaidInstance.initialize({ theme: isDark ? 'dark' : 'base' });
+                        
+                        const { svg } = await mermaidInstance.render(id, cleanMermaid);
+                        mermaidDiv.innerHTML = svg;
+                        
+                        const svgElement = mermaidDiv.querySelector('svg');
+                        if (svgElement) {
+                            // 【核心修复：解除 Mermaid 自动生成的尺寸锁定】
+                            svgElement.style.maxWidth = 'none';
+                            svgElement.style.width = '100%';
+                            svgElement.style.height = '100%';
+                            
+                            // 此时初始化 panZoom，它的容器就不再是隐藏或者缩在一起的了
+                            panZoomInstance = svgPanZoom(svgElement, {
+                                zoomEnabled: true, controlIconsEnabled: false, fit: true, center: true, minZoom: 0.5, maxZoom: 15
+                            });
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        mermaidDiv.innerHTML = `<p style="color: #ff3b30; font-size: 14px; padding: 20px;">Structure too complex to render. Raw data fallback:</p><pre style="text-align: left; margin: 20px; white-space: pre-wrap;">${data.mermaid}</pre>`;
+                    }
+                }
+                
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                document.getElementById('loading').classList.remove('active');
+                analyzeBtn.disabled = false;
+                analyzeBtn.innerText = 'Analyze Document';
+            }
+        }
+        
+        async function askQuestion() {
+            const questionInput = document.getElementById('questionInput');
+            const question = questionInput.value.trim();
+            const apiKey = document.getElementById('apiKey').value;
+            const askBtn = document.getElementById('askBtn');
+            
+            if (!question) return;
+            if (!currentSessionId) { showError('Requires document analysis first.'); return; }
+            
+            const chatHistory = document.getElementById('chatHistory');
+            
+            const questionDiv = document.createElement('div');
+            questionDiv.className = 'chat-item chat-question';
+            questionDiv.innerHTML = `<div class="chat-header">User</div><div>${question}</div>`;
+            chatHistory.appendChild(questionDiv);
+            
+            questionInput.value = '';
+            askBtn.disabled = true;
+            askBtn.innerText = 'Processing...';
+            
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'chat-item chat-answer';
+            loadingDiv.innerHTML = `<div class="chat-header">Assistant</div><div class="spinner" style="width: 16px; height: 16px; border-width: 2px; margin: 8px 0 0 0;"></div>`;
+            chatHistory.appendChild(loadingDiv);
+            
+            try {
+                const response = await fetch('/api/ask', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ question, session_id: currentSessionId, api_key: apiKey })
+                });
+                const data = await response.json();
+                chatHistory.removeChild(loadingDiv);
+                
+                if (!response.ok) throw new Error(data.error || 'Response timeout. Please try again.');
+                
+                const answerId = 'answer-' + Date.now();
+                const answerDiv = document.createElement('div');
+                answerDiv.className = 'chat-item chat-answer';
+                answerDiv.innerHTML = `
+                    <div class="chat-header">
+                        <span>Assistant</span>
+                        <button class="action-btn" onclick="copyText('${answerId}', this)">Copy</button>
+                    </div>
+                    <div id="${answerId}" class="answer-content content">${formatContent(data.answer)}</div>
+                `;
+                
+                chatHistory.appendChild(answerDiv);
+                renderMath(answerDiv);
+                
+            } catch (error) {
+                if (chatHistory.contains(loadingDiv)) chatHistory.removeChild(loadingDiv);
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'chat-item chat-answer';
+                errorDiv.style.borderColor = 'rgba(255, 59, 48, 0.3)';
+                errorDiv.innerHTML = `<div class="chat-header" style="color: #ff3b30;">System Error</div><div style="color: var(--text-primary);">${error.message}</div>`;
+                chatHistory.appendChild(errorDiv);
+            } finally {
+                askBtn.disabled = false;
+                askBtn.innerText = 'Send';
+                questionInput.focus();
+                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            }
+        }
+        
+        function showError(message) {
+            const errorEl = document.getElementById('error');
+            errorEl.innerHTML = `System prompt: ${message}`;
+            errorEl.style.display = 'block';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
