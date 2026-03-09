@@ -34,12 +34,24 @@ pip install -r requirements.txt
 ```
 
 ### 2. 配置环境变量
+先复制一份环境变量模板：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+然后按需填写 `.env`。应用启动时会自动加载项目根目录下的 `.env`，通常不需要再手动执行 `export` / `$env:`。
+
 可参考 `.env.example`：
 
 ```bash
 OPENAI_API_KEY=sk-your-key
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
+OPENAI_MAX_CONCURRENCY=5
+OPENAI_REQUEST_TIMEOUT_SECONDS=60
+OPENAI_MAX_RETRIES=3
+FLASK_DEBUG=false
 ```
 
 PowerShell 示例：
@@ -47,7 +59,18 @@ PowerShell 示例：
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.openai.com/v1"
 $env:OPENAI_MODEL="gpt-4o-mini"
+$env:OPENAI_MAX_CONCURRENCY="5"
+$env:OPENAI_REQUEST_TIMEOUT_SECONDS="60"
+$env:OPENAI_MAX_RETRIES="3"
+$env:FLASK_DEBUG="false"
 ```
+
+说明：
+- 项目会优先读取系统环境变量，其次再读取 `.env`
+- `OPENAI_MAX_CONCURRENCY` 控制全局大模型并发上限
+- `OPENAI_REQUEST_TIMEOUT_SECONDS` 控制单次请求超时
+- `OPENAI_MAX_RETRIES` 控制失败重试次数
+- `FLASK_DEBUG` 建议本地开发时再开启
 
 ### 3. 启动 Web 应用
 ```bash
