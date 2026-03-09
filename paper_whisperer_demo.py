@@ -19,8 +19,20 @@ try:
 except ImportError:
     PdfReader = None
 
+try:
+    from docx import Document
+except ImportError:
+    Document = None
 
-ALLOWED_EXTENSIONS = {".txt", ".pdf"}
+try:
+    from pptx import Presentation
+except ImportError:
+    Presentation = None
+
+
+SUPPORTED_EXTENSIONS = (".txt", ".pdf", ".docx", ".pptx")
+ALLOWED_EXTENSIONS = set(SUPPORTED_EXTENSIONS)
+SUPPORTED_FILE_TYPES_TEXT = ", ".join(SUPPORTED_EXTENSIONS)
 
 
 def parse_int_env(name, default, min_value=1, max_value=32):
@@ -94,13 +106,48 @@ class DocumentLoader:
             raise ValueError(f"Failed to read PDF: {exc}") from exc
 
     @staticmethod
+    def load_docx(file_path):
+        if Document is None:
+            raise ValueError("python-docx is not installed. Please install dependencies first.")
+        try:
+            doc = Document(file_path)
+            paragraphs = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
+            return "\n\n".join(paragraphs).strip()
+        except Exception as exc:
+            raise ValueError(f"Failed to read DOCX: {exc}") from exc
+
+    @staticmethod
+    def load_pptx(file_path):
+        if Presentation is None:
+            raise ValueError("python-pptx is not installed. Please install dependencies first.")
+        try:
+            presentation = Presentation(file_path)
+            slides_text = []
+            for slide_index, slide in enumerate(presentation.slides, start=1):
+                shape_texts = []
+                for shape in slide.shapes:
+                    text = getattr(shape, "text", "")
+                    if text and text.strip():
+                        shape_texts.append(text.strip())
+                if shape_texts:
+                    slides_text.append(f"[Slide {slide_index}]\n" + "\n".join(shape_texts))
+            return "\n\n".join(slides_text).strip()
+        except Exception as exc:
+            raise ValueError(f"Failed to read PPTX: {exc}") from exc
+
+    @staticmethod
     def load(file_path):
         ext = os.path.splitext(file_path)[1].lower()
-        if ext == ".txt":
-            return DocumentLoader.load_txt(file_path)
-        if ext == ".pdf":
-            return DocumentLoader.load_pdf(file_path)
-        raise ValueError("Unsupported file type. Please use a .txt or .pdf file.")
+        loaders = {
+            ".txt": DocumentLoader.load_txt,
+            ".pdf": DocumentLoader.load_pdf,
+            ".docx": DocumentLoader.load_docx,
+            ".pptx": DocumentLoader.load_pptx,
+        }
+        loader = loaders.get(ext)
+        if not loader:
+            raise ValueError(f"Unsupported file type. Please use one of: {SUPPORTED_FILE_TYPES_TEXT}")
+        return loader(file_path)
 
 
 class PaperWhisperer:
@@ -311,7 +358,7 @@ class PaperWhisperer:
 
         ext = os.path.splitext(file_path)[1].lower()
         if ext not in ALLOWED_EXTENSIONS:
-            raise ValueError("Unsupported file type. Please use a .txt or .pdf file.")
+            raise ValueError(f"Unsupported file type. Please use one of: {SUPPORTED_FILE_TYPES_TEXT}")
 
         content = DocumentLoader.load(file_path)
         if not content.strip():
