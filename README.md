@@ -119,4 +119,4 @@ python paper_whisperer_demo.py <你的文件.txt或.pdf>
 - PDF 提取效果取决于原文档文本层质量
 
 ## 📄 License
-TIM
+MIT
