@@ -82,7 +82,7 @@ python web_app.py
 
 ### 4. （可选）运行命令行 Demo
 ```bash
-python paper_whisperer_demo.py <你的文件.txt或.pdf>
+python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 ```
 
 ## 🖥️ Web 使用流程
