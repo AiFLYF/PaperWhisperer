@@ -3,7 +3,7 @@
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python) ![License](https://img.shields.io/badge/License-TIM-lightgrey) ![AI](https://img.shields.io/badge/AI--Powered-OpenAI-blueviolet)
 
 一个面向论文/文献阅读场景的 AI 助手。  
-上传 `.txt` 或 `.pdf` 后，可自动生成结构化分析结果，并支持基于文档上下文继续追问。
+上传 `.txt`、`.pdf`、`.docx` 或 `.pptx` 后，可自动生成结构化分析结果，并支持基于文档上下文继续追问。
 
 ## ✨ 项目能做什么
 - 自动生成文档摘要（核心观点）
@@ -24,6 +24,8 @@
 - Flask
 - OpenAI Python SDK（OpenAI 兼容接口）
 - PyPDF2
+- python-docx
+- python-pptx
 - HTML/CSS/JavaScript（KaTeX + Mermaid + marked）
 
 ## 🚀 快速开始
@@ -85,7 +87,7 @@ python paper_whisperer_demo.py <你的文件.txt或.pdf>
 
 ## 🖥️ Web 使用流程
 1. 打开网页并填写 API Key（或使用环境变量）
-2. 上传 `.txt` / `.pdf` 文档
+2. 上传 `.txt` / `.pdf` / `.docx` / `.pptx` 文档
 3. 点击 `Analyze Document`
 4. 查看摘要、引用、结构图、评价
 5. 在 “Ask Questions” 区域继续追问
@@ -96,7 +98,7 @@ python paper_whisperer_demo.py <你的文件.txt或.pdf>
 上传并分析文档。
 
 表单参数：
-- `file`（必填）：`.txt` 或 `.pdf`
+- `file`（必填）：`.txt`、`.pdf`、`.docx` 或 `.pptx`
 - `api_key`（可选）：本次请求临时 API Key
 - `generate_mermaid`（可选）：`true/false`
 - `generate_evaluation`（可选）：`true/false`
@@ -140,6 +142,7 @@ python paper_whisperer_demo.py <你的文件.txt或.pdf>
 - 代码中部分中文提示词仍有历史编码痕迹（不影响主流程）
 - 分析质量与所选模型、提示词质量相关
 - PDF 提取效果取决于原文档文本层质量
+- DOCX/PPTX 主要提取文本层内容，复杂排版、图表和图片中的文字可能提取不完整
 
 ## 📄 License
 MIT
