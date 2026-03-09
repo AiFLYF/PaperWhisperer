@@ -108,6 +108,8 @@
             display: flex;
             align-items: center;
             gap: 12px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
         }
 
         .status-chip {
@@ -150,6 +152,34 @@
             color: var(--text-primary); transition: var(--transition);
         }
         .theme-toggle:hover { border-color: var(--text-secondary); transform: translateY(-1px); }
+
+        .github-link {
+            width: 42px;
+            height: 42px;
+            border-radius: 14px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-card);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+            text-decoration: none;
+        }
+        .github-link:hover {
+            border-color: var(--text-secondary);
+            transform: translateY(-1px);
+        }
+        .github-link img {
+            width: 18px;
+            height: 18px;
+            display: block;
+            border-radius: 50%;
+            filter: none;
+            transition: var(--transition);
+        }
+        [data-theme="dark"] .github-link img {
+            filter: invert(1) saturate(0.7) brightness(1.2);
+        }
 
         .card {
             background: var(--bg-card); border-radius: var(--radius-lg); padding: 32px;
@@ -346,9 +376,64 @@
             letter-spacing: 0.5px;
             transition: var(--transition);
         }
-        .site-footer span { display: inline-flex; align-items: center; gap: 6px; }
+        .site-footer span { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
         .site-footer strong { color: var(--text-primary); font-weight: 600; }
         .site-footer .heart { color: #ff3b30; animation: heartbeat 2s infinite; }
+        .site-footer .author-link {
+            color: var(--text-primary);
+            font-weight: 600;
+            text-decoration: none;
+            border-bottom: 1px dashed transparent;
+            transition: var(--transition);
+        }
+        .site-footer .author-link:hover {
+            border-bottom-color: var(--text-primary);
+        }
+        .site-footer .ai-toggle {
+            border: 1px solid var(--border-color);
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: var(--transition);
+            font-family: inherit;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .site-footer .ai-toggle:hover {
+            border-color: var(--text-secondary);
+            transform: translateY(-1px);
+        }
+        .site-footer .ai-toggle .arrow {
+            display: inline-block;
+            font-size: 10px;
+            line-height: 1;
+            transition: transform 0.22s ease;
+        }
+        .site-footer .ai-toggle[aria-expanded="true"] .arrow {
+            transform: rotate(180deg);
+        }
+        .site-footer .ai-list {
+            margin-top: 10px;
+            display: none;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .site-footer .ai-list.show { display: inline-flex; }
+        .site-footer .ai-pill {
+            display: inline-flex;
+            align-items: center;
+            border: 1px solid var(--border-color);
+            border-radius: 999px;
+            padding: 4px 10px;
+            font-size: 12px;
+            background: var(--bg-card);
+            color: var(--text-secondary);
+        }
 
         @keyframes heartbeat {
             0%, 100% { transform: scale(1); }
@@ -379,6 +464,9 @@
             </div>
             <div class="nav-actions">
                 <div class="status-chip" id="statusChip" data-tone="idle">Waiting for document</div>
+                <a class="github-link" href="https://github.com/AiFLYF/PaperWhisperer" target="_blank" rel="noopener noreferrer" aria-label="Open GitHub repository" title="GitHub">
+                    <img src="https://github.com/favicon.ico" alt="GitHub">
+                </a>
                 <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn" aria-label="Toggle Theme">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                 </button>
@@ -386,15 +474,15 @@
         </header>
         
         <div class="card">
-            <p class="card-intro">Supports `PDF` and `TXT` files. A new analysis request replaces the previous session, and all follow-up questions stay bound to the latest successful analysis.</p>
+            <p class="card-intro">Supports `PDF`, `TXT`, `DOCX`, and `PPTX` files. A new analysis request replaces the previous session, and all follow-up questions stay bound to the latest successful analysis.</p>
             <div class="form-group">
                 <label>API Key (Optional)</label>
                 <input type="text" id="apiKey" placeholder="Enter your API Key" autocomplete="off">
             </div>
             <div class="form-group">
                 <label>Document Source</label>
-                <input type="file" id="file" accept=".txt,.pdf">
-                <div class="file-meta" id="fileMeta">No file selected. Recommended: clean PDF or TXT for better structure extraction.</div>
+                <input type="file" id="file" accept=".txt,.pdf,.docx,.pptx">
+                <div class="file-meta" id="fileMeta">No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.</div>
             </div>
             <div class="options-group">
                 <label class="checkbox-label">
@@ -466,8 +554,19 @@
         <footer class="site-footer">
             <div class="footer-content">
                 <span>
-                    Crafted with <span class="heart">&hearts;</span> by <strong>FLYF</strong> & <strong>Gemini</strong>
+                    Crafted with <span class="heart">&hearts;</span> by
+                    <a class="author-link" href="https://github.com/AiFLYF" target="_blank" rel="noopener noreferrer">FLYF</a>
+                    &
+                    <button class="ai-toggle" type="button" id="aiToggleBtn" onclick="toggleAIList()" aria-expanded="false" aria-controls="aiList">AI <span class="arrow">▾</span></button>
                 </span>
+                <div class="ai-list" id="aiList">
+                    <span class="ai-pill">Gemini</span>
+                    <span class="ai-pill">ChatGPT</span>
+                    <span class="ai-pill">MiniMax</span>
+                    <span class="ai-pill">Doubao</span>
+                    <span class="ai-pill">Claude</span>
+                    <span class="ai-pill">DeepSeek</span>
+                </div>
             </div>
         </footer>
     </div>
@@ -554,6 +653,15 @@
             if (!chip) return;
             chip.textContent = text;
             chip.dataset.tone = tone;
+        }
+
+        function toggleAIList() {
+            const list = document.getElementById('aiList');
+            const button = document.getElementById('aiToggleBtn');
+            if (!list || !button) return;
+            const shouldShow = !list.classList.contains('show');
+            list.classList.toggle('show', shouldShow);
+            button.setAttribute('aria-expanded', String(shouldShow));
         }
 
         function escapeHtml(value) {
@@ -700,7 +808,7 @@
             const fileMeta = document.getElementById('fileMeta');
             if (!fileMeta) return;
             if (!file) {
-                fileMeta.textContent = 'No file selected. Recommended: clean PDF or TXT for better structure extraction.';
+                fileMeta.textContent = 'No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.';
                 return;
             }
 

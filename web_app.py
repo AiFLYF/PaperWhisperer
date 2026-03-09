@@ -9,6 +9,8 @@ from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 from openai import OpenAI
 from PyPDF2 import PdfReader
+from docx import Document
+from pptx import Presentation
 from env_loader import load_project_env
 
 
@@ -25,7 +27,9 @@ for folder in [app.config['UPLOAD_FOLDER'], app.config['OUTPUT_FOLDER'], app.con
     os.makedirs(folder, exist_ok=True)
 
 
-ALLOWED_EXTENSIONS = {".txt", ".pdf"}
+SUPPORTED_EXTENSIONS = (".txt", ".pdf", ".docx", ".pptx")
+ALLOWED_EXTENSIONS = set(SUPPORTED_EXTENSIONS)
+SUPPORTED_FILE_TYPES_TEXT = ", ".join(SUPPORTED_EXTENSIONS)
 
 
 def parse_int_env(name, default, min_value=1, max_value=32):
@@ -74,7 +78,7 @@ def sanitize_identifier(raw_value, prefix):
 def build_safe_upload_filename(filename):
     original_ext = os.path.splitext(filename)[1].lower()
     if original_ext not in ALLOWED_EXTENSIONS:
-        raise ValueError("Unsupported file type. Please upload a .txt or .pdf file.")
+        raise ValueError(f"Unsupported file type. Please upload one of: {SUPPORTED_FILE_TYPES_TEXT}")
 
     sanitized = secure_filename(filename)
     if not sanitized or not sanitized.lower().endswith(original_ext):
@@ -124,12 +128,12 @@ class TextChunker:
 
 
 class DocumentLoader:
-    """文档加载器，支持 TXT 和 PDF"""
+    """文档加载器，支持 TXT/PDF/DOCX/PPTX"""
     @staticmethod
     def load_txt(file_path):
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             return f.read()
-    
+
     @staticmethod
     def load_pdf(file_path):
         try:
@@ -138,16 +142,46 @@ class DocumentLoader:
             return text.strip()
         except Exception as e:
             raise ValueError(f"PDF 读取失败: {str(e)}")
-    
+
+    @staticmethod
+    def load_docx(file_path):
+        try:
+            doc = Document(file_path)
+            paragraphs = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
+            return "\n\n".join(paragraphs).strip()
+        except Exception as e:
+            raise ValueError(f"DOCX 读取失败: {str(e)}")
+
+    @staticmethod
+    def load_pptx(file_path):
+        try:
+            presentation = Presentation(file_path)
+            slides_text = []
+            for slide_index, slide in enumerate(presentation.slides, start=1):
+                shape_texts = []
+                for shape in slide.shapes:
+                    text = getattr(shape, 'text', '')
+                    if text and text.strip():
+                        shape_texts.append(text.strip())
+                if shape_texts:
+                    slides_text.append(f"[Slide {slide_index}]\n" + "\n".join(shape_texts))
+            return "\n\n".join(slides_text).strip()
+        except Exception as e:
+            raise ValueError(f"PPTX 读取失败: {str(e)}")
+
     @staticmethod
     def load(file_path):
         ext = os.path.splitext(file_path)[1].lower()
-        if ext == '.txt':
-            return DocumentLoader.load_txt(file_path)
-        elif ext == '.pdf':
-            return DocumentLoader.load_pdf(file_path)
-        else:
-            raise ValueError(f"不支持的文件格式: {ext} (请确保上传 txt 或 pdf 文件)")
+        loaders = {
+            '.txt': DocumentLoader.load_txt,
+            '.pdf': DocumentLoader.load_pdf,
+            '.docx': DocumentLoader.load_docx,
+            '.pptx': DocumentLoader.load_pptx,
+        }
+        loader = loaders.get(ext)
+        if not loader:
+            raise ValueError(f"不支持的文件格式: {ext} (支持: {SUPPORTED_FILE_TYPES_TEXT})")
+        return loader(file_path)
 
 
 class PaperWhisperer:
@@ -449,7 +483,7 @@ def analyze():
     if file.filename == '':
         return jsonify({'error': 'Please select a file.'}), 400
     if not is_allowed_file(file.filename):
-        return jsonify({'error': 'Unsupported file type. Please upload a .txt or .pdf file.'}), 400
+        return jsonify({'error': f'Unsupported file type. Please upload one of: {SUPPORTED_FILE_TYPES_TEXT}'}), 400
 
     try:
         original_filename = build_safe_upload_filename(file.filename)
