@@ -12,81 +12,149 @@
     <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
     
     <style>
-        /* Apple & Grok 融合风格变量 */
+        /* Core theme tokens */
         :root {
-            --bg-body: #f5f5f7;
-            --bg-card: #ffffff;
-            --text-primary: #1d1d1f;
-            --text-secondary: #86868b;
-            --border-color: #d2d2d7;
-            --input-bg: #f5f5f7;
-            --primary-color: #0071e3;
-            --primary-hover: #0077ed;
-            --code-bg: #1d1d1f;
-            --quote-bg: #f5f5f7;
-            --quote-border: #86868b;
-            --chat-user: #f5f5f7;
-            --chat-assistant: #ffffff;
-            --canvas-bg: #ffffff;
-            --radius-lg: 18px;
-            --radius-md: 12px;
-            --radius-sm: 8px;
-            --shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
-            --font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
-            --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            --bg-body: #f3eee5;
+            --bg-card: rgba(255, 251, 245, 0.92);
+            --text-primary: #1f2430;
+            --text-secondary: #5c6472;
+            --border-color: rgba(31, 36, 48, 0.12);
+            --input-bg: rgba(255, 255, 255, 0.76);
+            --primary-color: #0f766e;
+            --primary-hover: #115e59;
+            --code-bg: #111827;
+            --quote-bg: rgba(15, 118, 110, 0.08);
+            --quote-border: #0f766e;
+            --chat-user: rgba(15, 118, 110, 0.10);
+            --chat-assistant: rgba(255, 251, 245, 0.92);
+            --canvas-bg: #fffdf8;
+            --radius-lg: 24px;
+            --radius-md: 16px;
+            --radius-sm: 10px;
+            --shadow: 0 18px 45px rgba(31, 36, 48, 0.10);
+            --font-stack: "IBM Plex Sans", "Noto Sans SC", "Segoe UI", sans-serif;
+            --transition: all 0.25s ease;
         }
 
         [data-theme="dark"] {
-            --bg-body: #000000;
-            --bg-card: #1c1c1e;
-            --text-primary: #f5f5f7;
-            --text-secondary: #86868b;
-            --border-color: #38383a;
-            --input-bg: #2c2c2e;
-            --primary-color: #2997ff;
-            --primary-hover: #3a9fff;
-            --code-bg: #000000;
-            --quote-bg: #2c2c2e;
-            --quote-border: #555557;
-            --chat-user: #2c2c2e;
-            --chat-assistant: #1c1c1e;
-            --canvas-bg: #1c1c1e;
-            --shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            --bg-body: #11161b;
+            --bg-card: rgba(27, 33, 40, 0.94);
+            --text-primary: #f5efe7;
+            --text-secondary: #a6afbb;
+            --border-color: rgba(255, 255, 255, 0.10);
+            --input-bg: rgba(255, 255, 255, 0.04);
+            --primary-color: #67d2b6;
+            --primary-hover: #82dfc7;
+            --code-bg: #0b1020;
+            --quote-bg: rgba(103, 210, 182, 0.10);
+            --quote-border: #67d2b6;
+            --chat-user: rgba(103, 210, 182, 0.12);
+            --chat-assistant: rgba(27, 33, 40, 0.94);
+            --canvas-bg: #151a21;
+            --shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: var(--font-stack);
-            background-color: var(--bg-body);
+            background:
+                radial-gradient(circle at top left, rgba(214, 171, 104, 0.26), transparent 30%),
+                radial-gradient(circle at top right, rgba(15, 118, 110, 0.16), transparent 24%),
+                linear-gradient(180deg, #fbf7ef 0%, var(--bg-body) 48%, #ebe2d4 100%);
             color: var(--text-primary);
             line-height: 1.5;
             -webkit-font-smoothing: antialiased;
             transition: background-color 0.4s ease;
-            padding: 40px 20px;
+            padding: 36px 20px 48px;
+            min-height: 100vh;
+        }
+
+        body[data-theme="dark"] {
+            background:
+                radial-gradient(circle at top left, rgba(214, 171, 104, 0.08), transparent 28%),
+                radial-gradient(circle at top right, rgba(103, 210, 182, 0.10), transparent 24%),
+                linear-gradient(180deg, #0f1318 0%, var(--bg-body) 48%, #0b0f14 100%);
         }
 
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
 
-        .container { max-width: 860px; margin: 0 auto; position: relative; }
+        .container { max-width: 1040px; margin: 0 auto; position: relative; }
 
-        /* 顶部导航 */
-        .nav-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
-        .logo { font-size: 24px; font-weight: 600; letter-spacing: -0.5px; color: var(--text-primary); }
-        .logo span { color: var(--text-secondary); font-weight: 400; font-size: 16px; margin-left: 8px; }
+        /* 椤堕儴瀵艰埅 */
+        .nav-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; margin-bottom: 28px; }
+        .logo { font-size: 34px; font-weight: 700; letter-spacing: -1.2px; color: var(--text-primary); line-height: 1.05; }
+        .logo span {
+            display: block;
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 14px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            margin-top: 8px;
+        }
+
+        .hero-copy {
+            max-width: 720px;
+            margin-top: 14px;
+            color: var(--text-secondary);
+            font-size: 16px;
+            line-height: 1.7;
+        }
+
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: 999px;
+            background: rgba(15, 118, 110, 0.10);
+            color: var(--primary-color);
+            border: 1px solid rgba(15, 118, 110, 0.10);
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        .status-chip::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            opacity: 0.9;
+        }
+
+        .status-chip[data-tone="error"] {
+            color: #d9480f;
+            background: rgba(217, 72, 15, 0.10);
+            border-color: rgba(217, 72, 15, 0.12);
+        }
+
+        .status-chip[data-tone="success"] {
+            color: #2f6f3e;
+            background: rgba(47, 111, 62, 0.10);
+            border-color: rgba(47, 111, 62, 0.12);
+        }
 
         .theme-toggle {
-            background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 50%;
-            width: 36px; height: 36px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+            background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 14px;
+            width: 42px; height: 42px; cursor: pointer; display: flex; align-items: center; justify-content: center;
             color: var(--text-primary); transition: var(--transition);
         }
-        .theme-toggle:hover { border-color: var(--text-secondary); }
+        .theme-toggle:hover { border-color: var(--text-secondary); transform: translateY(-1px); }
 
         .card {
             background: var(--bg-card); border-radius: var(--radius-lg); padding: 32px;
-            margin-bottom: 24px; box-shadow: var(--shadow); border: 1px solid rgba(134, 134, 139, 0.1);
+            margin-bottom: 24px; box-shadow: var(--shadow); border: 1px solid var(--border-color);
+            backdrop-filter: blur(16px);
         }
 
         .section-title { font-size: 18px; font-weight: 600; margin-bottom: 20px; letter-spacing: -0.3px; }
@@ -110,18 +178,57 @@
             border-radius: var(--radius-sm); color: var(--text-primary); cursor: pointer;
             margin-right: 12px; font-weight: 500; transition: var(--transition);
         }
-        input:focus { outline: none; background-color: var(--bg-card); border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.1); }
+        input:focus { outline: none; background-color: var(--bg-card); border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.10); }
 
-        .options-group { display: flex; gap: 24px; margin-bottom: 32px; }
-        .checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; color: var(--text-primary); user-select: none; }
+        .card-intro {
+            color: var(--text-secondary);
+            font-size: 14px;
+            margin-bottom: 22px;
+            line-height: 1.7;
+        }
+
+        .file-meta {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-top: 10px;
+            padding: 12px 14px;
+            border-radius: var(--radius-sm);
+            background: rgba(15, 118, 110, 0.08);
+            border: 1px dashed rgba(15, 118, 110, 0.16);
+        }
+
+        .options-group { display: flex; gap: 16px; margin-bottom: 32px; flex-wrap: wrap; }
+        .checkbox-label {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--text-primary);
+            user-select: none;
+            flex: 1 1 280px;
+            padding: 14px 16px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.28);
+        }
         .checkbox-label input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary-color); cursor: pointer; }
 
         .btn {
-            background: var(--primary-color); color: #ffffff; border: none; border-radius: var(--radius-md);
-            padding: 14px 24px; font-size: 15px; font-weight: 500; cursor: pointer; width: 100%;
-            transition: var(--transition); letter-spacing: -0.2px;
+            background: linear-gradient(135deg, var(--primary-color), #1f9c88);
+            color: #ffffff;
+            border: none;
+            border-radius: 999px;
+            padding: 15px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: var(--transition);
+            letter-spacing: -0.2px;
+            box-shadow: 0 14px 28px rgba(15, 118, 110, 0.22);
         }
-        .btn:hover:not(:disabled) { background: var(--primary-hover); }
+        .btn:hover:not(:disabled) { background: var(--primary-hover); transform: translateY(-1px); }
         .btn:disabled { background: var(--border-color); color: #ffffff; cursor: not-allowed; opacity: 0.6; }
 
         .loading, .error { display: none; margin-bottom: 24px; }
@@ -132,19 +239,46 @@
         }
         .loading-text { font-size: 14px; color: var(--text-secondary); }
 
-        .error { background: transparent; color: #ff3b30; padding: 16px; border: 1px solid #ff3b30; border-radius: var(--radius-md); font-size: 14px; }
-        .file-info { font-size: 13px; color: var(--text-secondary); margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; }
+        .error {
+            background: rgba(217, 72, 15, 0.08);
+            color: #d9480f;
+            padding: 16px;
+            border: 1px solid rgba(217, 72, 15, 0.16);
+            border-radius: var(--radius-md);
+            font-size: 14px;
+        }
+        .file-info {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+            padding: 18px 20px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            background: var(--bg-card);
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
 
         .result-section { display: none; opacity: 0; transition: opacity 0.5s ease; }
         .result-section.active { display: block; opacity: 1; }
         
-        .result-card { background: var(--bg-card); border-radius: var(--radius-lg); padding: 32px; margin-bottom: 24px; box-shadow: var(--shadow); border: 1px solid rgba(134, 134, 139, 0.1); }
+        .result-card {
+            background: var(--bg-card);
+            border-radius: var(--radius-lg);
+            padding: 32px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+            border: 1px solid var(--border-color);
+            backdrop-filter: blur(16px);
+        }
 
-        /* 画布工具栏与容器设计 */
+        /* Mermaid canvas */
         .canvas-toolbar { display: flex; gap: 8px; }
         .tool-btn {
             background: var(--input-bg); border: 1px solid var(--border-color); color: var(--text-secondary);
-            width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+            width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
             cursor: pointer; transition: var(--transition); padding: 6px;
         }
         .tool-btn:hover { background: var(--bg-body); color: var(--text-primary); border-color: var(--text-secondary); }
@@ -152,7 +286,11 @@
 
         .mermaid-wrapper {
             width: 100%; height: 500px; border: 1px solid var(--border-color);
-            border-radius: var(--radius-md); overflow: hidden; background: var(--canvas-bg);
+            border-radius: var(--radius-md); overflow: hidden;
+            background:
+                repeating-linear-gradient(0deg, transparent, transparent 27px, rgba(125, 132, 144, 0.05) 28px),
+                repeating-linear-gradient(90deg, transparent, transparent 27px, rgba(125, 132, 144, 0.05) 28px),
+                var(--canvas-bg);
             position: relative; cursor: grab;
         }
         .mermaid-wrapper:active { cursor: grabbing; }
@@ -168,6 +306,7 @@
         .content pre { background: var(--code-bg); color: #f5f5f7; padding: 16px; border-radius: var(--radius-md); overflow-x: auto; margin-bottom: 1.2em; font-size: 0.9em; }
         .content pre code { background: transparent; padding: 0; color: inherit; }
         .content blockquote { border-left: 3px solid var(--quote-border); padding-left: 16px; color: var(--text-secondary); margin-bottom: 1.2em; background: var(--quote-bg); padding: 12px 16px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-style: italic; }
+        .empty-state { color: var(--text-secondary); font-style: italic; }
 
         .ask-section { margin-top: 40px; }
         .ask-input-group { display: flex; gap: 12px; margin-bottom: 24px; }
@@ -178,14 +317,25 @@
         .chat-item { max-width: 85%; padding: 16px 20px; border-radius: var(--radius-md); font-size: 15px; line-height: 1.5; position: relative; }
         .chat-question { background: var(--chat-user); align-self: flex-end; border-bottom-right-radius: 4px; color: var(--text-primary); }
         .chat-answer { background: var(--chat-assistant); align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid var(--border-color); width: 100%; max-width: 100%; }
+        .chat-error { border-color: rgba(217, 72, 15, 0.18); background: rgba(217, 72, 15, 0.08); }
         .chat-header { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; display: flex; justify-content: space-between; align-items: center; }
+        .chat-text { white-space: pre-wrap; word-break: break-word; }
         
-        .action-btn { background: transparent; border: none; color: var(--text-secondary); font-size: 12px; cursor: pointer; transition: color 0.2s; }
+        .action-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 12px;
+            cursor: pointer;
+            transition: color 0.2s;
+            border-radius: 999px;
+            padding: 6px 10px;
+        }
         .action-btn:hover { color: var(--text-primary); }
 
         @keyframes spin { 100% { transform: rotate(360deg); } }
         
-        /* 页脚设计 */
+        /* Footer */
         .site-footer {
             margin-top: 60px;
             padding: 24px 0;
@@ -207,6 +357,10 @@
 
         @media (max-width: 768px) {
             body { padding: 20px 16px; }
+            .nav-header { flex-direction: column; align-items: stretch; }
+            .nav-actions { justify-content: space-between; }
+            .logo { font-size: 28px; }
+            .hero-copy { font-size: 15px; }
             .card, .result-card { padding: 20px; }
             .ask-input-group { flex-direction: column; }
             .ask-input-group .btn { width: 100%; padding: 14px 0; }
@@ -219,13 +373,20 @@
 
     <div class="container">
         <header class="nav-header">
-            <div class="logo">PaperWhisperer<span>Workspace</span></div>
-            <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn" aria-label="Toggle Theme">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
-            </button>
+            <div>
+                <div class="logo">PaperWhisperer<span>Research Workspace</span></div>
+                <p class="hero-copy">Upload a paper, extract structure, generate a map, and keep asking follow-up questions in the same workspace. This page now behaves more like a research desk than a single-use form.</p>
+            </div>
+            <div class="nav-actions">
+                <div class="status-chip" id="statusChip" data-tone="idle">Waiting for document</div>
+                <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn" aria-label="Toggle Theme">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                </button>
+            </div>
         </header>
         
         <div class="card">
+            <p class="card-intro">Supports `PDF` and `TXT` files. A new analysis request replaces the previous session, and all follow-up questions stay bound to the latest successful analysis.</p>
             <div class="form-group">
                 <label>API Key (Optional)</label>
                 <input type="text" id="apiKey" placeholder="Enter your API Key" autocomplete="off">
@@ -233,13 +394,16 @@
             <div class="form-group">
                 <label>Document Source</label>
                 <input type="file" id="file" accept=".txt,.pdf">
+                <div class="file-meta" id="fileMeta">No file selected. Recommended: clean PDF or TXT for better structure extraction.</div>
             </div>
             <div class="options-group">
                 <label class="checkbox-label">
-                    <input type="checkbox" id="generateMermaid" checked> Enable structure diagram
+                    <input type="checkbox" id="generateMermaid" checked>
+                    <span>Enable structure diagram</span>
                 </label>
                 <label class="checkbox-label">
-                    <input type="checkbox" id="generateEvaluation" checked> Enable critical evaluation
+                    <input type="checkbox" id="generateEvaluation" checked>
+                    <span>Enable critical evaluation</span>
                 </label>
             </div>
             <button class="btn" id="analyzeBtn" onclick="analyze()">Analyze Document</button>
@@ -284,7 +448,7 @@
                 </div>
             </div>
             
-            <div class="result-card">
+            <div class="result-card" id="evaluationCard">
                 <h3 class="section-title">Evaluation</h3>
                 <div class="content" id="evaluation"></div>
             </div>
@@ -302,97 +466,587 @@
         <footer class="site-footer">
             <div class="footer-content">
                 <span>
-                    Crafted with <span class="heart">♥</span> by <strong>FLYF</strong> & <strong>Gemini</strong>
+                    Crafted with <span class="heart">&hearts;</span> by <strong>FLYF</strong> & <strong>Gemini</strong>
                 </span>
             </div>
         </footer>
     </div>
     
-    <script>
+            <script>
         let currentSessionId = '';
         let panZoomInstance = null;
-        let mermaidInstance = null; // 全局存储 mermaid
+        let mermaidInstance = null;
+        let currentMermaidSource = '';
+        let analyzeController = null;
+        let askController = null;
+        let analyzeRequestId = 0;
+        let askRequestId = 0;
 
-        // ✅ 动态导入 ESM 版本的 Mermaid
-        import('https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.esm.min.mjs')
-            .then(module => {
-                mermaidInstance = module.default;
-                mermaidInstance.initialize({ startOnLoad: false, theme: 'base', securityLevel: 'loose' });
-            }).catch(err => console.error("Mermaid 加载失败:", err));
+        const THEME_STORAGE_KEY = 'paperwhisperer-theme';
+        const SECTION_EMPTY_TEXT = {
+            summary: 'Summary will appear here after analysis.',
+            quotes: 'Key citations will appear here after analysis.',
+            mindmap: 'Text structure will appear here after analysis.',
+            evaluation: 'Critical evaluation will appear here when enabled.'
+        };
 
-        // 主题切换逻辑
         const sunIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
         const moonIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
 
-        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-            document.body.setAttribute('data-theme', 'dark');
-            document.getElementById('themeBtn').innerHTML = sunIcon;
+        const mermaidReady = import('https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.esm.min.mjs')
+            .then(module => {
+                mermaidInstance = module.default;
+                mermaidInstance.initialize({
+                    startOnLoad: false,
+                    theme: getCurrentTheme() === 'dark' ? 'dark' : 'base',
+                    securityLevel: 'loose'
+                });
+                return mermaidInstance;
+            })
+            .catch(error => {
+                console.error('Mermaid load failed:', error);
+                return null;
+            });
+
+        marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeTheme();
+            updateFileMeta();
+            resetResultView();
+            updateStatus('Waiting for document', 'idle');
+            document.getElementById('file').addEventListener('change', updateFileMeta);
+        });
+
+        function getCurrentTheme() {
+            return document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+        }
+
+        function initializeTheme() {
+            const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            applyTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
+        }
+
+        function applyTheme(theme) {
+            const body = document.body;
+            const btn = document.getElementById('themeBtn');
+            if (theme === 'dark') {
+                body.setAttribute('data-theme', 'dark');
+                btn.innerHTML = sunIcon;
+            } else {
+                body.removeAttribute('data-theme');
+                btn.innerHTML = moonIcon;
+            }
         }
 
         function toggleTheme() {
-            const body = document.body;
-            const btn = document.getElementById('themeBtn');
-            if (body.getAttribute('data-theme') === 'dark') {
-                body.removeAttribute('data-theme');
-                btn.innerHTML = moonIcon;
-            } else {
-                body.setAttribute('data-theme', 'dark');
-                btn.innerHTML = sunIcon;
+            const nextTheme = getCurrentTheme() === 'dark' ? 'light' : 'dark';
+            applyTheme(nextTheme);
+            localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+            if (currentMermaidSource) {
+                renderMermaidDiagram(currentMermaidSource);
             }
         }
 
-        marked.setOptions({ breaks: true, gfm: true });
-
-        function handleKeyPress(event) {
-            if (event.key === 'Enter' && !document.getElementById('askBtn').disabled) askQuestion();
+        function updateStatus(text, tone = 'idle') {
+            const chip = document.getElementById('statusChip');
+            if (!chip) return;
+            chip.textContent = text;
+            chip.dataset.tone = tone;
         }
-        
+
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function sanitizeUrl(rawUrl) {
+            if (!rawUrl) return '#';
+            try {
+                const parsed = new URL(rawUrl, window.location.origin);
+                if (['http:', 'https:', 'mailto:'].includes(parsed.protocol)) {
+                    return parsed.href;
+                }
+            } catch (error) {
+                console.warn('Unsafe url ignored:', rawUrl, error);
+            }
+            return '#';
+        }
+
+        function sanitizeGeneratedHtml(html) {
+            const container = document.createElement('div');
+            container.innerHTML = html;
+
+            container.querySelectorAll('*').forEach(node => {
+                Array.from(node.attributes).forEach(attribute => {
+                    if (/^on/i.test(attribute.name)) {
+                        node.removeAttribute(attribute.name);
+                    }
+                });
+            });
+
+            container.querySelectorAll('a').forEach(anchor => {
+                anchor.href = sanitizeUrl(anchor.getAttribute('href'));
+                anchor.target = '_blank';
+                anchor.rel = 'noopener noreferrer';
+            });
+
+            container.querySelectorAll('img').forEach(image => {
+                image.src = sanitizeUrl(image.getAttribute('src'));
+                image.loading = 'lazy';
+            });
+
+            return container.innerHTML;
+        }
+
         function renderMath(element) {
-            renderMathInElement(element, {
-                delimiters: [
-                    {left: '$$', right: '$$', display: true}, {left: '\\[', right: '\\]', display: true},
-                    {left: '$', right: '$', display: false}, {left: '\\(', right: '\\)', display: false}
-                ],
-                throwOnError: false, output: 'html'
-            });
+            try {
+                renderMathInElement(element, {
+                    delimiters: [
+                        { left: '$$', right: '$$', display: true },
+                        { left: '\\[', right: '\\]', display: true },
+                        { left: '$', right: '$', display: false },
+                        { left: '\\(', right: '\\)', display: false }
+                    ],
+                    throwOnError: false,
+                    output: 'html'
+                });
+            } catch (error) {
+                console.warn('Math render failed:', error);
+            }
         }
 
-        function formatContent(content) {
-            if (!content) return '<p style="color:var(--text-secondary); font-style:italic;">No content available.</p>';
-            let processedContent = content;
-            processedContent = processedContent.replace(/\\\[([\s\S]*?)\\\]/g, '$$$$$1$$$$'); 
-            processedContent = processedContent.replace(/\\\(([\s\S]*?)\\\)/g, '$$$1$$');
-            const mathTokens = {}; let counter = 0;
+        function formatContent(content, fallbackText) {
+            if (!content) {
+                return `<p class="empty-state">${escapeHtml(fallbackText || 'No content available.')}</p>`;
+            }
 
-            processedContent = processedContent.replace(/\$\$([\s\S]*?)\$\$/g, (match) => {
-                const token = `@@MATHBLOCK${counter}@@`; mathTokens[token] = match; counter++; return `\n${token}\n`;
+            let processedContent = String(content);
+            processedContent = processedContent.replace(/\\\[([\s\S]*?)\\\]/g, (_, expr) => `$$${expr}$$`);
+            processedContent = processedContent.replace(/\\\(([\s\S]*?)\\\)/g, (_, expr) => `$${expr}$`);
+
+            const mathTokens = {};
+            let counter = 0;
+
+            processedContent = processedContent.replace(/\$\$([\s\S]*?)\$\$/g, match => {
+                const token = `@@MATHBLOCK${counter}@@`;
+                mathTokens[token] = match;
+                counter += 1;
+                return `\n${token}\n`;
             });
 
-            processedContent = processedContent.replace(/\$((?!\s)[^$]+?(?!\s))\$/g, (match) => {
-                const token = `@@MATHINLINE${counter}@@`; mathTokens[token] = match; counter++; return token;
+            processedContent = processedContent.replace(/\$((?!\s)[^$]+?(?!\s))\$/g, match => {
+                const token = `@@MATHINLINE${counter}@@`;
+                mathTokens[token] = match;
+                counter += 1;
+                return token;
             });
 
-            let htmlContent = marked.parse(processedContent);
-            for (const [token, mathStr] of Object.entries(mathTokens)) {
-                const pWrappedToken = new RegExp(`<p>${token}</p>`, 'g');
-                if (pWrappedToken.test(htmlContent)) { 
-                    htmlContent = htmlContent.replace(pWrappedToken, mathStr); 
-                } else { 
-                    htmlContent = htmlContent.replace(new RegExp(token, 'g'), mathStr); 
+            let htmlContent = marked.parse(escapeHtml(processedContent));
+            Object.entries(mathTokens).forEach(([token, mathStr]) => {
+                const blockPattern = new RegExp(`<p>${token}</p>`, 'g');
+                if (blockPattern.test(htmlContent)) {
+                    htmlContent = htmlContent.replace(blockPattern, mathStr);
+                } else {
+                    htmlContent = htmlContent.replace(new RegExp(token, 'g'), mathStr);
+                }
+            });
+
+            return sanitizeGeneratedHtml(htmlContent);
+        }
+
+        function setSectionContent(id, value) {
+            const element = document.getElementById(id);
+            if (!element) return;
+            element.innerHTML = formatContent(value, SECTION_EMPTY_TEXT[id]);
+            renderMath(element);
+        }
+
+        function clearChatHistory() {
+            document.getElementById('chatHistory').innerHTML = '';
+        }
+
+        function resetPanZoom() {
+            if (panZoomInstance) {
+                panZoomInstance.destroy();
+                panZoomInstance = null;
+            }
+        }
+
+        function resetMermaidCard() {
+            resetPanZoom();
+            currentMermaidSource = '';
+            document.getElementById('mermaidCard').style.display = 'none';
+            document.getElementById('mermaidChart').innerHTML = '';
+        }
+
+        function resetResultView() {
+            ['summary', 'quotes', 'mindmap', 'evaluation'].forEach(id => setSectionContent(id, ''));
+            document.getElementById('fileInfo').innerHTML = '';
+            document.getElementById('result').classList.remove('active');
+            document.getElementById('askBtn').disabled = true;
+            document.getElementById('evaluationCard').style.display = '';
+            clearChatHistory();
+            resetMermaidCard();
+        }
+
+        function updateFileMeta() {
+            const file = document.getElementById('file').files[0];
+            const fileMeta = document.getElementById('fileMeta');
+            if (!fileMeta) return;
+            if (!file) {
+                fileMeta.textContent = 'No file selected. Recommended: clean PDF or TXT for better structure extraction.';
+                return;
+            }
+
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let size = file.size;
+            let index = 0;
+            while (size >= 1024 && index < units.length - 1) {
+                size /= 1024;
+                index += 1;
+            }
+            const formattedSize = `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+            fileMeta.textContent = `Selected: ${file.name} · ${formattedSize}`;
+        }
+
+        function setFileInfo(fileName, charCount) {
+            const fileInfo = document.getElementById('fileInfo');
+            fileInfo.innerHTML = '';
+
+            const left = document.createElement('span');
+            left.textContent = 'Document: ';
+            const strong = document.createElement('strong');
+            strong.textContent = fileName;
+            left.appendChild(strong);
+
+            const right = document.createElement('span');
+            right.textContent = `Tokens/Chars: ${charCount || 'N/A'}`;
+
+            fileInfo.appendChild(left);
+            fileInfo.appendChild(right);
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('error');
+            errorEl.textContent = `System prompt: ${message}`;
+            errorEl.style.display = 'block';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function hideError() {
+            const errorEl = document.getElementById('error');
+            errorEl.textContent = '';
+            errorEl.style.display = 'none';
+        }
+
+        async function parseJsonSafely(response) {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                try {
+                    return await response.json();
+                } catch (error) {
+                    console.warn('Response json parse failed:', error);
+                    return {};
                 }
             }
-            return htmlContent;
+            const text = await response.text();
+            return { error: text };
         }
 
-        function copyText(elementId, btnElement) {
-            const content = document.getElementById(elementId).innerText;
-            navigator.clipboard.writeText(content).then(() => {
-                const originalText = btnElement.innerText;
-                btnElement.innerText = "Copied";
-                setTimeout(() => { btnElement.innerText = originalText; }, 2000);
-            });
+        function setButtonLoading(button, loadingText, defaultText, isLoading) {
+            button.disabled = isLoading;
+            button.innerText = isLoading ? loadingText : defaultText;
         }
-        
+
+        function normalizeMermaidSource(source) {
+            return String(source || '').replace(/```mermaid\n?/gi, '').replace(/```\n?/g, '').trim();
+        }
+
+        async function renderMermaidDiagram(source) {
+            const mermaidCard = document.getElementById('mermaidCard');
+            const mermaidDiv = document.getElementById('mermaidChart');
+            const cleanSource = normalizeMermaidSource(source);
+
+            if (!cleanSource) {
+                resetMermaidCard();
+                return;
+            }
+
+            const instance = await mermaidReady;
+            mermaidCard.style.display = 'block';
+            mermaidDiv.innerHTML = '';
+            currentMermaidSource = cleanSource;
+
+            if (!instance) {
+                mermaidDiv.innerHTML = '<p class="empty-state" style="padding:20px;">Mermaid failed to load.</p>';
+                return;
+            }
+
+            try {
+                instance.initialize({ startOnLoad: false, theme: getCurrentTheme() === 'dark' ? 'dark' : 'base', securityLevel: 'loose' });
+                const id = `mermaid-${Date.now()}`;
+                const { svg } = await instance.render(id, cleanSource);
+                mermaidDiv.innerHTML = svg;
+
+                const svgElement = mermaidDiv.querySelector('svg');
+                if (!svgElement) return;
+                svgElement.style.maxWidth = 'none';
+                svgElement.style.width = '100%';
+                svgElement.style.height = '100%';
+
+                resetPanZoom();
+                panZoomInstance = svgPanZoom(svgElement, {
+                    zoomEnabled: true,
+                    controlIconsEnabled: false,
+                    fit: true,
+                    center: true,
+                    minZoom: 0.5,
+                    maxZoom: 15
+                });
+            } catch (error) {
+                console.error('Mermaid render failed:', error);
+                mermaidDiv.innerHTML = `<p style="color:#d9480f; font-size:14px; padding:20px;">Structure too complex to render. Raw data fallback:</p><pre style="text-align:left; margin:20px; white-space:pre-wrap;">${escapeHtml(cleanSource)}</pre>`;
+            }
+        }
+
+        async function analyze() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const fileInput = document.getElementById('file');
+            const file = fileInput.files[0];
+            const generateMermaid = document.getElementById('generateMermaid').checked;
+            const generateEvaluation = document.getElementById('generateEvaluation').checked;
+            const analyzeBtn = document.getElementById('analyzeBtn');
+            const askBtn = document.getElementById('askBtn');
+
+            if (!file) {
+                showError('Please select a document first.');
+                return;
+            }
+
+            if (analyzeController) {
+                analyzeController.abort();
+            }
+            analyzeController = new AbortController();
+            analyzeRequestId += 1;
+            const requestId = analyzeRequestId;
+
+            currentSessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+            setButtonLoading(analyzeBtn, 'Analyzing...', 'Analyze Document', true);
+            document.getElementById('loading').classList.add('active');
+            hideError();
+            resetResultView();
+            askBtn.disabled = true;
+            updateStatus('Analyzing document...', 'idle');
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('session_id', currentSessionId);
+            formData.append('generate_mermaid', String(generateMermaid));
+            formData.append('generate_evaluation', String(generateEvaluation));
+            if (apiKey) formData.append('api_key', apiKey);
+
+            try {
+                const response = await fetch('/api/analyze', {
+                    method: 'POST',
+                    body: formData,
+                    signal: analyzeController.signal
+                });
+                const data = await parseJsonSafely(response);
+
+                if (requestId !== analyzeRequestId) {
+                    return;
+                }
+                if (!response.ok) {
+                    throw new Error(data.error || 'Connection failed.');
+                }
+
+                document.getElementById('result').classList.add('active');
+                setFileInfo(file.name, data.char_count);
+                setSectionContent('summary', data.summary);
+                setSectionContent('quotes', data.quotes);
+                setSectionContent('mindmap', data.mindmap);
+                setSectionContent('evaluation', data.evaluation);
+                document.getElementById('evaluationCard').style.display = generateEvaluation ? 'block' : 'none';
+
+                if (generateMermaid && data.mermaid) {
+                    await new Promise(resolve => requestAnimationFrame(resolve));
+                    await renderMermaidDiagram(data.mermaid);
+                } else {
+                    resetMermaidCard();
+                }
+
+                askBtn.disabled = false;
+                updateStatus('Analysis ready for follow-up questions', 'success');
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    return;
+                }
+                currentSessionId = '';
+                resetResultView();
+                showError(error.message || 'Analysis failed.');
+                updateStatus('Analysis failed', 'error');
+            } finally {
+                if (requestId === analyzeRequestId) {
+                    document.getElementById('loading').classList.remove('active');
+                    setButtonLoading(analyzeBtn, 'Analyzing...', 'Analyze Document', false);
+                    analyzeController = null;
+                }
+            }
+        }
+
+        function appendChatText(role, message, className) {
+            const chatHistory = document.getElementById('chatHistory');
+            const item = document.createElement('div');
+            item.className = `chat-item ${className}`.trim();
+
+            const header = document.createElement('div');
+            header.className = 'chat-header';
+            header.textContent = role;
+
+            const body = document.createElement('div');
+            body.className = 'chat-text';
+            body.textContent = message;
+
+            item.appendChild(header);
+            item.appendChild(body);
+            chatHistory.appendChild(item);
+            return item;
+        }
+
+        function appendLoadingAnswer() {
+            const chatHistory = document.getElementById('chatHistory');
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'chat-item chat-answer';
+            loadingDiv.innerHTML = '<div class="chat-header">Assistant</div><div class="spinner" style="width:16px;height:16px;border-width:2px;margin:8px 0 0 0;"></div>';
+            chatHistory.appendChild(loadingDiv);
+            return loadingDiv;
+        }
+
+        function appendAnswer(answer) {
+            const chatHistory = document.getElementById('chatHistory');
+            const answerId = `answer-${Date.now()}`;
+            const answerDiv = document.createElement('div');
+            answerDiv.className = 'chat-item chat-answer';
+
+            const header = document.createElement('div');
+            header.className = 'chat-header';
+
+            const title = document.createElement('span');
+            title.textContent = 'Assistant';
+
+            const button = document.createElement('button');
+            button.className = 'action-btn';
+            button.type = 'button';
+            button.textContent = 'Copy';
+            button.addEventListener('click', () => copyText(answerId, button));
+
+            const content = document.createElement('div');
+            content.id = answerId;
+            content.className = 'answer-content content';
+            content.innerHTML = formatContent(answer, 'No answer available.');
+
+            header.appendChild(title);
+            header.appendChild(button);
+            answerDiv.appendChild(header);
+            answerDiv.appendChild(content);
+            chatHistory.appendChild(answerDiv);
+            renderMath(answerDiv);
+        }
+
+        async function askQuestion() {
+            const questionInput = document.getElementById('questionInput');
+            const question = questionInput.value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const askBtn = document.getElementById('askBtn');
+            const chatHistory = document.getElementById('chatHistory');
+
+            if (!question) return;
+            if (!currentSessionId) {
+                showError('Requires document analysis first.');
+                return;
+            }
+
+            if (askController) {
+                askController.abort();
+            }
+            askController = new AbortController();
+            askRequestId += 1;
+            const requestId = askRequestId;
+
+            hideError();
+            appendChatText('User', question, 'chat-question');
+            questionInput.value = '';
+            setButtonLoading(askBtn, 'Processing...', 'Send', true);
+            updateStatus('Answering based on current document...', 'idle');
+            const loadingDiv = appendLoadingAnswer();
+
+            try {
+                const response = await fetch('/api/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question, session_id: currentSessionId, api_key: apiKey }),
+                    signal: askController.signal
+                });
+                const data = await parseJsonSafely(response);
+
+                if (requestId !== askRequestId) {
+                    return;
+                }
+                if (chatHistory.contains(loadingDiv)) {
+                    chatHistory.removeChild(loadingDiv);
+                }
+                if (!response.ok) {
+                    throw new Error(data.error || 'Response timeout. Please try again.');
+                }
+
+                appendAnswer(data.answer);
+                updateStatus('Answer ready', 'success');
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    return;
+                }
+                if (chatHistory.contains(loadingDiv)) {
+                    chatHistory.removeChild(loadingDiv);
+                }
+                appendChatText('System Error', error.message || 'Question request failed.', 'chat-answer chat-error');
+                updateStatus('Question request failed', 'error');
+            } finally {
+                if (requestId === askRequestId) {
+                    setButtonLoading(askBtn, 'Processing...', 'Send', false);
+                    askController = null;
+                    questionInput.focus();
+                    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+                }
+            }
+        }
+
+        function handleKeyPress(event) {
+            if (event.key === 'Enter' && !document.getElementById('askBtn').disabled) {
+                event.preventDefault();
+                askQuestion();
+            }
+        }
+
+        async function copyText(elementId, btnElement) {
+            const content = document.getElementById(elementId);
+            if (!content) return;
+            try {
+                await navigator.clipboard.writeText(content.innerText.trim());
+                const originalText = btnElement.innerText;
+                btnElement.innerText = 'Copied';
+                setTimeout(() => { btnElement.innerText = originalText; }, 1600);
+            } catch (error) {
+                console.warn('Copy failed:', error);
+            }
+        }
+
         function zoomIn() { if (panZoomInstance) panZoomInstance.zoomIn(); }
         function zoomOut() { if (panZoomInstance) panZoomInstance.zoomOut(); }
         function zoomReset() { if (panZoomInstance) { panZoomInstance.resetZoom(); panZoomInstance.center(); } }
@@ -402,192 +1056,20 @@
             if (!svgElement) return;
             const serializer = new XMLSerializer();
             let source = serializer.serializeToString(svgElement);
-            if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
-            if(!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)) source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+            if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+            if (!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)) source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
             source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
-            const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(source);
-            const a = document.createElement("a");
+            const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
+            const a = document.createElement('a');
             a.href = url;
             a.download = `paper_map_${Date.now()}.svg`;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
         }
-        
-        async function analyze() {
-            const apiKey = document.getElementById('apiKey').value;
-            const fileInput = document.getElementById('file');
-            const file = fileInput.files[0];
-            const generateMermaid = document.getElementById('generateMermaid').checked;
-            const generateEvaluation = document.getElementById('generateEvaluation').checked;
-            const analyzeBtn = document.getElementById('analyzeBtn');
-            
-            if (!file) { showError('Please select a document first.'); return; }
-            
-            analyzeBtn.disabled = true;
-            analyzeBtn.innerText = 'Analyzing...';
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            if (apiKey) formData.append('api_key', apiKey);
-            formData.append('generate_mermaid', generateMermaid);
-            formData.append('generate_evaluation', generateEvaluation);
-            
-            currentSessionId = 'session_' + Date.now();
-            formData.append('session_id', currentSessionId);
-            
-            document.getElementById('loading').classList.add('active');
-            document.getElementById('result').classList.remove('active');
-            document.getElementById('error').style.display = 'none';
-            document.getElementById('mermaidCard').style.display = 'none';
-            document.getElementById('chatHistory').innerHTML = ''; 
-            
-            if (panZoomInstance) {
-                panZoomInstance.destroy();
-                panZoomInstance = null;
-            }
-            
-            try {
-                const response = await fetch('/api/analyze', { method: 'POST', body: formData });
-                const data = await response.json();
-                
-                if (!response.ok) throw new Error(data.error || 'Connection failed.');
-                
-                document.getElementById('fileInfo').innerHTML = `
-                    <span>Document: <strong>${file.name}</strong></span>
-                    <span>Tokens/Chars: ${data.char_count || 'N/A'}</span>
-                `;
-                
-                const elements = ['summary', 'quotes', 'mindmap', 'evaluation'];
-                elements.forEach(id => {
-                    const el = document.getElementById(id);
-                    if(el && data[id]) {
-                        el.innerHTML = formatContent(data[id]);
-                        renderMath(el); 
-                    }
-                });
-                
-                // --- 【核心修复区域：提前显示容器并等待渲染】 ---
-                document.getElementById('result').classList.add('active');
-                if (generateMermaid && data.mermaid) {
-                    document.getElementById('mermaidCard').style.display = 'block';
-                }
-                
-                // 等待浏览器执行完整的重排和重绘，确保 DOM 节点尺寸不再是 0x0
-                await new Promise(resolve => requestAnimationFrame(resolve));
-                // ------------------------------------------------
-                
-                if (generateMermaid && data.mermaid && mermaidInstance) {
-                    const mermaidDiv = document.getElementById('mermaidChart');
-                    mermaidDiv.innerHTML = '';
-                    try {
-                        const id = 'mermaid-' + Date.now();
-                        let cleanMermaid = data.mermaid.replace(/```mermaid\n?/g, '').replace(/```\n?/g, '').trim();
-                        
-                        const isDark = document.body.getAttribute('data-theme') === 'dark';
-                        mermaidInstance.initialize({ theme: isDark ? 'dark' : 'base' });
-                        
-                        const { svg } = await mermaidInstance.render(id, cleanMermaid);
-                        mermaidDiv.innerHTML = svg;
-                        
-                        const svgElement = mermaidDiv.querySelector('svg');
-                        if (svgElement) {
-                            // 【核心修复：解除 Mermaid 自动生成的尺寸锁定】
-                            svgElement.style.maxWidth = 'none';
-                            svgElement.style.width = '100%';
-                            svgElement.style.height = '100%';
-                            
-                            // 此时初始化 panZoom，它的容器就不再是隐藏或者缩在一起的了
-                            panZoomInstance = svgPanZoom(svgElement, {
-                                zoomEnabled: true, controlIconsEnabled: false, fit: true, center: true, minZoom: 0.5, maxZoom: 15
-                            });
-                        }
-                    } catch (e) {
-                        console.error(e);
-                        mermaidDiv.innerHTML = `<p style="color: #ff3b30; font-size: 14px; padding: 20px;">Structure too complex to render. Raw data fallback:</p><pre style="text-align: left; margin: 20px; white-space: pre-wrap;">${data.mermaid}</pre>`;
-                    }
-                }
-                
-            } catch (error) {
-                showError(error.message);
-            } finally {
-                document.getElementById('loading').classList.remove('active');
-                analyzeBtn.disabled = false;
-                analyzeBtn.innerText = 'Analyze Document';
-            }
-        }
-        
-        async function askQuestion() {
-            const questionInput = document.getElementById('questionInput');
-            const question = questionInput.value.trim();
-            const apiKey = document.getElementById('apiKey').value;
-            const askBtn = document.getElementById('askBtn');
-            
-            if (!question) return;
-            if (!currentSessionId) { showError('Requires document analysis first.'); return; }
-            
-            const chatHistory = document.getElementById('chatHistory');
-            
-            const questionDiv = document.createElement('div');
-            questionDiv.className = 'chat-item chat-question';
-            questionDiv.innerHTML = `<div class="chat-header">User</div><div>${question}</div>`;
-            chatHistory.appendChild(questionDiv);
-            
-            questionInput.value = '';
-            askBtn.disabled = true;
-            askBtn.innerText = 'Processing...';
-            
-            const loadingDiv = document.createElement('div');
-            loadingDiv.className = 'chat-item chat-answer';
-            loadingDiv.innerHTML = `<div class="chat-header">Assistant</div><div class="spinner" style="width: 16px; height: 16px; border-width: 2px; margin: 8px 0 0 0;"></div>`;
-            chatHistory.appendChild(loadingDiv);
-            
-            try {
-                const response = await fetch('/api/ask', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ question, session_id: currentSessionId, api_key: apiKey })
-                });
-                const data = await response.json();
-                chatHistory.removeChild(loadingDiv);
-                
-                if (!response.ok) throw new Error(data.error || 'Response timeout. Please try again.');
-                
-                const answerId = 'answer-' + Date.now();
-                const answerDiv = document.createElement('div');
-                answerDiv.className = 'chat-item chat-answer';
-                answerDiv.innerHTML = `
-                    <div class="chat-header">
-                        <span>Assistant</span>
-                        <button class="action-btn" onclick="copyText('${answerId}', this)">Copy</button>
-                    </div>
-                    <div id="${answerId}" class="answer-content content">${formatContent(data.answer)}</div>
-                `;
-                
-                chatHistory.appendChild(answerDiv);
-                renderMath(answerDiv);
-                
-            } catch (error) {
-                if (chatHistory.contains(loadingDiv)) chatHistory.removeChild(loadingDiv);
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'chat-item chat-answer';
-                errorDiv.style.borderColor = 'rgba(255, 59, 48, 0.3)';
-                errorDiv.innerHTML = `<div class="chat-header" style="color: #ff3b30;">System Error</div><div style="color: var(--text-primary);">${error.message}</div>`;
-                chatHistory.appendChild(errorDiv);
-            } finally {
-                askBtn.disabled = false;
-                askBtn.innerText = 'Send';
-                questionInput.focus();
-                window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-            }
-        }
-        
-        function showError(message) {
-            const errorEl = document.getElementById('error');
-            errorEl.innerHTML = `System prompt: ${message}`;
-            errorEl.style.display = 'block';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
     </script>
 </body>
 </html>
+
+
+

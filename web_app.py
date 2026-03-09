@@ -1,13 +1,18 @@
-﻿import os
+import os
 import re
 import time
 import uuid
+import threading
 import concurrent.futures
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify
 from werkzeug.utils import secure_filename
 from openai import OpenAI
 from PyPDF2 import PdfReader
+from env_loader import load_project_env
+
+
+load_project_env()
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -20,15 +25,72 @@ for folder in [app.config['UPLOAD_FOLDER'], app.config['OUTPUT_FOLDER'], app.con
     os.makedirs(folder, exist_ok=True)
 
 
+ALLOWED_EXTENSIONS = {".txt", ".pdf"}
+
+
+def parse_int_env(name, default, min_value=1, max_value=32):
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return max(min_value, min(max_value, value))
+
+
+def parse_bool_env(name, default=False):
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def parse_bool_value(value, default=False):
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+MAX_LLM_CONCURRENCY = parse_int_env("OPENAI_MAX_CONCURRENCY", default=5, min_value=1, max_value=32)
+LLM_REQUEST_SEMAPHORE = threading.BoundedSemaphore(MAX_LLM_CONCURRENCY)
+
+
 def resolve_api_key(explicit_key):
     if explicit_key and explicit_key.strip():
         return explicit_key.strip()
     return os.getenv("OPENAI_API_KEY", "").strip()
 
 
+def is_allowed_file(filename):
+    return os.path.splitext(filename)[1].lower() in ALLOWED_EXTENSIONS
+
+
+def sanitize_identifier(raw_value, prefix):
+    candidate = secure_filename((raw_value or "").strip())
+    return candidate or f"{prefix}_{uuid.uuid4().hex}"
+
+
+def build_safe_upload_filename(filename):
+    original_ext = os.path.splitext(filename)[1].lower()
+    if original_ext not in ALLOWED_EXTENSIONS:
+        raise ValueError("Unsupported file type. Please upload a .txt or .pdf file.")
+
+    sanitized = secure_filename(filename)
+    if not sanitized or not sanitized.lower().endswith(original_ext):
+        return f"file_{uuid.uuid4().hex}{original_ext}"
+    return sanitized
+
+
 class TextChunker:
-    """鏂囨湰鍒嗗潡鍣紝鐢ㄤ簬澶勭悊瓒呴暱鏂囨湰"""
+    """文本分块器，用于处理超长文本"""
     def __init__(self, chunk_size=4000, overlap=200):
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be > 0")
+        if overlap < 0:
+            raise ValueError("overlap must be >= 0")
+        if overlap >= chunk_size:
+            raise ValueError("overlap must be smaller than chunk_size")
         self.chunk_size = chunk_size
         self.overlap = overlap
     
@@ -44,7 +106,7 @@ class TextChunker:
             end = start + self.chunk_size
             chunk = text[start:end]
             
-            # 灏介噺鍦ㄥ彞瀛愮粨鏉熷鎴柇
+            # 尽量在句子结束处截断
             if end < text_length:
                 last_period = chunk.rfind('。')
                 last_newline = chunk.rfind('\n')
@@ -62,7 +124,7 @@ class TextChunker:
 
 
 class DocumentLoader:
-    """鏂囨。鍔犺浇鍣紝鏀寔 TXT 鍜?PDF"""
+    """文档加载器，支持 TXT 和 PDF"""
     @staticmethod
     def load_txt(file_path):
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -75,7 +137,7 @@ class DocumentLoader:
             text = "\n\n".join([page.extract_text() or "" for page in reader.pages])
             return text.strip()
         except Exception as e:
-            raise ValueError(f"PDF 璇诲彇澶辫触: {str(e)}")
+            raise ValueError(f"PDF 读取失败: {str(e)}")
     
     @staticmethod
     def load(file_path):
@@ -85,18 +147,23 @@ class DocumentLoader:
         elif ext == '.pdf':
             return DocumentLoader.load_pdf(file_path)
         else:
-            raise ValueError(f"涓嶆敮鎸佺殑鏂囦欢鏍煎紡: {ext} (璇风‘淇濅笂浼?txt鎴?pdf鏂囦欢)")
+            raise ValueError(f"不支持的文件格式: {ext} (请确保上传 txt 或 pdf 文件)")
 
 
 class PaperWhisperer:
-    """鏂囩尞鍒嗘瀽鏍稿績绫?"""
+    """文献分析核心类"""
     def __init__(self, api_key):
         self.name = "PaperWhisperer"
-        self.version = "0.5.0"
+        self.version = "0.5.2"
         self.api_key = resolve_api_key(api_key)
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+        self.request_timeout = parse_int_env("OPENAI_REQUEST_TIMEOUT_SECONDS", default=60, min_value=5, max_value=600)
+        self.max_retries = parse_int_env("OPENAI_MAX_RETRIES", default=3, min_value=1, max_value=10)
         self.chunker = TextChunker(4000, 200)
+        self.max_concurrency = MAX_LLM_CONCURRENCY
+        self.summary_chunk_workers = min(3, self.max_concurrency)
+        self.analysis_workers = min(5, self.max_concurrency)
         self.document_content = ""
         
         self.client = OpenAI(
@@ -104,45 +171,58 @@ class PaperWhisperer:
             base_url=self.base_url
         ) if self.api_key else None
     
-    def _call_llm(self, system_prompt, user_prompt, max_retries=3):
+    def _call_llm(self, system_prompt, user_prompt, max_retries=None):
         if not self.client:
             raise ValueError("API key is required. Provide it in request body or set OPENAI_API_KEY.")
-            
-        for attempt in range(max_retries):
+
+        retries = self.max_retries if max_retries is None else max_retries
+
+        for attempt in range(retries):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=4000
-                )
+                with LLM_REQUEST_SEMAPHORE:
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=4000,
+                        timeout=self.request_timeout
+                    )
                 return response.choices[0].message.content
             except Exception as e:
-                if attempt < max_retries - 1:
-                    time.sleep(2)
+                if attempt < retries - 1:
+                    time.sleep(min(2 * (attempt + 1), 8))
                 else:
                     print(f"LLM API Error: {str(e)}")
-                    return f"鐢熸垚澶辫触锛岃閲嶈瘯 ({str(e)})"
+                    return f"生成失败，请重试 ({str(e)})"
+
+    def _get_worker_count(self, task_count, configured_workers):
+        return max(1, min(task_count, configured_workers))
     
     def _generate_summary_chunk(self, content):
-        system_prompt = """浣犳槸涓€涓笓涓氱殑瀛︽湳鏂囩尞鍒嗘瀽鍔╂墜锛屾搮闀挎€荤粨璁烘枃鐨勬牳蹇冭鐐广€?璇风敤涓枃鍥炲锛屼繚鎸佷笓涓氥€佺畝娲併€佸噯纭€?
-銆愭瀬鍏堕噸瑕佺殑鍏紡鏍煎紡瑕佹眰銆戯細
-1. 琛屽唴鍏紡蹇呴』涓斿彧鑳戒娇鐢ㄥ崟涓編鍏冪鍙峰寘瑁癸紝渚嬪锛?E = mc^2$銆傜粷瀵逛笉瑕佷娇鐢?\\( \\) 鎴?( )銆?2. 鐙珛鍧楃骇鍏紡蹇呴』涓斿彧鑳戒娇鐢ㄥ弻缇庡厓绗﹀彿鍖呰９锛屼緥濡傦細$$\\int_0^1 x^2 dx$$銆傜粷瀵逛笉瑕佷娇鐢?\\[ \\] 鎴?[ ]銆?3. 鍏紡鍐呴儴鐨勪笅鍒掔嚎锛坃锛夊拰鏄熷彿锛?锛変笉瑕佸仛浠讳綍 Markdown 杞箟锛岀洿鎺ヨ緭鍑哄師鐢熺殑 LaTeX 浠ｇ爜銆?4. 缁濆涓嶈鎶婂叕寮忔斁鍦ㄦ櫘閫氱殑浠ｇ爜鍧楋紙```锛変腑銆?"""
+        system_prompt = """你是一个专业的学术文献分析助手，擅长总结论文的核心观点。请用中文回复，保持专业、简洁、准确。
+【极其重要的公式格式要求】：
+1. 行内公式必须且只能使用单个美元符号包裹，例如：$E = mc^2$。绝对不要使用 \\( \\) 或 ( )。
+2. 独立块级公式必须且只能使用双美元符号包裹，例如：$$\\int_0^1 x^2 dx$$。绝对不要使用 \\[ \\] 或[ ]。
+3. 公式内部的下划线（_）和星号（*）不要做任何 Markdown 转义，直接输出原生的 LaTeX 代码。
+4. 绝对不要把公式放在普通的代码块（```）中。"""
         
-        user_prompt = f"""璇蜂粩缁嗛槄璇讳互涓嬫枃鐚唴瀹癸紝鐒跺悗锛?1. 鎻愬彇 3-5 涓牳蹇冭鐐癸紙姣忎釜瑙傜偣鐢ㄤ竴鍙ヨ瘽姒傛嫭锛?2. 鎵惧嚭 2-3 涓渶鍊煎緱寮曠敤鐨勯噾鍙?
-鏂囩尞鍐呭锛?{content}
+        user_prompt = f"""请仔细阅读以下文献内容，然后：
+1. 提取 3-5 个核心观点（每个观点用一句话概括）
+2. 找出 2-3 个最值得引用的金句
+文献内容：{content}
 
-璇锋寜浠ヤ笅鏍煎紡杈撳嚭锛?## 鏍稿績瑙傜偣
-1. [瑙傜偣1]
-2. [瑙傜偣2]
-3. [瑙傜偣3]
+请按以下格式输出：
+## 核心观点
+1. [观点1]
+2. [观点2]
+3. [观点3]
 
-## 寮曠敤鐗囨
-- "[寮曠敤1锛屼弗鏍奸伒瀹堝叕寮忔牸寮忚姹備繚鐣欏師鏂囧叕寮廬"
-- "[寮曠敤2锛屼弗鏍奸伒瀹堝叕寮忔牸寮忚姹備繚鐣欏師鏂囧叕寮廬"
+## 引用片段
+- "[引用1，严格遵守公式格式要求保留原文公式]"
+- "[引用2，严格遵守公式格式要求保留原文公式]"
 """
         return self._call_llm(system_prompt, user_prompt)
     
@@ -152,20 +232,23 @@ class PaperWhisperer:
         if len(summaries) == 1:
             return summaries[0]
         
-        combined = "\n\n--- 绔犺妭 ---\n\n".join(summaries)
+        combined = "\n\n--- 章节 ---\n\n".join(summaries)
         
-        system_prompt = """浣犳槸涓€涓笓涓氱殑瀛︽湳鏂囩尞鍒嗘瀽鍔╂墜锛屾搮闀挎暣鍚堝涓枃鐚墖娈电殑鎽樿銆?璇风敤涓枃鍥炲锛屼繚鎸佷笓涓氥€佺畝娲併€佸噯纭€?
-銆愭瀬鍏堕噸瑕佺殑鍏紡鏍煎紡瑕佹眰銆戯細
-1. 琛屽唴鍏紡蹇呴』涓斿彧鑳戒娇鐢ㄥ崟涓編鍏冪鍙峰寘瑁癸紝渚嬪锛?E = mc^2$銆傜粷瀵逛笉瑕佷娇鐢?\\( \\) 鎴?( )銆?2. 鐙珛鍧楃骇鍏紡蹇呴』涓斿彧鑳戒娇鐢ㄥ弻缇庡厓绗﹀彿鍖呰９锛屼緥濡傦細$$\\int_0^1 x^2 dx$$銆傜粷瀵逛笉瑕佷娇鐢?\\[ \\] 鎴?[ ]銆?3. 鍏紡鍐呴儴鐨勪笅鍒掔嚎锛坃锛夊拰鏄熷彿锛?锛変笉瑕佸仛浠讳綍杞箟锛岀洿鎺ヨ緭鍑哄師鐢熺殑 LaTeX 浠ｇ爜銆?"""
+        system_prompt = """你是一个专业的学术文献分析助手，擅长整合多个文献片段的摘要。请用中文回复，保持专业、简洁、准确。
+【极其重要的公式格式要求】：
+1. 行内公式必须且只能使用单个美元符号包裹，例如：$E = mc^2$。绝对不要使用 \\( \\) 或 ( )。
+2. 独立块级公式必须且只能使用双美元符号包裹，例如：$$\\int_0^1 x^2 dx$$。绝对不要使用 \\[ \\] 或[ ]。
+3. 公式内部的下划线（_）和星号（*）不要做任何转义，直接输出原生的 LaTeX 代码。"""
         
-        user_prompt = f"""浠ヤ笅鏄竴绡囬暱鏂囩尞涓嶅悓閮ㄥ垎鐨勬憳瑕佸唴瀹癸紝璇锋暣鍚堟垚涓€浠藉畬鏁淬€佽繛璐殑鎽樿锛?
+        user_prompt = f"""以下是一篇长文献不同部分的摘要内容，请整合成一份完整、连贯的摘要：
 {combined}
 
-璇锋寜浠ヤ笅鏍煎紡杈撳嚭锛?## 鏍稿績瑙傜偣
-[鏁村悎鍚庣殑鏍稿績瑙傜偣鍒楄〃]
+请按以下格式输出：
+## 核心观点
+[整合后的核心观点列表]
 
-## 寮曠敤鐗囨
-[鏁村悎鍚庣殑寮曠敤鐗囨鍒楄〃锛屼繚鐣欏師鏂囧叕寮廬
+## 引用片段
+[整合后的引用片段列表，保留原文公式]
 """
         return self._call_llm(system_prompt, user_prompt)
     
@@ -174,59 +257,73 @@ class PaperWhisperer:
         
         if len(chunks) == 1:
             return self._generate_summary_chunk(content)
-        
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            chunk_summaries = list(filter(None, executor.map(self._generate_summary_chunk, chunks)))
+
+        worker_count = self._get_worker_count(len(chunks), self.summary_chunk_workers)
+        if worker_count == 1:
+            chunk_summaries = [summary for summary in map(self._generate_summary_chunk, chunks) if summary]
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+                chunk_summaries = list(filter(None, executor.map(self._generate_summary_chunk, chunks)))
             
         if len(chunk_summaries) > 1:
             return self._merge_summaries(chunk_summaries)
-        return chunk_summaries[0] if chunk_summaries else "鏃犳硶鐢熸垚鎽樿"
+        return chunk_summaries[0] if chunk_summaries else "无法生成摘要"
     
     def extract_quotes(self, content):
-        system_prompt = """浣犳槸涓€涓笓涓氱殑瀛︽湳鏂囩尞鍒嗘瀽鍔╂墜锛屾搮闀夸粠鏂囩尞涓彁鍙栭噸瑕佺殑寮曠敤鐗囨銆?璇风敤涓枃鍥炲锛岀簿纭彁鍙栨枃鐚腑鐨勫師鍙ャ€?
-銆愭瀬鍏堕噸瑕佺殑鍏紡鏍煎紡瑕佹眰銆戯細
-1. 琛屽唴鍏紡蹇呴』涓斿彧鑳戒娇鐢ㄥ崟涓編鍏冪鍙峰寘瑁癸紝渚嬪锛?E = mc^2$銆傜粷瀵逛笉瑕佷娇鐢?\\( \\) 鎴?( )銆?2. 鐙珛鍧楃骇鍏紡蹇呴』涓斿彧鑳戒娇鐢ㄥ弻缇庡厓绗﹀彿鍖呰９锛屼緥濡傦細$$\\int_0^1 x^2 dx$$銆傜粷瀵逛笉瑕佷娇鐢?\\[ \\] 鎴?[ ]銆?3. 鍏紡鍐呴儴鐨勪笅鍒掔嚎锛坃锛夊拰鏄熷彿锛?锛変笉瑕佸仛浠讳綍杞箟锛岀洿鎺ヨ緭鍑哄師鐢熺殑 LaTeX 浠ｇ爜銆?"""
+        system_prompt = """你是一个专业的学术文献分析助手，擅长从文献中提取重要的引用片段。请用中文回复，精确提取文献中的原句。
+【极其重要的公式格式要求】：
+1. 行内公式必须且只能使用单个美元符号包裹，例如：$E = mc^2$。绝对不要使用 \\( \\) 或 ( )。
+2. 独立块级公式必须且只能使用双美元符号包裹，例如：$$\\int_0^1 x^2 dx$$。绝对不要使用 \\[ \\] 或[ ]。
+3. 公式内部的下划线（_）和星号（*）不要做任何转义，直接输出原生的 LaTeX 代码。"""
         
-        user_prompt = f"""璇蜂粠浠ヤ笅鏂囩尞涓彁鍙?3-5 涓渶鍊煎緱寮曠敤鐨勯噾鍙ユ垨鏍稿績瑙傜偣锛?
-{content[:15000]}  # 闄愬埗闀垮害浠ラ槻瓒匱oken
+        user_prompt = f"""请从以下文献中提取 3-5 个最值得引用的金句或核心观点：
+{content[:15000]}  # 限制长度以防超 token
 
-璇锋寜浠ヤ笅鏍煎紡杈撳嚭锛?## 寮曠敤鐗囨
-1. "[鍘熷彞1锛屼弗鏍兼寜瑕佹眰淇濈暀鍏紡]"
-2. "[鍘熷彞2锛屼弗鏍兼寜瑕佹眰淇濈暀鍏紡]"
-3. "[鍘熷彞3锛屼弗鏍兼寜瑕佹眰淇濈暀鍏紡]"
+请按以下格式输出：
+## 引用片段
+1. "[原句1，严格按要求保留公式]"
+2. "[原句2，严格按要求保留公式]"
+3. "[原句3，严格按要求保留公式]"
 """
         return self._call_llm(system_prompt, user_prompt)
     
     def generate_mindmap(self, content):
-        system_prompt = """浣犳槸涓€涓笓涓氱殑瀛︽湳鏂囩尞鍒嗘瀽鍔╂墜锛屾搮闀垮垎鏋愭枃鐚粨鏋勫苟鐢熸垚鎬濈淮瀵煎浘銆?璇风敤涓枃鍥炲銆傚鏋滄秹鍙婂叕寮忥紝璇蜂弗鏍间娇鐢?$...$ (琛屽唴) 鎴?$$...$$ (鍧楃骇) 鍖呰９銆?"""
+        system_prompt = """你是一个专业的学术文献分析助手，擅长分析文献结构并生成思维导图。请用中文回复。如涉及公式，请严格使用 $...$ (行内) 或 $$...$$ (块级) 包裹。"""
         
-        user_prompt = f"""璇蜂负浠ヤ笅鏂囩尞鐢熸垚涓€涓枃鏈牸寮忕殑鎬濈淮瀵煎浘锛?
+        user_prompt = f"""请为以下文献生成一个文本格式的思维导图：
 {content[:10000]}
 
-璇锋寜浠ヤ笅鏍煎紡杈撳嚭锛?## 鎬濈淮瀵煎浘
-[浣跨敤 鈹溾攢鈹€ 鍜?鈹斺攢鈹€ 绗﹀彿鐨勫眰绾х粨鏋刔
+请按以下格式输出：
+## 思维导图
+[使用 ├── 和 └── 符号的层级结构]
 """
         return self._call_llm(system_prompt, user_prompt)
     
     def generate_mermaid_mindmap(self, content):
-        system_prompt = """浣犳槸涓€涓笓涓氱殑瀛︽湳鏂囩尞鍒嗘瀽鍔╂墜锛屾搮闀垮垎鏋愭枃鐚粨鏋勫苟鐢熸垚 Mermaid 鏍煎紡鐨勬€濈淮瀵煎浘銆?璇风洿鎺ヨ緭鍑?Mermaid 浠ｇ爜锛屼笉瑕佹坊鍔犱换浣曡В閲娿€?
-閲嶈鎻愮ず锛?1. 蹇呴』浠?"graph TD" 鎴?"graph LR" 寮€澶?2. 鑺傜偣ID鍙兘鍖呭惈瀛楁瘝銆佹暟瀛楀拰涓嬪垝绾?3. 鑺傜偣鏂囨湰鐢ㄦ柟鎷彿鍖呰９锛屽锛欰[鏍囬]
-4. 涓嶈浣跨敤鐗规畩瀛楃锛屼腑鏂囧彲浠ユ甯镐娇鐢?5. 淇濇寔绠€娲侊紝涓嶈瓒呰繃20涓妭鐐?6. Mermaid鑺傜偣鏂囨湰鍐呬笉瑕佸寘鍚鏉傜殑LaTeX鍏紡锛屼互鍏嶆覆鏌撳穿婧冿紝璇风敤绠€鐭殑涓枃姒傛嫭銆?"""
+        system_prompt = """你是一个专业的学术文献分析助手，擅长分析文献结构并生成 Mermaid 格式的思维导图。请直接输出 Mermaid 代码，不要添加任何解释。
+重要提示：
+1. 必须以 "graph TD" 或 "graph LR" 开头
+2. 节点ID只能包含字母、数字和下划线
+3. 节点文本用方括号包裹，如：A[标题]
+4. 不要使用特殊字符，中文可以正常使用
+5. 保持简洁，不要超过20个节点
+6. Mermaid节点文本内不要包含复杂的LaTeX公式，以免渲染崩溃，请用简短的中文概括。"""
         
-        user_prompt = f"""璇蜂负浠ヤ笅鏂囩尞鐢熸垚 Mermaid 鏍煎紡鐨勬€濈淮瀵煎浘浠ｇ爜銆?
-鏂囩尞鍐呭锛?{content[:4000]}
+        user_prompt = f"""请为以下文献生成 Mermaid 格式的思维导图代码。
+文献内容：{content[:4000]}
 
-璇峰彧杈撳嚭 Mermaid 浠ｇ爜锛屾牸寮忓涓嬶細
+请只输出 Mermaid 代码，格式如下：
 graph TD
-    A[璁烘枃鏍囬]
-    A --> B[绔犺妭1]
-    A --> C[绔犺妭2]
-    B --> B1[灏忚妭1]
-    B --> B2[灏忚妭2]
+    A[论文标题]
+    A --> B[章节1]
+    A --> C[章节2]
+    B --> B1[小节1]
+    B --> B2[小节2]
 """
         result = self._call_llm(system_prompt, user_prompt)
         if result:
-            # 瀵绘壘鐪熸鐨?Mermaid 浠ｇ爜璧峰琛岋紝杩囨护鎺夊ぇ妯″瀷杈撳嚭鐨勫紑澶村簾璇?            lines = result.strip().split('\n')
+            # 寻找真正的 Mermaid 代码起始行，过滤掉大模型输出的开头废话
+            lines = result.strip().split('\n')
             start_idx = -1
             valid_prefixes = ("graph ", "mindmap", "flowchart ", "pie", "sequenceDiagram", "stateDiagram", "classDiagram")
             
@@ -238,50 +335,55 @@ graph TD
             if start_idx != -1:
                 result = '\n'.join(lines[start_idx:]).strip()
             else:
-                # 鏋佺鎯呭喌锛氭鍒欏洖閫€鎻愬彇
+                # 极端情况下：正则回退提取
                 match = re.search(r'```(?:mermaid)?\s*\n(.*?)\n```', result, re.DOTALL | re.IGNORECASE)
                 if match:
                     result = match.group(1).strip()
                 else:
-                    # 榛樿娣诲姞graph TD鍓嶇紑
+                    # 默认添加graph TD前缀
                     result = "graph TD\n" + result
                 
-            # 纭繚浠ｇ爜鏈夋晥
+            # 确保代码有效
             if not any(result.startswith(prefix) for prefix in valid_prefixes):
                 result = "graph TD\n" + result
             return result
         return None
     
     def generate_evaluation(self, content):
-        system_prompt = """浣犳槸涓€涓笓涓氱殑瀛︽湳璁烘枃璇勫涓撳锛屾搮闀垮璁烘枃杩涜鎵瑰垽鎬ц瘎浠枫€?璇风敤涓枃鍥炲锛屽寘鎷鏂囩殑浼樼偣銆佸眬闄愭€с€佸巻鍙插湴浣嶅拰璐＄尞銆?
-銆愭瀬鍏堕噸瑕佺殑鍏紡鏍煎紡瑕佹眰銆戯細
-1. 琛屽唴鍏紡蹇呴』涓斿彧鑳戒娇鐢ㄥ崟涓編鍏冪鍙峰寘瑁癸紝渚嬪锛?E = mc^2$銆傜粷瀵逛笉瑕佷娇鐢?\\( \\) 鎴?( )銆?2. 鐙珛鍧楃骇鍏紡蹇呴』涓斿彧鑳戒娇鐢ㄥ弻缇庡厓绗﹀彿鍖呰９锛屼緥濡傦細$$\\int_0^1 x^2 dx$$銆傜粷瀵逛笉瑕佷娇鐢?\\[ \\] 鎴?[ ]銆?"""
+        system_prompt = """你是一个专业的学术论文评审专家，擅长对论文进行批判性评价。请用中文回复，包括论文的优点、局限性、历史地位和贡献。
+【极其重要的公式格式要求】：
+1. 行内公式必须且只能使用单个美元符号包裹，例如：$E = mc^2$。绝对不要使用 \\( \\) 或 ( )。
+2. 独立块级公式必须且只能使用双美元符号包裹，例如：$$\\int_0^1 x^2 dx$$。绝对不要使用 \\[ \\] 或[ ]。"""
         
-        user_prompt = f"""璇峰浠ヤ笅鏂囩尞杩涜鎬荤粨鎬ц瘎浠凤紝鍖呮嫭锛?
-1. **璁烘枃鐨勪富瑕佽础鐚?*锛氳繖绡囪鏂囩殑鏍稿績鍒涙柊鐐规槸浠€涔堬紵
-2. **鍘嗗彶鍦颁綅**锛氬湪鐩稿叧棰嗗煙鐨勯噸瑕佹€у浣曪紵鏄惁鏄鍩烘€у伐浣滐紵
-3. **涓昏浼樼偣**锛氳鏂囩殑浼樺娍鍜屽垱鏂颁箣澶?4. **灞€闄愭€?*锛氳鏂囧瓨鍦ㄧ殑闂鎴栧悗缁伐浣滄寚鍑虹殑缂虹偣
-5. **鍊煎緱瀛︿範鐨勫湴鏂?*锛氬璇昏€呮湁浠€涔堝惎鍙戯紵
+        user_prompt = f"""请对以下文献进行总结性评价，包括：
+1. **论文的主要贡献**：这篇论文的核心创新点是什么？
+2. **历史地位**：在相关领域的重要性如何？是否是奠基性工作？
+3. **主要优点**：论文的优势和创新之处
+4. **局限性**：论文存在的问题或后续工作指出的缺点
+5. **值得学习的地方**：对读者有什么启发？
 
-鏂囩尞鍐呭锛?{content[:15000]}
+文献内容：{content[:15000]}
 
-璇锋寜浠ヤ笅鏍煎紡杈撳嚭锛?## 馃搳 璁烘枃璇勪环
+请按以下格式输出：
+## 📳 论文评价
 
-### 馃幆 涓昏璐＄尞
-[璇勪环鍐呭]
+### 🎆 主要贡献
+[评价内容]
 
-### 馃搱 鍘嗗彶鍦颁綅
-[璇勪环鍐呭]
+### 📱 历史地位
+[评价内容]
 
-### 鉁?涓昏浼樼偣
-- 浼樼偣1
-- 浼樼偣2
+### ✅ 主要优点
+- 优点1
+- 优点2
 
-### 鈿狅笍 灞€闄愭€?- 灞€闄愭€?
-- 灞€闄愭€?
+### ♿️ 局限性
+- 局限性1
+- 局限性2
 
-### 馃挕 鍊煎緱瀛︿範鐨勫湴鏂?- 瀛︿範鐐?
-- 瀛︿範鐐?
+### 📕 值得学习的地方
+- 学习点1
+- 学习点2
 """
         return self._call_llm(system_prompt, user_prompt)
     
@@ -300,14 +402,17 @@ graph TD
         return self._call_llm(system_prompt, user_prompt)
     
     def analyze(self, file_path, generate_mermaid=True, generate_evaluation=True):
-        """鏍稿績鍒嗘瀽娴佺▼锛堝凡浼樺寲涓哄苟鍙戞墽琛岋級"""
+        """核心分析流程（已优化为并发执行）"""
         content = DocumentLoader.load(file_path)
         self.document_content = content
         
         result = {'char_count': len(content)}
-        
+
+        task_count = 3 + int(generate_mermaid) + int(generate_evaluation)
+        worker_count = self._get_worker_count(task_count, self.analysis_workers)
+
         # 使用线程池并发执行大模型请求，减少整体等待时间
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
             future_summary = executor.submit(self.generate_summary, content)
             future_quotes = executor.submit(self.extract_quotes, content)
             future_mindmap = executor.submit(self.generate_mindmap, content)
@@ -315,7 +420,7 @@ graph TD
             future_mermaid = executor.submit(self.generate_mermaid_mindmap, content) if generate_mermaid else None
             future_eval = executor.submit(self.generate_evaluation, content) if generate_evaluation else None
             
-            # 鑾峰彇缁撴灉
+            # 获取结果
             result['summary'] = future_summary.result()
             result['quotes'] = future_quotes.result()
             result['mindmap'] = future_mindmap.result()
@@ -327,7 +432,7 @@ graph TD
                 
         return result
 
-# ================= 璺敱鎺у埗 =================
+# ================= 路由控制 =================
 
 @app.route('/')
 def index():
@@ -335,72 +440,63 @@ def index():
 
 @app.route('/api/analyze', methods=['POST'])
 def analyze():
+    file_path = None
+
     if 'file' not in request.files:
         return jsonify({'error': 'Please upload a file.'}), 400
     
     file = request.files['file']
     if file.filename == '':
-        return jsonify({'error': '璇烽€夋嫨鏂囦欢'}), 400
-    
-    # 淇鏂囦欢瀹夊叏闂
-    # 淇鏂囦欢瀹夊叏闂锛氭彁鍙栧師濮嬪悗缂€
-    original_ext = os.path.splitext(file.filename)[1]
-    original_filename = secure_filename(file.filename)
-    
-    # 妫€鏌?secure_filename 鏄惁鎶婁腑鏂囧悕鐮村潖鎴愪簡绫讳技 "txt" 杩欐牱娌℃湁鍚庣紑鐨勫瓧绗︿覆
-    # 濡傛灉澶勭悊鍚庣殑鍚嶅瓧涓虹┖锛屾垨鑰呬笉鍖呭惈鍘熸潵鐨勫悗缂€鍚嶏紝鍒欑洿鎺ヤ娇鐢?UUID 閲嶆柊鍛藉悕
-    if not original_filename or not original_filename.endswith(original_ext):
-        original_filename = f"file_{uuid.uuid4().hex}{original_ext}"
-    
-    file_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename)
-    file.save(file_path)
-    
-    generate_mermaid = request.form.get('generate_mermaid', 'true').lower() == 'true'
-    generate_evaluation = request.form.get('generate_evaluation', 'true').lower() == 'true'
-    
-    # 浣跨敤棰勮鐨?API KEY
-    api_key = resolve_api_key(request.form.get('api_key', ''))
-    if not api_key:
-        return jsonify({'error': 'API key is required. Provide api_key or set OPENAI_API_KEY.'}), 400
-    
+        return jsonify({'error': 'Please select a file.'}), 400
+    if not is_allowed_file(file.filename):
+        return jsonify({'error': 'Unsupported file type. Please upload a .txt or .pdf file.'}), 400
+
     try:
+        original_filename = build_safe_upload_filename(file.filename)
+        file_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename)
+        file.save(file_path)
+
+        generate_mermaid = parse_bool_value(request.form.get('generate_mermaid'), default=True)
+        generate_evaluation = parse_bool_value(request.form.get('generate_evaluation'), default=True)
+
+        api_key = resolve_api_key(request.form.get('api_key', ''))
+        if not api_key:
+            return jsonify({'error': 'API key is required. Provide api_key or set OPENAI_API_KEY.'}), 400
+
         whisperer = PaperWhisperer(api_key)
         result = whisperer.analyze(file_path, generate_mermaid, generate_evaluation)
         
-        # 鎻愬彇骞惰繃婊?session_id 闃叉璺緞绌胯秺婕忔礊
-        raw_session_id = request.form.get('session_id', f'session_{uuid.uuid4().hex}')
-        safe_session_id = secure_filename(raw_session_id)
+        raw_session_id = request.form.get('session_id', '')
+        safe_session_id = sanitize_identifier(raw_session_id, "session")
         
-        # 淇濆瓨涓婁笅鏂囦緵杩介棶浣跨敤
         context_file = os.path.join(app.config['CONTEXT_FOLDER'], f"{safe_session_id}.txt")
         with open(context_file, 'w', encoding='utf-8') as f:
             f.write(whisperer.document_content)
         
-        # 鐢熸垚 Markdown 鍒嗘瀽鎶ュ憡
         base_name = os.path.splitext(original_filename)[0]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = os.path.join(app.config['OUTPUT_FOLDER'], f"{base_name}_analysis_{timestamp}.md")
         
-        md_content = f"""# 馃搫 PaperWhisperer 鍒嗘瀽鎶ュ憡
+        md_content = f"""# 📫 PaperWhisperer 分析报告
 
-> 鐢熸垚鏃堕棿: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-> 婧愭枃浠? {original_filename}
+> 生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+> 源文件: {original_filename}
 
 ---
 
-## 馃摑 AI 鎽樿
+## 📒 AI 摘要
 
 {result.get('summary', '')}
 
 ---
 
-## 馃挕 寮曠敤鐗囨
+## 📕 引用片段
 
 {result.get('quotes', '')}
 
 ---
 
-## 馃 鎬濈淮瀵煎浘
+## 🗥 思维导图
 
 {result.get('mindmap', '')}
 
@@ -409,9 +505,9 @@ def analyze():
 """
 
         if generate_evaluation:
-            md_content += f"## 馃搳 璁烘枃璇勪环\n\n{result.get('evaluation', '')}\n\n---\n"
+            md_content += f"## 📳 论文评价\n\n{result.get('evaluation', '')}\n\n---\n"
             
-        md_content += f"## 馃搳 鍏冧俊鎭痋n\n- 鐗堟湰: {whisperer.version}\n- 瀛楃鏁? {result['char_count']}\n"
+        md_content += f"## 📳 元信息\n\n- 版本: {whisperer.version}\n- 字符数: {result['char_count']}\n"
         
         with open(output_file, 'w', encoding='utf-8') as f:
             f.write(md_content)
@@ -422,10 +518,10 @@ def analyze():
         return jsonify(result)
     
     except Exception as e:
+        app.logger.exception("Document analysis failed")
         return jsonify({'error': str(e)}), 500
     finally:
-        # 娓呯悊涓婁紶鐨勪复鏃舵枃浠讹紙鍙€夛級
-        if os.path.exists(file_path):
+        if file_path and os.path.exists(file_path):
             try:
                 os.remove(file_path)
             except:
@@ -433,15 +529,17 @@ def analyze():
 
 @app.route('/api/ask', methods=['POST'])
 def ask_question():
-    # 增加 or {} 防御空数据崩溃
-    data = request.get_json() or {}
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'JSON body must be an object.'}), 400
+
     question = data.get('question', '').strip()
-    raw_session_id = data.get('session_id', 'default')
+    raw_session_id = data.get('session_id', '')
     
     if not question:
         return jsonify({'error': 'Please enter a question.'}), 400
-        
-    safe_session_id = secure_filename(raw_session_id)
+
+    safe_session_id = sanitize_identifier(raw_session_id, "session")
     
     api_key = resolve_api_key(data.get('api_key', ''))
     if not api_key:
@@ -463,9 +561,12 @@ def ask_question():
         return jsonify({'answer': answer})
     
     except Exception as e:
+        app.logger.exception("Question answering failed")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-
-
+    app.run(
+        host=os.getenv("FLASK_HOST", "0.0.0.0"),
+        port=parse_int_env("FLASK_PORT", default=5000, min_value=1, max_value=65535),
+        debug=parse_bool_env("FLASK_DEBUG", default=False),
+    )
