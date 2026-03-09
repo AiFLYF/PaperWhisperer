@@ -1,120 +1,122 @@
-# 📄 PaperWhisperer · 文献私语者
+﻿# 📚 PaperWhisperer
 
-> 让文献开口说话 — 10 页 PDF，3 句话读懂。
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python) ![License](https://img.shields.io/badge/License-TIM-lightgrey) ![AI](https://img.shields.io/badge/AI--Powered-OpenAI-blueviolet)
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python) ![License](https://img.shields.io/badge/License-Course%20Project-lightgrey) ![AI](https://img.shields.io/badge/AI--Powered-OpenAI-blueviolet)
+一个面向论文/文献阅读场景的 AI 助手。  
+上传 `.txt` 或 `.pdf` 后，可自动生成结构化分析结果，并支持基于文档上下文继续追问。
 
-------
+## ✨ 项目能做什么
+- 自动生成文档摘要（核心观点）
+- 提取可引用片段
+- 生成文本结构图（层级思维导图）
+- 可选生成 Mermaid 可视化图
+- 可选输出批判性评价
+- 支持“上传后追问”问答
+- 自动保存 Markdown 分析报告到 `output/`
 
-## 🎯 项目简介
+## 🎯 适用人群
+- 需要快速读论文的学生
+- 需要整理阅读笔记的研究者
+- 需要将文档分析流程产品化的开发者
 
-**PaperWhisperer** 是一个 AI 驱动的文献阅读助手，帮助学生和研究者快速理解文献内容、提取核心观点、生成结构化笔记。告别逐字精读，让 AI 成为你的私人文献助理。
-
-------
-
-## ✨ 核心功能
-
-| 功能           | 描述                                  |
-| -------------- | ------------------------------------- |
-| 📝 AI 摘要生成  | 自动生成 3 句话精简摘要，抓住文献核心 |
-| 💡 引用片段提取 | 智能标记可直接引用的金句              |
-| 🧠 思维导图生成 | 可视化展示文献结构与逻辑关系          |
-| 📄 多格式支持   | 支持 PDF、Word、TXT 等主流格式        |
-
-------
-
-## 📦 项目结构
-
-```
-PaperWhisperer/
-├── README.md                  # 项目说明文档（本文件）
-├── ONE_PAGER.md               # 产品概念单页
-├── MENTOR_PERSONA.md          # 导师招募画像
-├── UI_PROTOTYPE.html          # 产品交互式 UI 原型
-├── paper_whisperer_demo.py    # 核心功能 Demo
-├── read_docx.py               # 文档读取工具
-└── AI项目创意征集令.docx      # 原始需求文档
-```
-
-------
+## 🧱 技术栈
+- Python 3.10+
+- Flask
+- OpenAI Python SDK（OpenAI 兼容接口）
+- PyPDF2
+- HTML/CSS/JavaScript（KaTeX + Mermaid + marked）
 
 ## 🚀 快速开始
 
-### 环境要求
-
-- Python 3.10+
-- OpenAI SDK
-
-### 安装依赖
-
+### 1. 安装依赖
 ```bash
-pip install openai
+pip install -r requirements.txt
 ```
 
-### 配置 API Key
+### 2. 配置环境变量
+可参考 `.env.example`：
 
-**Windows PowerShell：**
+```bash
+OPENAI_API_KEY=sk-your-key
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-4o-mini
+```
 
+PowerShell 示例：
 ```powershell
-$env:OPENAI_API_KEY="your-api-key-here"
+$env:OPENAI_API_KEY="your-api-key"
+$env:OPENAI_BASE_URL="https://api.openai.com/v1"
+$env:OPENAI_MODEL="gpt-4o-mini"
 ```
 
-**Windows CMD：**
-
-```cmd
-set OPENAI_API_KEY=your-api-key-here
-```
-
-> 💡 若未配置 API Key，程序将自动切换至**模拟模式**运行，无需真实密钥即可体验功能。
-
-### 运行 Demo
-
+### 3. 启动 Web 应用
 ```bash
-python paper_whisperer_demo.py
+python web_app.py
+```
+浏览器访问：`http://localhost:5000`
+
+### 4. （可选）运行命令行 Demo
+```bash
+python paper_whisperer_demo.py <你的文件.txt或.pdf>
 ```
 
-### 查看 UI 原型
+## 🖥️ Web 使用流程
+1. 打开网页并填写 API Key（或使用环境变量）
+2. 上传 `.txt` / `.pdf` 文档
+3. 点击 `Analyze Document`
+4. 查看摘要、引用、结构图、评价
+5. 在 “Ask Questions” 区域继续追问
 
-直接用浏览器打开 `UI_PROTOTYPE.html` 即可，无需任何额外配置。
+## 🔌 API 接口说明
 
-------
+### `POST /api/analyze`
+上传并分析文档。
 
-## 📋 交付物清单
+表单参数：
+- `file`（必填）：`.txt` 或 `.pdf`
+- `api_key`（可选）：本次请求临时 API Key
+- `generate_mermaid`（可选）：`true/false`
+- `generate_evaluation`（可选）：`true/false`
+- `session_id`（可选）：用于后续问答
 
-| #    | 文件                      | 内容                                                     |
-| ---- | ------------------------- | -------------------------------------------------------- |
-| ✅    | `ONE_PAGER.md`            | 产品名称与 Slogan、用户痛点分析、核心功能说明、AI 参与度 |
-| ✅    | `UI_PROTOTYPE.html`       | AI 辅助设计的交互式 UI 原型                              |
-| ✅    | `paper_whisperer_demo.py` | 可运行的命令行 Demo，演示核心功能流程                    |
-| ✅    | `MENTOR_PERSONA.md`       | 导师需求画像与招募理由                                   |
+说明：若不传 `api_key`，服务端会读取 `OPENAI_API_KEY`。
 
-------
+### `POST /api/ask`
+基于已保存的文档上下文进行追问。
 
-## 🤖 AI 参与度
+请求体示例：
+```json
+{
+  "question": "这篇文献最重要的贡献是什么？",
+  "session_id": "session_123",
+  "api_key": "optional"
+}
+```
 
-| 环节     | AI 参与程度       |
-| -------- | ----------------- |
-| 创意发散 | ████████░░░░ 60%  |
-| 产品命名 | ███████████░ 90%  |
-| 功能设计 | ██████████░░ 80%  |
-| UI 设计  | ████████████ 100% |
-| 代码框架 | ██████████░░ 80%  |
-| 文档撰写 | █████████░░░ 70%  |
+## 🗂️ 项目结构
+```text
+.
+├── web_app.py                # Flask 应用与 API 路由
+├── paper_whisperer_demo.py   # 命令行 Demo
+├── templates/
+│   └── index.html            # Web 界面
+├── requirements.txt
+├── .env.example
+├── uploads/                  # 运行时上传目录（已忽略）
+├── context/                  # 上下文缓存目录（已忽略）
+└── output/                   # 分析结果目录（已忽略）
+```
 
-------
+## 🔐 安全与隐私说明
+- 代码中不再硬编码真实 API Key
+- `uploads/`、`context/`、`output/` 默认不提交到 Git
+- 临时上传文件在分析结束后会清理
+- 支持“请求级 key”与“环境变量 key”两种模式
 
-## 👥 团队
+## ⚠️ 当前已知限制
+- 代码中部分中文提示词仍有历史编码痕迹（不影响主流程）
+- 分析质量与所选模型、提示词质量相关
+- PDF 提取效果取决于原文档文本层质量
 
-- **创意与设计**：AI + 人类协作
-- **代码开发**：AI + 人类协作
-- **文档撰写**：AI + 人类协作
-
-------
-
-## 📄 许可证
-
-本项目为课程作业项目，仅供学习交流使用。
-
-------
-
-*让我们一起把 PaperWhisperer 变成同学们写论文的必备工具吧！* 🚀
+## 📄 License
+TIM
