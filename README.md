@@ -1,6 +1,6 @@
 ﻿# 📚 PaperWhisperer
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python) ![License](https://img.shields.io/badge/License-TIM-lightgrey) ![AI](https://img.shields.io/badge/AI--Powered-OpenAI-blueviolet)
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python) ![License](https://img.shields.io/badge/License-TIM-lightgrey) ![AI](https://img.shields.io/badge/AI--Powered-OpenAI-blueviolet) ![Version](https://img.shields.io/badge/version-0.6.0-green)
 
 一个面向论文/文献阅读场景的 AI 助手。  
 上传 `.txt`、`.pdf`、`.docx` 或 `.pptx` 后，可自动生成结构化分析结果，并支持基于文档上下文继续追问。
@@ -143,6 +143,22 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 - 分析质量与所选模型、提示词质量相关
 - PDF 提取效果取决于原文档文本层质量
 - DOCX/PPTX 主要提取文本层内容，复杂排版、图表和图片中的文字可能提取不完整
+
+## 📝 更新日志
+
+### v0.6.0
+- **效率优化**：CLI Demo 分析任务（摘要/引用/导图）改为并发执行，速度提升 2-3x
+- **内容提取增强**：DOCX 新增表格提取，PPTX 新增备注页提取
+- **文本清洗**：新增 `clean_extracted_text()` 自动清理多余空行和冗余空白
+- **分块优化**：TextChunker 新增英文句号边界识别，中英文文档分块更精准
+- **问答能力**：追问上下文窗口从 12000 字符扩展到 15000 字符
+- **请求计时**：Web 端分析和问答请求增加耗时日志，API 返回 `elapsed_seconds`
+- **版本升级**：统一版本号至 `0.6.0`
+
+### v0.5.2
+- 初始支持 `.txt` / `.pdf` / `.docx` / `.pptx` 四种格式
+- Web 端并发分析、Mermaid 可视化、批判性评价
+- 页面 UI：GitHub 链接、AI 标签、深浅色主题
 
 ## 📄 License
 MIT
