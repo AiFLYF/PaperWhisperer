@@ -1,29 +1,40 @@
+import json
+import logging
 import os
 import re
 import time
+import unicodedata
 import uuid
 import threading
 import concurrent.futures
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify
-from werkzeug.utils import secure_filename
+
+import uvicorn
+from fastapi import FastAPI, File, Form, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.templating import Jinja2Templates
 from openai import OpenAI
 from PyPDF2 import PdfReader
 from docx import Document
 from pptx import Presentation
+
 from env_loader import load_project_env
 
 
 load_project_env()
 
-app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['OUTPUT_FOLDER'] = 'output'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max limit
-app.config['CONTEXT_FOLDER'] = 'context'
+logger = logging.getLogger(__name__)
+
+UPLOAD_FOLDER = "uploads"
+OUTPUT_FOLDER = "output"
+CONTEXT_FOLDER = "context"
+MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max limit
+
+app = FastAPI(title="PaperWhisperer")
+templates = Jinja2Templates(directory="templates")
 
 # Ensure required folders exist
-for folder in [app.config['UPLOAD_FOLDER'], app.config['OUTPUT_FOLDER'], app.config['CONTEXT_FOLDER']]:
+for folder in [UPLOAD_FOLDER, OUTPUT_FOLDER, CONTEXT_FOLDER]:
     os.makedirs(folder, exist_ok=True)
 
 
@@ -70,6 +81,21 @@ def is_allowed_file(filename):
     return os.path.splitext(filename)[1].lower() in ALLOWED_EXTENSIONS
 
 
+def secure_filename(filename):
+    value = unicodedata.normalize("NFKD", str(filename)).encode("ascii", "ignore").decode("ascii")
+    value = value.replace("/", " ").replace("\\", " ")
+    value = "_".join(value.split())
+    value = re.sub(r"[^A-Za-z0-9_.-]", "", value)
+    value = re.sub(r"_+", "_", value)
+    value = value.strip("._")
+    if os.name == "nt" and value and value.split(".")[0].upper() in {
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    }:
+        value = f"_{value}"
+    return value
+
+
 def sanitize_identifier(raw_value, prefix):
     candidate = secure_filename((raw_value or "").strip())
     return candidate or f"{prefix}_{uuid.uuid4().hex}"
@@ -97,6 +123,66 @@ def clean_extracted_text(text):
     # Strip leading/trailing whitespace per line
     lines = [line.strip() for line in text.split('\n')]
     return '\n'.join(lines).strip()
+
+
+def get_session_file_path(session_id):
+    return os.path.join(CONTEXT_FOLDER, f"{session_id}.json")
+
+
+def build_document_excerpt(content, limit=12000):
+    return (content or "")[:limit]
+
+
+def trim_text_for_log(text, limit=2000):
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "\n...[truncated]"
+
+
+def build_session_payload(session_id, source_filename, document_content, analysis):
+    generated_at = datetime.now().isoformat(timespec="seconds")
+    return {
+        "session_id": session_id,
+        "source_filename": source_filename,
+        "generated_at": generated_at,
+        "document_content": document_content,
+        "document_excerpt": build_document_excerpt(document_content),
+        "qa_history": [],
+        "analysis": {
+            "summary": analysis.get("summary", ""),
+            "quotes": analysis.get("quotes", ""),
+            "mindmap": analysis.get("mindmap", ""),
+            "mermaid": analysis.get("mermaid", ""),
+            "evaluation": analysis.get("evaluation", ""),
+            "char_count": analysis.get("char_count", 0),
+            "elapsed_seconds": analysis.get("elapsed_seconds"),
+            "output_file": analysis.get("output_file", ""),
+        },
+    }
+
+
+def write_session_payload(session_id, payload):
+    with open(get_session_file_path(session_id), "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def load_session_payload(session_id):
+    session_file = get_session_file_path(session_id)
+    if not os.path.exists(session_file):
+        return None
+    with open(session_file, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, dict):
+        return None
+    payload.setdefault("document_content", "")
+    payload.setdefault("document_excerpt", build_document_excerpt(payload.get("document_content", "")))
+    payload.setdefault("qa_history", [])
+    payload.setdefault("analysis", {})
+    payload.setdefault("source_filename", "")
+    payload.setdefault("session_id", session_id)
+    payload.setdefault("generated_at", datetime.now().isoformat(timespec="seconds"))
+    return payload
 
 
 class TextChunker:
@@ -460,19 +546,55 @@ graph TD
 """
         return self._call_llm(system_prompt, user_prompt)
 
-    def answer_question(self, question):
+    def answer_question(self, question, history=None):
         if not self.document_content:
             return "没有文档内容，请先上传文档进行分析。"
+
+        history = history or []
+        document_budget = 12000
+        total_history_budget = 8000
+        per_turn_budget = 2400
+        document_window = (self.document_content or "")[:document_budget]
+
+        history_sections = []
+        used_history_chars = 0
+        for turn in reversed(history):
+            question_text = trim_text_for_log(turn.get("question", ""), limit=400)
+            answer_text = trim_text_for_log(turn.get("answer", ""), limit=800)
+            if not question_text and not answer_text:
+                continue
+
+            section = f"Q: {question_text}\nA: {answer_text}"
+            section_length = len(section)
+            if section_length > per_turn_budget:
+                section = section[:per_turn_budget].rstrip() + "\n...[truncated]"
+                section_length = len(section)
+
+            if used_history_chars + section_length > total_history_budget:
+                break
+
+            history_sections.append(section)
+            used_history_chars += section_length
+
+        history_sections.reverse()
+        history_block = "\n\n---\n\n".join(history_sections)
+
         system_prompt = (
-            "你是专业学术助手。请只基于给定文档内容回答问题，"
+            "你是专业学术助手。请优先基于给定文档内容回答问题，"
             "若文档中没有答案，请明确说明。"
+            "可以参考此前问答历史来理解上下文，但不要把历史结论当作高于文档的事实来源。"
+            "避免重复复述已经确认过的文档段落。"
             "如涉及公式，请严格使用 $...$ (行内) 或 $$...$$ (块级) 包裹。"
         )
-        user_prompt = (
-            f"文档内容:\n{self.document_content[:15000]}\n\n"
-            f"用户问题:\n{question}\n\n"
-            "请给出简洁、准确的中文回答。"
-        )
+
+        user_prompt_parts = [
+            f"文档内容（节选）:\n{document_window}",
+        ]
+        if history_block:
+            user_prompt_parts.append(f"最近问答历史:\n{history_block}")
+        user_prompt_parts.append(f"用户当前问题:\n{question}")
+        user_prompt_parts.append("请给出简洁、准确的中文回答；如果是在追问，请延续上下文但不要重复长段原文。")
+        user_prompt = "\n\n".join(user_prompt_parts)
         return self._call_llm(system_prompt, user_prompt)
 
     def analyze(self, file_path, generate_mermaid=True, generate_evaluation=True):
@@ -508,54 +630,63 @@ graph TD
 
         elapsed = time.time() - t_start
         result['elapsed_seconds'] = round(elapsed, 1)
-        app.logger.info(f"Analysis completed in {elapsed:.1f}s for {os.path.basename(file_path)} ({len(content)} chars)")
+        logger.info(f"Analysis completed in {elapsed:.1f}s for {os.path.basename(file_path)} ({len(content)} chars)")
 
         return result
 
 # ================= 路由控制 =================
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+@app.get("/", response_class=HTMLResponse)
+async def index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
-@app.route('/api/analyze', methods=['POST'])
-def analyze():
+
+@app.post("/api/analyze")
+async def analyze(
+    file: UploadFile | None = File(None),
+    api_key: str = Form(""),
+    generate_mermaid: str | None = Form(None),
+    generate_evaluation: str | None = Form(None),
+    session_id: str = Form(""),
+):
     file_path = None
 
-    if 'file' not in request.files:
-        return jsonify({'error': 'Please upload a file.'}), 400
+    if file is None:
+        return JSONResponse(content={"error": "Please upload a file."}, status_code=400)
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'Please select a file.'}), 400
+    if file.filename == "":
+        return JSONResponse(content={"error": "Please select a file."}, status_code=400)
     if not is_allowed_file(file.filename):
-        return jsonify({'error': f'Unsupported file type. Please upload one of: {SUPPORTED_FILE_TYPES_TEXT}'}), 400
+        return JSONResponse(
+            content={"error": f"Unsupported file type. Please upload one of: {SUPPORTED_FILE_TYPES_TEXT}"},
+            status_code=400,
+        )
 
     try:
         original_filename = build_safe_upload_filename(file.filename)
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], original_filename)
-        file.save(file_path)
+        file_path = os.path.join(UPLOAD_FOLDER, original_filename)
 
-        generate_mermaid = parse_bool_value(request.form.get('generate_mermaid'), default=True)
-        generate_evaluation = parse_bool_value(request.form.get('generate_evaluation'), default=True)
+        with open(file_path, "wb") as f:
+            f.write(await file.read())
 
-        api_key = resolve_api_key(request.form.get('api_key', ''))
-        if not api_key:
-            return jsonify({'error': 'API key is required. Provide api_key or set OPENAI_API_KEY.'}), 400
+        generate_mermaid_bool = parse_bool_value(generate_mermaid, default=True)
+        generate_evaluation_bool = parse_bool_value(generate_evaluation, default=True)
 
-        whisperer = PaperWhisperer(api_key)
-        result = whisperer.analyze(file_path, generate_mermaid, generate_evaluation)
+        resolved_api_key = resolve_api_key(api_key)
+        if not resolved_api_key:
+            return JSONResponse(
+                content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."},
+                status_code=400,
+            )
 
-        raw_session_id = request.form.get('session_id', '')
-        safe_session_id = sanitize_identifier(raw_session_id, "session")
+        whisperer = PaperWhisperer(resolved_api_key)
+        result = whisperer.analyze(file_path, generate_mermaid_bool, generate_evaluation_bool)
 
-        context_file = os.path.join(app.config['CONTEXT_FOLDER'], f"{safe_session_id}.txt")
-        with open(context_file, 'w', encoding='utf-8') as f:
-            f.write(whisperer.document_content)
+        safe_session_id = sanitize_identifier(session_id, "session")
 
         base_name = os.path.splitext(original_filename)[0]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = os.path.join(app.config['OUTPUT_FOLDER'], f"{base_name}_analysis_{timestamp}.md")
+        output_file = os.path.join(OUTPUT_FOLDER, f"{base_name}_analysis_{timestamp}.md")
 
         md_content = f"""# PaperWhisperer 分析报告
 
@@ -585,72 +716,109 @@ def analyze():
 
 """
 
-        if generate_evaluation:
+        if generate_evaluation_bool:
             md_content += f"## 论文评价\n\n{result.get('evaluation', '')}\n\n---\n"
 
         md_content += f"## 元信息\n\n- 版本: {whisperer.version}\n- 字符数: {result['char_count']}\n"
 
-        with open(output_file, 'w', encoding='utf-8') as f:
+        with open(output_file, "w", encoding="utf-8") as f:
             f.write(md_content)
 
-        result['output_file'] = output_file
-        result['session_id'] = safe_session_id
+        result["output_file"] = output_file
+        result["session_id"] = safe_session_id
 
-        return jsonify(result)
+        session_payload = build_session_payload(
+            session_id=safe_session_id,
+            source_filename=original_filename,
+            document_content=whisperer.document_content,
+            analysis=result,
+        )
+        write_session_payload(safe_session_id, session_payload)
+
+        return JSONResponse(content=result)
 
     except Exception as e:
-        app.logger.exception("Document analysis failed")
-        return jsonify({'error': str(e)}), 500
+        logger.exception("Document analysis failed")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
     finally:
+        if file:
+            await file.close()
         if file_path and os.path.exists(file_path):
             try:
                 os.remove(file_path)
-            except:
+            except Exception:
                 pass
 
-@app.route('/api/ask', methods=['POST'])
-def ask_question():
-    data = request.get_json(silent=True) or {}
-    if not isinstance(data, dict):
-        return jsonify({'error': 'JSON body must be an object.'}), 400
 
-    question = data.get('question', '').strip()
-    raw_session_id = data.get('session_id', '')
+@app.post("/api/ask")
+async def ask_question(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    data = data or {}
+    if not isinstance(data, dict):
+        return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+
+    question = data.get("question", "").strip()
+    raw_session_id = data.get("session_id", "")
 
     if not question:
-        return jsonify({'error': 'Please enter a question.'}), 400
+        return JSONResponse(content={"error": "Please enter a question."}, status_code=400)
 
     safe_session_id = sanitize_identifier(raw_session_id, "session")
 
-    api_key = resolve_api_key(data.get('api_key', ''))
-    if not api_key:
-        return jsonify({'error': 'API key is required. Provide api_key or set OPENAI_API_KEY.'}), 400
+    resolved_api_key = resolve_api_key(data.get("api_key", ""))
+    if not resolved_api_key:
+        return JSONResponse(
+            content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."},
+            status_code=400,
+        )
 
     try:
-        context_file = os.path.join(app.config['CONTEXT_FOLDER'], f"{safe_session_id}.txt")
-        if not os.path.exists(context_file):
-            return jsonify({'error': 'Session expired or context not found. Please upload and analyze the file again.'}), 400
+        session_payload = load_session_payload(safe_session_id)
+        if not session_payload:
+            return JSONResponse(
+                content={"error": "Session expired or context not found. Please upload and analyze the file again."},
+                status_code=400,
+            )
 
-        with open(context_file, 'r', encoding='utf-8') as f:
-            content = f.read()
-
-        whisperer = PaperWhisperer(api_key)
-        whisperer.document_content = content
+        whisperer = PaperWhisperer(resolved_api_key)
+        whisperer.document_content = session_payload.get("document_content", "")
 
         t_start = time.time()
-        answer = whisperer.answer_question(question)
+        answer = whisperer.answer_question(question, history=session_payload.get("qa_history", []))
         elapsed = time.time() - t_start
-        app.logger.info(f"Q&A completed in {elapsed:.1f}s for session {safe_session_id}")
 
-        return jsonify({'answer': answer})
+        qa_history = session_payload.get("qa_history", [])
+        qa_history.append({
+            "question": question,
+            "answer": answer,
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+        })
+        session_payload["qa_history"] = qa_history
+        session_payload["document_excerpt"] = build_document_excerpt(session_payload.get("document_content", ""))
+        write_session_payload(safe_session_id, session_payload)
+
+        logger.info(f"Q&A completed in {elapsed:.1f}s for session {safe_session_id}")
+        return JSONResponse(content={"answer": answer})
 
     except Exception as e:
-        app.logger.exception("Question answering failed")
-        return jsonify({'error': str(e)}), 500
+        logger.exception("Question answering failed")
+        return JSONResponse(content={"error": str(e)}, status_code=500)
 
-if __name__ == '__main__':
-    app.run(
-        host=os.getenv("FLASK_HOST", "0.0.0.0"),
-        port=parse_int_env("FLASK_PORT", default=5000, min_value=1, max_value=65535),
-        debug=parse_bool_env("FLASK_DEBUG", default=False),
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+
+    host = os.getenv("FASTAPI_HOST") or os.getenv("FLASK_HOST", "0.0.0.0")
+    port = parse_int_env(
+        "FASTAPI_PORT",
+        default=parse_int_env("FLASK_PORT", default=5000, min_value=1, max_value=65535),
+        min_value=1,
+        max_value=65535,
     )
+    reload_enabled = parse_bool_env("FASTAPI_RELOAD", default=parse_bool_env("FLASK_DEBUG", default=False))
+
+    uvicorn.run("web_app:app", host=host, port=port, reload=reload_enabled)

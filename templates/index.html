@@ -289,6 +289,14 @@
             justify-content: space-between;
             gap: 12px;
             flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .file-info-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
         }
 
         .result-section { display: none; opacity: 0; transition: opacity 0.5s ease; }
@@ -332,10 +340,32 @@
         .content h1, .content h2, .content h3 { font-weight: 600; margin: 1.5em 0 0.8em; letter-spacing: -0.3px; }
         .content ul, .content ol { padding-left: 20px; margin-bottom: 1.2em; }
         .content li { margin-bottom: 0.4em; }
-        .content code { font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.85em; background: var(--input-bg); padding: 0.2em 0.4em; border-radius: 4px; }
-        .content pre { background: var(--code-bg); color: #f5f5f7; padding: 16px; border-radius: var(--radius-md); overflow-x: auto; margin-bottom: 1.2em; font-size: 0.9em; }
-        .content pre code { background: transparent; padding: 0; color: inherit; }
+        .content code { font-family: "SFMono-Regular", Consolas, monospace; font-size: 0.85em; background: var(--input-bg); padding: 0.2em 0.4em; border-radius: 4px; word-break: break-word; }
+        .content pre { background: var(--code-bg); color: #f5f5f7; padding: 16px; border-radius: var(--radius-md); overflow-x: auto; margin-bottom: 1.2em; font-size: 0.9em; white-space: pre-wrap; word-break: break-word; }
+        .content pre code { background: transparent; padding: 0; color: inherit; word-break: break-word; }
         .content blockquote { border-left: 3px solid var(--quote-border); padding-left: 16px; color: var(--text-secondary); margin-bottom: 1.2em; background: var(--quote-bg); padding: 12px 16px; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-style: italic; }
+        .content table { width: 100%; border-collapse: collapse; margin-bottom: 1.2em; display: block; overflow-x: auto; }
+        .content th, .content td { border: 1px solid var(--border-color); padding: 8px 10px; text-align: left; }
+        .content hr { border: 0; border-top: 1px solid var(--border-color); margin: 1.2em 0; }
+        .content .prompt-block {
+            border: 1px solid var(--border-color);
+            background: var(--input-bg);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            margin-bottom: 1.2em;
+        }
+        .content .prompt-block-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--primary-color);
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .content .prompt-block-body {
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
         .empty-state { color: var(--text-secondary); font-style: italic; }
 
         .ask-section { margin-top: 40px; }
@@ -348,8 +378,10 @@
         .chat-question { background: var(--chat-user); align-self: flex-end; border-bottom-right-radius: 4px; color: var(--text-primary); }
         .chat-answer { background: var(--chat-assistant); align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid var(--border-color); width: 100%; max-width: 100%; }
         .chat-error { border-color: rgba(217, 72, 15, 0.18); background: rgba(217, 72, 15, 0.08); }
-        .chat-header { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; display: flex; justify-content: space-between; align-items: center; }
+        .chat-header { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; font-weight: 500; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
         .chat-text { white-space: pre-wrap; word-break: break-word; }
+        .answer-content { overflow-wrap: anywhere; }
+        .answer-content > *:last-child { margin-bottom: 0; }
         
         .action-btn {
             background: transparent;
@@ -505,19 +537,36 @@
         
         <div class="result-section" id="result">
             <div class="file-info" id="fileInfo"></div>
-            
+
             <div class="result-card">
-                <h3 class="section-title">Overview</h3>
+                <div class="section-header">
+                    <h3 class="section-title">Session Export</h3>
+                    <button class="action-btn" type="button" id="exportBtn" onclick="exportSessionReport()" disabled>下载完整结果</button>
+                </div>
+                <div class="content"><p class="empty-state">Export the current analysis, Q&A history, and Mermaid assets after a successful run.</p></div>
+            </div>
+
+            <div class="result-card">
+                <div class="section-header">
+                    <h3 class="section-title">Overview</h3>
+                    <button class="action-btn" type="button" onclick="copyText('summary', this)">Copy</button>
+                </div>
                 <div class="content" id="summary"></div>
             </div>
-            
+
             <div class="result-card">
-                <h3 class="section-title">Key Citations</h3>
+                <div class="section-header">
+                    <h3 class="section-title">Key Citations</h3>
+                    <button class="action-btn" type="button" onclick="copyText('quotes', this)">Copy</button>
+                </div>
                 <div class="content" id="quotes"></div>
             </div>
-            
+
             <div class="result-card">
-                <h3 class="section-title">Text Structure</h3>
+                <div class="section-header">
+                    <h3 class="section-title">Text Structure</h3>
+                    <button class="action-btn" type="button" onclick="copyText('mindmap', this)">Copy</button>
+                </div>
                 <div class="content" id="mindmap"></div>
             </div>
             
@@ -537,7 +586,10 @@
             </div>
             
             <div class="result-card" id="evaluationCard">
-                <h3 class="section-title">Evaluation</h3>
+                <div class="section-header">
+                    <h3 class="section-title">Evaluation</h3>
+                    <button class="action-btn" type="button" onclick="copyText('evaluation', this)">Copy</button>
+                </div>
                 <div class="content" id="evaluation"></div>
             </div>
             
@@ -580,6 +632,11 @@
         let askController = null;
         let analyzeRequestId = 0;
         let askRequestId = 0;
+        let currentAnalysisResult = null;
+        let currentSourceFileName = '';
+        let currentElapsedSeconds = null;
+        let currentOutputFile = '';
+        let currentChatTurns = [];
 
         const THEME_STORAGE_KEY = 'paperwhisperer-theme';
         const SECTION_EMPTY_TEXT = {
@@ -712,6 +769,14 @@
             return container.innerHTML;
         }
 
+        function transformPromptTags(content) {
+            return String(content).replace(/<(role|context|task|constraints|output_format|input|self_check)>\s*([\s\S]*?)\s*<\/\1>/gi, (_, tag, body) => {
+                const safeTag = escapeHtml(tag.replace(/_/g, ' '));
+                const safeBody = escapeHtml(body.trim());
+                return `\n\n<div class="prompt-block"><div class="prompt-block-title">${safeTag}</div><div class="prompt-block-body">${safeBody}</div></div>\n\n`;
+            });
+        }
+
         function renderMath(element) {
             try {
                 renderMathInElement(element, {
@@ -734,7 +799,8 @@
                 return `<p class="empty-state">${escapeHtml(fallbackText || 'No content available.')}</p>`;
             }
 
-            let processedContent = String(content);
+            let processedContent = String(content).replace(/\r\n/g, '\n');
+            processedContent = transformPromptTags(processedContent);
             processedContent = processedContent.replace(/\\\[([\s\S]*?)\\\]/g, (_, expr) => `$$${expr}$$`);
             processedContent = processedContent.replace(/\\\(([\s\S]*?)\\\)/g, (_, expr) => `$${expr}$`);
 
@@ -745,7 +811,7 @@
                 const token = `@@MATHBLOCK${counter}@@`;
                 mathTokens[token] = match;
                 counter += 1;
-                return `\n${token}\n`;
+                return `\n\n${token}\n\n`;
             });
 
             processedContent = processedContent.replace(/\$((?!\s)[^$]+?(?!\s))\$/g, match => {
@@ -755,7 +821,7 @@
                 return token;
             });
 
-            let htmlContent = marked.parse(escapeHtml(processedContent));
+            let htmlContent = marked.parse(processedContent);
             Object.entries(mathTokens).forEach(([token, mathStr]) => {
                 const blockPattern = new RegExp(`<p>${token}</p>`, 'g');
                 if (blockPattern.test(htmlContent)) {
@@ -771,12 +837,29 @@
         function setSectionContent(id, value) {
             const element = document.getElementById(id);
             if (!element) return;
+            element.dataset.rawContent = value || '';
             element.innerHTML = formatContent(value, SECTION_EMPTY_TEXT[id]);
             renderMath(element);
         }
 
         function clearChatHistory() {
             document.getElementById('chatHistory').innerHTML = '';
+        }
+
+        function setExportEnabled(enabled) {
+            const exportBtn = document.getElementById('exportBtn');
+            if (exportBtn) {
+                exportBtn.disabled = !enabled;
+            }
+        }
+
+        function resetExportState() {
+            currentAnalysisResult = null;
+            currentSourceFileName = '';
+            currentElapsedSeconds = null;
+            currentOutputFile = '';
+            currentChatTurns = [];
+            setExportEnabled(false);
         }
 
         function resetPanZoom() {
@@ -801,6 +884,7 @@
             document.getElementById('evaluationCard').style.display = '';
             clearChatHistory();
             resetMermaidCard();
+            resetExportState();
         }
 
         function updateFileMeta() {
@@ -833,11 +917,15 @@
             strong.textContent = fileName;
             left.appendChild(strong);
 
-            const right = document.createElement('span');
-            right.textContent = `Tokens/Chars: ${charCount || 'N/A'}`;
+            const actions = document.createElement('div');
+            actions.className = 'file-info-actions';
 
+            const stats = document.createElement('span');
+            stats.textContent = `Tokens/Chars: ${charCount || 'N/A'}`;
+
+            actions.appendChild(stats);
             fileInfo.appendChild(left);
-            fileInfo.appendChild(right);
+            fileInfo.appendChild(actions);
         }
 
         function showError(message) {
@@ -983,6 +1071,13 @@
                 setSectionContent('evaluation', data.evaluation);
                 document.getElementById('evaluationCard').style.display = generateEvaluation ? 'block' : 'none';
 
+                currentAnalysisResult = data;
+                currentSessionId = data.session_id || currentSessionId;
+                currentSourceFileName = file.name;
+                currentElapsedSeconds = data.elapsed_seconds ?? null;
+                currentOutputFile = data.output_file || '';
+                currentChatTurns = [];
+
                 if (generateMermaid && data.mermaid) {
                     await new Promise(resolve => requestAnimationFrame(resolve));
                     await renderMermaidDiagram(data.mermaid);
@@ -990,6 +1085,7 @@
                     resetMermaidCard();
                 }
 
+                setExportEnabled(true);
                 askBtn.disabled = false;
                 updateStatus('Analysis ready for follow-up questions', 'success');
             } catch (error) {
@@ -1019,8 +1115,14 @@
             header.textContent = role;
 
             const body = document.createElement('div');
-            body.className = 'chat-text';
-            body.textContent = message;
+            body.className = className.includes('chat-answer') ? 'chat-text content' : 'chat-text';
+            if (className.includes('chat-answer')) {
+                body.dataset.rawContent = message || '';
+                body.innerHTML = formatContent(message, 'No content available.');
+                renderMath(body);
+            } else {
+                body.textContent = message;
+            }
 
             item.appendChild(header);
             item.appendChild(body);
@@ -1058,6 +1160,7 @@
             const content = document.createElement('div');
             content.id = answerId;
             content.className = 'answer-content content';
+            content.dataset.rawContent = answer || '';
             content.innerHTML = formatContent(answer, 'No answer available.');
 
             header.appendChild(title);
@@ -1115,6 +1218,11 @@
                 }
 
                 appendAnswer(data.answer);
+                currentChatTurns.push({
+                    question,
+                    answer: data.answer || '',
+                    timestamp: new Date().toISOString()
+                });
                 updateStatus('Answer ready', 'success');
             } catch (error) {
                 if (error.name === 'AbortError') {
@@ -1145,35 +1253,187 @@
         async function copyText(elementId, btnElement) {
             const content = document.getElementById(elementId);
             if (!content) return;
+
+            const rawText = (content.dataset && typeof content.dataset.rawContent === 'string')
+                ? content.dataset.rawContent
+                : '';
+            const text = (rawText || content.innerText || content.textContent || '').trim();
+            if (!text) return;
+
+            const originalText = btnElement.innerText;
             try {
-                await navigator.clipboard.writeText(content.innerText.trim());
-                const originalText = btnElement.innerText;
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(text);
+                } else {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = text;
+                    textarea.setAttribute('readonly', '');
+                    textarea.style.position = 'fixed';
+                    textarea.style.opacity = '0';
+                    document.body.appendChild(textarea);
+                    textarea.focus();
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                }
                 btnElement.innerText = 'Copied';
-                setTimeout(() => { btnElement.innerText = originalText; }, 1600);
             } catch (error) {
                 console.warn('Copy failed:', error);
+                btnElement.innerText = 'Copy failed';
             }
+            setTimeout(() => { btnElement.innerText = originalText; }, 1600);
         }
 
         function zoomIn() { if (panZoomInstance) panZoomInstance.zoomIn(); }
         function zoomOut() { if (panZoomInstance) panZoomInstance.zoomOut(); }
         function zoomReset() { if (panZoomInstance) { panZoomInstance.resetZoom(); panZoomInstance.center(); } }
 
-        function downloadMermaidSVG() {
+        function getCurrentSvgSource() {
             const svgElement = document.querySelector('#mermaidChart svg');
-            if (!svgElement) return;
+            if (!svgElement) return '';
             const serializer = new XMLSerializer();
             let source = serializer.serializeToString(svgElement);
             if (!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
             if (!source.match(/^<svg[^>]+"http\:\/\/www\.w3\.org\/1999\/xlink"/)) source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
-            source = '<?xml version="1.0" standalone="no"?>\r\n' + source;
-            const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(source);
+            return '<?xml version="1.0" standalone="no"?>\r\n' + source;
+        }
+
+        function triggerTextDownload(fileName, content, mimeType = 'text/plain;charset=utf-8') {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `paper_map_${Date.now()}.svg`;
+            a.download = fileName;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+        }
+
+        function sanitizeFileStem(name) {
+            return String(name || 'paperwhisperer_session')
+                .replace(/\.[^.]+$/, '')
+                .replace(/[^\w\u4e00-\u9fa5-]+/g, '_')
+                .replace(/^_+|_+$/g, '') || 'paperwhisperer_session';
+        }
+
+        function formatExportTimestamp(value) {
+            const date = value ? new Date(value) : new Date();
+            if (Number.isNaN(date.getTime())) {
+                return new Date().toLocaleString();
+            }
+            return date.toLocaleString();
+        }
+
+        function buildSessionMarkdown() {
+            if (!currentAnalysisResult) return '';
+
+            const reportTime = new Date();
+            const svgSource = getCurrentSvgSource();
+            const fileStem = sanitizeFileStem(currentSourceFileName || currentAnalysisResult.session_id || 'paperwhisperer_session');
+            const svgFileName = `${fileStem}_visual_map.svg`;
+            const lines = [
+                '# PaperWhisperer Session Report',
+                '',
+                '> Rich export of the current analysis session, including follow-up Q&A and visual assets.',
+                '',
+                '---',
+                '',
+                '## Session Overview',
+                '',
+                '| Item | Value |',
+                '| --- | --- |',
+                `| Source file | ${currentSourceFileName || 'N/A'} |`,
+                `| Session ID | ${currentAnalysisResult.session_id || currentSessionId || 'N/A'} |`,
+                `| Generated at | ${formatExportTimestamp(reportTime.toISOString())} |`,
+                `| Analysis duration | ${currentElapsedSeconds ?? 'N/A'} s |`,
+                `| Character count | ${currentAnalysisResult.char_count ?? 'N/A'} |`,
+                `| Backend archive | ${currentOutputFile || 'N/A'} |`,
+                '',
+                '---',
+                '',
+                '## Overview',
+                '',
+                currentAnalysisResult.summary || '_No summary generated._',
+                '',
+                '---',
+                '',
+                '## Key Citations',
+                '',
+                currentAnalysisResult.quotes || '_No citations generated._',
+                '',
+                '---',
+                '',
+                '## Text Structure',
+                '',
+                currentAnalysisResult.mindmap || '_No text structure generated._'
+            ];
+
+            if (currentAnalysisResult.evaluation) {
+                lines.push('', '---', '', '## Evaluation', '', currentAnalysisResult.evaluation);
+            }
+
+            if (currentMermaidSource) {
+                lines.push(
+                    '',
+                    '---',
+                    '',
+                    '## Mermaid Source',
+                    '',
+                    '```mermaid',
+                    currentMermaidSource,
+                    '```'
+                );
+
+                if (svgSource) {
+                    lines.push(
+                        '',
+                        '### Visual Map SVG',
+                        '',
+                        `The rendered SVG is exported as a companion file: \`${svgFileName}\`.`
+                    );
+                }
+            }
+
+            if (currentChatTurns.length) {
+                lines.push('', '---', '', '## Ask Questions', '');
+                currentChatTurns.forEach((turn, index) => {
+                    lines.push(
+                        `### Q${index + 1}`,
+                        '',
+                        turn.question || '_No question text._',
+                        '',
+                        `### A${index + 1}`,
+                        '',
+                        turn.answer || '_No answer text._',
+                        ''
+                    );
+                });
+            }
+
+            lines.push('', '---', '', '## Export Metadata', '', `- App: PaperWhisperer`, `- Session export time: ${formatExportTimestamp(reportTime.toISOString())}`);
+            return lines.join('\n');
+        }
+
+        function exportSessionReport() {
+            if (!currentAnalysisResult) return;
+
+            const fileStem = sanitizeFileStem(currentSourceFileName || currentAnalysisResult.session_id || 'paperwhisperer_session');
+            const markdown = buildSessionMarkdown();
+            if (!markdown) return;
+
+            triggerTextDownload(`${fileStem}_session_report.md`, markdown, 'text/markdown;charset=utf-8');
+
+            const svgSource = getCurrentSvgSource();
+            if (svgSource) {
+                triggerTextDownload(`${fileStem}_visual_map.svg`, svgSource, 'image/svg+xml;charset=utf-8');
+            }
+        }
+
+        function downloadMermaidSVG() {
+            const svgSource = getCurrentSvgSource();
+            if (!svgSource) return;
+            triggerTextDownload(`paper_map_${Date.now()}.svg`, svgSource, 'image/svg+xml;charset=utf-8');
         }
     </script>
 </body>
