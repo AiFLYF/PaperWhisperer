@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import time
 import threading
@@ -50,6 +51,19 @@ MAX_LLM_CONCURRENCY = parse_int_env("OPENAI_MAX_CONCURRENCY", default=5, min_val
 LLM_REQUEST_SEMAPHORE = threading.BoundedSemaphore(MAX_LLM_CONCURRENCY)
 
 
+def clean_extracted_text(text):
+    """Clean extracted text: collapse excessive blank lines and trim whitespace."""
+    if not text:
+        return ""
+    # Collapse 3+ consecutive newlines into 2
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    # Collapse runs of whitespace (excluding newlines) into single space
+    text = re.sub(r'[^\S\n]+', ' ', text)
+    # Strip leading/trailing whitespace per line
+    lines = [line.strip() for line in text.split('\n')]
+    return '\n'.join(lines).strip()
+
+
 class TextChunker:
     def __init__(self, chunk_size=4000, overlap=200):
         if chunk_size <= 0:
@@ -74,12 +88,16 @@ class TextChunker:
             chunk = text[start:end]
 
             if end < text_length:
-                last_period = chunk.rfind("。")
-                last_newline = chunk.rfind("\n")
-                split_pos = max(last_period, last_newline)
-                if split_pos > self.chunk_size // 2:
-                    chunk = chunk[: split_pos + 1]
-                    end = start + split_pos + 1
+                # Try sentence boundaries: Chinese period, English period+space, newline
+                best_pos = -1
+                for sep in ('。', '. ', '\n'):
+                    pos = chunk.rfind(sep)
+                    if pos > best_pos:
+                        best_pos = pos
+
+                if best_pos > self.chunk_size // 2:
+                    chunk = chunk[: best_pos + 1]
+                    end = start + best_pos + 1
 
             chunk = chunk.strip()
             if chunk:
@@ -111,8 +129,24 @@ class DocumentLoader:
             raise ValueError("python-docx is not installed. Please install dependencies first.")
         try:
             doc = Document(file_path)
-            paragraphs = [p.text.strip() for p in doc.paragraphs if p.text and p.text.strip()]
-            return "\n\n".join(paragraphs).strip()
+            parts = []
+
+            # Extract paragraphs
+            for p in doc.paragraphs:
+                text = p.text.strip()
+                if text:
+                    parts.append(text)
+
+            # Extract tables
+            for table_index, table in enumerate(doc.tables, start=1):
+                rows_text = []
+                for row in table.rows:
+                    cells = [cell.text.strip() for cell in row.cells]
+                    rows_text.append(" | ".join(cells))
+                if rows_text:
+                    parts.append(f"[Table {table_index}]\n" + "\n".join(rows_text))
+
+            return "\n\n".join(parts).strip()
         except Exception as exc:
             raise ValueError(f"Failed to read DOCX: {exc}") from exc
 
@@ -129,6 +163,13 @@ class DocumentLoader:
                     text = getattr(shape, "text", "")
                     if text and text.strip():
                         shape_texts.append(text.strip())
+
+                # Extract slide notes
+                if slide.has_notes_slide and slide.notes_slide.notes_text_frame:
+                    notes = slide.notes_slide.notes_text_frame.text.strip()
+                    if notes:
+                        shape_texts.append(f"[Notes] {notes}")
+
                 if shape_texts:
                     slides_text.append(f"[Slide {slide_index}]\n" + "\n".join(shape_texts))
             return "\n\n".join(slides_text).strip()
@@ -147,13 +188,14 @@ class DocumentLoader:
         loader = loaders.get(ext)
         if not loader:
             raise ValueError(f"Unsupported file type. Please use one of: {SUPPORTED_FILE_TYPES_TEXT}")
-        return loader(file_path)
+        raw_text = loader(file_path)
+        return clean_extracted_text(raw_text)
 
 
 class PaperWhisperer:
     def __init__(self, use_api=True, chunk_size=None, overlap=None):
         self.name = "PaperWhisperer"
-        self.version = "0.5.2"
+        self.version = "0.6.0"
         self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
@@ -161,6 +203,7 @@ class PaperWhisperer:
         self.max_retries = parse_int_env("OPENAI_MAX_RETRIES", default=3, min_value=1, max_value=10)
         self.max_concurrency = MAX_LLM_CONCURRENCY
         self.chunk_workers = min(3, self.max_concurrency)
+        self.analysis_workers = min(3, self.max_concurrency)
         self.chunker = TextChunker(
             chunk_size=chunk_size or 4000,
             overlap=overlap or 200,
@@ -323,13 +366,15 @@ class PaperWhisperer:
             "  - 价值与局限"
         )
 
-    def save_results(self, file_path, summary, quotes, mindmap):
+    def save_results(self, file_path, summary, quotes, mindmap, elapsed_seconds=None):
         output_dir = "output"
         os.makedirs(output_dir, exist_ok=True)
 
         base_name = os.path.splitext(os.path.basename(file_path))[0]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_file = os.path.join(output_dir, f"{base_name}_analysis_{timestamp}.md")
+
+        timing_line = f"- Elapsed: {elapsed_seconds:.1f}s\n" if elapsed_seconds is not None else ""
 
         content = (
             f"# {self.name} Analysis Report\n\n"
@@ -341,6 +386,7 @@ class PaperWhisperer:
             f"- API mode: {'enabled' if self.use_api else 'mock'}\n"
             f"- Model: {self.model if self.use_api else 'N/A'}\n"
             f"- Max concurrency: {self.max_concurrency}\n"
+            f"{timing_line}"
         )
 
         with open(output_file, "w", encoding="utf-8") as f:
@@ -384,19 +430,34 @@ class PaperWhisperer:
             print(f"[info] Model: {self.model}")
             print(f"[info] Max concurrency: {self.max_concurrency}")
 
+        t_start = time.time()
         content = self.load_document(file_path)
-        summary = self.generate_summary(content)
-        quotes = self.extract_quotes(content)
-        mindmap = self.generate_mindmap(content)
+
+        # Run analysis tasks concurrently
+        if self.use_api and self.analysis_workers > 1:
+            worker_count = self._get_worker_count(3, self.analysis_workers)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+                future_summary = executor.submit(self.generate_summary, content)
+                future_quotes = executor.submit(self.extract_quotes, content)
+                future_mindmap = executor.submit(self.generate_mindmap, content)
+
+                summary = future_summary.result()
+                quotes = future_quotes.result()
+                mindmap = future_mindmap.result()
+        else:
+            summary = self.generate_summary(content)
+            quotes = self.extract_quotes(content)
+            mindmap = self.generate_mindmap(content)
+
+        elapsed = time.time() - t_start
 
         print("\n" + summary)
         print("\n" + quotes)
         print("\n" + mindmap)
+        print(f"\n[info] Analysis complete in {elapsed:.1f}s.")
 
         if save_output:
-            self.save_results(file_path, summary, quotes, mindmap)
-
-        print("\n[info] Analysis complete.")
+            self.save_results(file_path, summary, quotes, mindmap, elapsed_seconds=elapsed)
 
 
 if __name__ == "__main__":
