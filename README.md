@@ -1,6 +1,6 @@
 ﻿# 📚 PaperWhisperer
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python) ![License](https://img.shields.io/badge/License-TIM-lightgrey) ![AI](https://img.shields.io/badge/AI--Powered-OpenAI-blueviolet) ![Version](https://img.shields.io/badge/version-0.6.0-green)
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python) ![License](https://img.shields.io/badge/License-TIM-lightgrey) ![AI](https://img.shields.io/badge/AI--Powered-OpenAI-blueviolet) ![Version](https://img.shields.io/badge/version-0.6.1-green)
 
 一个面向论文/文献阅读场景的 AI 助手。  
 上传 `.txt`、`.pdf`、`.docx` 或 `.pptx` 后，可自动生成结构化分析结果，并支持基于文档上下文继续追问。
@@ -11,7 +11,8 @@
 - 生成文本结构图（层级思维导图）
 - 可选生成 Mermaid 可视化图
 - 可选输出批判性评价
-- 支持“上传后追问”问答
+- 支持“上传后追问”问答，并保留最近多轮会话上下文
+- 支持导出完整会话结果（Markdown + Mermaid SVG）
 - 自动保存 Markdown 分析报告到 `output/`
 
 ## 🎯 适用人群
@@ -21,7 +22,7 @@
 
 ## 🧱 技术栈
 - Python 3.10+
-- Flask
+- FastAPI
 - OpenAI Python SDK（OpenAI 兼容接口）
 - PyPDF2
 - python-docx
@@ -53,6 +54,12 @@ OPENAI_MODEL=gpt-4o-mini
 OPENAI_MAX_CONCURRENCY=5
 OPENAI_REQUEST_TIMEOUT_SECONDS=60
 OPENAI_MAX_RETRIES=3
+FASTAPI_HOST=0.0.0.0
+FASTAPI_PORT=5000
+FASTAPI_RELOAD=false
+# 兼容旧配置（可选）
+FLASK_HOST=0.0.0.0
+FLASK_PORT=5000
 FLASK_DEBUG=false
 ```
 
@@ -64,6 +71,12 @@ $env:OPENAI_MODEL="gpt-4o-mini"
 $env:OPENAI_MAX_CONCURRENCY="5"
 $env:OPENAI_REQUEST_TIMEOUT_SECONDS="60"
 $env:OPENAI_MAX_RETRIES="3"
+$env:FASTAPI_HOST="0.0.0.0"
+$env:FASTAPI_PORT="5000"
+$env:FASTAPI_RELOAD="false"
+# 兼容旧配置（可选）
+$env:FLASK_HOST="0.0.0.0"
+$env:FLASK_PORT="5000"
 $env:FLASK_DEBUG="false"
 ```
 
@@ -72,13 +85,19 @@ $env:FLASK_DEBUG="false"
 - `OPENAI_MAX_CONCURRENCY` 控制全局大模型并发上限
 - `OPENAI_REQUEST_TIMEOUT_SECONDS` 控制单次请求超时
 - `OPENAI_MAX_RETRIES` 控制失败重试次数
-- `FLASK_DEBUG` 建议本地开发时再开启
+- `FASTAPI_RELOAD` 建议仅在本地开发时开启
+- 仍兼容 `FLASK_HOST` / `FLASK_PORT` / `FLASK_DEBUG` 作为回退配置
 
 ### 3. 启动 Web 应用
 ```bash
 python web_app.py
 ```
 浏览器访问：`http://localhost:5000`
+
+可选：直接使用 uvicorn 启动
+```bash
+uvicorn web_app:app --host 0.0.0.0 --port 5000
+```
 
 ### 4. （可选）运行命令行 Demo
 ```bash
@@ -90,7 +109,8 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 2. 上传 `.txt` / `.pdf` / `.docx` / `.pptx` 文档
 3. 点击 `Analyze Document`
 4. 查看摘要、引用、结构图、评价
-5. 在 “Ask Questions” 区域继续追问
+5. 在 “Ask Questions” 区域继续追问（会自动带入最近多轮问答上下文）
+6. 点击“下载完整结果”导出当前分析、问答记录与 Mermaid 资源
 
 ## 🔌 API 接口说明
 
@@ -109,6 +129,8 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 ### `POST /api/ask`
 基于已保存的文档上下文进行追问。
 
+说明：服务端会保存 `context/<session_id>.json`，其中包含该次分析对应文档的正文、分析结果摘要与问答历史。追问时只会使用当前 `session_id` 这一个文档会话里的 Ask Questions 历史，不会跨文档、不会做全局混用；同时会优先携带文档节选，并附加最近若干轮问答历史，而不是每轮重复塞入整篇文档。
+
 请求体示例：
 ```json
 {
@@ -121,14 +143,14 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 ## 🗂️ 项目结构
 ```text
 .
-├── web_app.py                # Flask 应用与 API 路由
+├── web_app.py                # FastAPI 应用与 API 路由
 ├── paper_whisperer_demo.py   # 命令行 Demo
 ├── templates/
 │   └── index.html            # Web 界面
 ├── requirements.txt
 ├── .env.example
 ├── uploads/                  # 运行时上传目录（已忽略）
-├── context/                  # 上下文缓存目录（已忽略）
+├── context/                  # 会话缓存目录（JSON，会保存文档、分析结果与问答历史，已忽略）
 └── output/                   # 分析结果目录（已忽略）
 ```
 
@@ -136,6 +158,7 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 - 代码中不再硬编码真实 API Key
 - `uploads/`、`context/`、`output/` 默认不提交到 Git
 - 临时上传文件在分析结束后会清理
+- Web 会话上下文保存在 `context/*.json`，便于多轮追问与完整结果导出
 - 支持“请求级 key”与“环境变量 key”两种模式
 
 ## ⚠️ 当前已知限制
@@ -146,12 +169,18 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 
 ## 📝 更新日志
 
+### v0.6.1
+- **多轮问答**：Web 端会话从纯文本升级为 `context/<session>.json`，追问会携带最近多轮问答历史
+- **上下文预算调整**：问答默认保留约 `12000` 字符文档窗口 + 约 `8000` 字符历史预算，单轮历史上限约 `2400` 字符
+- **完整导出**：新增“下载完整结果”，可导出当前分析、问答记录、Mermaid 源码，并在可用时额外导出 SVG
+- **导出版式优化**：导出的 Markdown 增加会话信息表、清晰章节与 Q/A 编号结构
+
 ### v0.6.0
 - **效率优化**：CLI Demo 分析任务（摘要/引用/导图）改为并发执行，速度提升 2-3x
 - **内容提取增强**：DOCX 新增表格提取，PPTX 新增备注页提取
 - **文本清洗**：新增 `clean_extracted_text()` 自动清理多余空行和冗余空白
 - **分块优化**：TextChunker 新增英文句号边界识别，中英文文档分块更精准
-- **问答能力**：追问上下文窗口从 12000 字符扩展到 15000 字符
+- **问答能力**：追问上下文窗口从 12000 字符扩展到 15000 字符（当时仅文档窗口）
 - **请求计时**：Web 端分析和问答请求增加耗时日志，API 返回 `elapsed_seconds`
 - **版本升级**：统一版本号至 `0.6.0`
 
