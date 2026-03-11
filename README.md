@@ -2,18 +2,20 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python) ![License](https://img.shields.io/badge/License-TIM-lightgrey) ![AI](https://img.shields.io/badge/AI--Powered-OpenAI-blueviolet) ![Version](https://img.shields.io/badge/version-0.6.1-green)
 
-一个面向论文/文献阅读场景的 AI 助手。  
-上传 `.txt`、`.pdf`、`.docx` 或 `.pptx` 后，可自动生成结构化分析结果，并支持基于文档上下文继续追问。
+一个面向论文/文献阅读场景的 AI 助手。
+上传 `.txt`、`.pdf`、`.docx` 或 `.pptx` 后，可自动生成结构化分析结果、可视化结构图与批判性评价，并支持基于当前文档会话继续多轮追问。
+
+项目地址：<https://github.com/AiFLYF/PaperWhisperer>
 
 ## ✨ 项目能做什么
-- 自动生成文档摘要（核心观点）
-- 提取可引用片段
-- 生成文本结构图（层级思维导图）
-- 可选生成 Mermaid 可视化图
-- 可选输出批判性评价
-- 支持“上传后追问”问答，并保留最近多轮会话上下文
+- 自动生成文档摘要，快速抓住核心观点
+- 提取适合引用或做笔记的关键片段
+- 生成文本结构图，帮助理解论文层级与逻辑
+- 可选生成 Mermaid 可视化图，便于展示与分享
+- 可选输出批判性评价，辅助形成自己的判断
+- 支持“上传后追问”问答，并保留当前文档的最近多轮会话上下文
 - 支持导出完整会话结果（Markdown + Mermaid SVG）
-- 自动保存 Markdown 分析报告到 `output/`
+- 自动保存基础 Markdown 分析报告到 `output/`
 
 ## 🎯 适用人群
 - 需要快速读论文的学生
@@ -27,7 +29,8 @@
 - PyPDF2
 - python-docx
 - python-pptx
-- HTML/CSS/JavaScript（KaTeX + Mermaid + marked）
+- HTML / CSS / JavaScript
+- KaTeX + Mermaid + marked
 
 ## 🚀 快速开始
 
@@ -105,12 +108,12 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 ```
 
 ## 🖥️ Web 使用流程
-1. 打开网页并填写 API Key（或使用环境变量）
+1. 打开网页并填写 API Key（或直接使用环境变量）
 2. 上传 `.txt` / `.pdf` / `.docx` / `.pptx` 文档
 3. 点击 `Analyze Document`
-4. 查看摘要、引用、结构图、评价
-5. 在 “Ask Questions” 区域继续追问（会自动带入最近多轮问答上下文）
-6. 点击“下载完整结果”导出当前分析、问答记录与 Mermaid 资源
+4. 查看 `Overview`、`Key Citations`、`Text Structure`、`Evaluation`
+5. 在 `Ask Questions` 区域继续追问（会自动带入当前文档会话的最近多轮上下文）
+6. 点击 `Export Session` 导出当前分析、问答记录与 Mermaid 资源
 
 ## 🔌 API 接口说明
 
@@ -155,9 +158,9 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 ```
 
 ## 🔐 安全与隐私说明
-- 代码中不再硬编码真实 API Key
+- 代码中不硬编码真实 API Key
 - `uploads/`、`context/`、`output/` 默认不提交到 Git
-- 临时上传文件在分析结束后会清理
+- 临时上传文件在分析结束后会自动清理
 - Web 会话上下文保存在 `context/*.json`，便于多轮追问与完整结果导出
 - 支持“请求级 key”与“环境变量 key”两种模式
 
@@ -166,6 +169,21 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 - 分析质量与所选模型、提示词质量相关
 - PDF 提取效果取决于原文档文本层质量
 - DOCX/PPTX 主要提取文本层内容，复杂排版、图表和图片中的文字可能提取不完整
+
+## 🛠️ 常见 API 配置问题
+- 如果提示“AI 服务返回了网页内容而不是模型结果”，通常说明 API Key 缺失/无效，或者 `OPENAI_BASE_URL` 指到了网页地址而不是 API 地址
+- 如果出现 `401`，通常是 API Key 错误、为空或已过期
+- 如果出现 `403`，通常是当前 Key 无权访问目标模型或供应商拒绝访问
+- 如果出现 `404`，请优先检查 `OPENAI_BASE_URL` 和 `OPENAI_MODEL`
+- 如果出现 `429`，说明请求过快、并发过高或额度受限
+- 如果核心分析项全部失败，`/api/analyze` 会直接返回错误，而不会再伪装成成功结果
+
+## ✅ 项目亮点
+- 面向论文/文献阅读，不是通用聊天壳，而是围绕“读、提炼、追问、导出”设计
+- 同时支持 `PDF`、`TXT`、`DOCX`、`PPTX` 四类常见文档格式
+- Web 端支持多轮追问，且上下文严格绑定当前文档会话
+- 支持 Mermaid 可视化结构图与 SVG 导出
+- 导出结果不仅包含分析内容，也可带上问答历史，便于沉淀阅读笔记
 
 ## 📝 更新日志
 
