@@ -13,7 +13,7 @@ import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from openai import OpenAI
+from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 from PyPDF2 import PdfReader
 from docx import Document
 from pptx import Presentation
@@ -160,6 +160,56 @@ def build_session_payload(session_id, source_filename, document_content, analysi
             "output_file": analysis.get("output_file", ""),
         },
     }
+
+
+def is_failed_llm_result(value):
+    text = (value or "").strip()
+    return text.startswith("生成失败，请重试")
+
+
+def describe_llm_status_code(status_code):
+    status_messages = {
+        400: "AI 服务请求格式错误，请检查模型配置、参数或接口兼容性。",
+        401: "AI 服务认证失败，请检查 API Key 是否正确或已过期。",
+        403: "AI 服务拒绝访问，当前 API Key 可能无权使用该模型或接口。",
+        404: "AI 服务地址或模型不存在，请检查 OPENAI_BASE_URL 和模型名称。",
+        408: "AI 服务请求超时，请稍后重试。",
+        409: "AI 服务请求冲突，请稍后重试。",
+        415: "AI 服务不支持当前请求媒体类型，请检查供应商兼容性。",
+        422: "AI 服务无法处理当前请求，请检查输入内容或参数。",
+        429: "AI 服务触发限流，请稍后重试或降低并发。",
+        500: "AI 服务提供商内部错误，请稍后重试。",
+        502: "AI 服务网关异常，请稍后重试。",
+        503: "AI 服务暂时不可用，请稍后重试。",
+        504: "AI 服务网关超时，请稍后重试。",
+    }
+    return status_messages.get(status_code, f"AI 服务请求失败，状态码: {status_code}。")
+
+
+def looks_like_html_response(value):
+    text = str(value or "").lstrip().lower()
+    html_markers = ("<!doctype html", "<html", "<head", "<body", "<meta ")
+    return any(text.startswith(marker) for marker in html_markers)
+
+
+def extract_message_text(content):
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        text_parts = []
+        for item in content:
+            if isinstance(item, dict):
+                if item.get("type") == "text" and item.get("text"):
+                    text_parts.append(str(item["text"]))
+            else:
+                item_type = getattr(item, "type", None)
+                item_text = getattr(item, "text", None)
+                if item_type == "text" and item_text:
+                    text_parts.append(str(item_text))
+        return "\n".join(text_parts).strip()
+    return str(content).strip()
 
 
 def write_session_payload(session_id, payload):
@@ -339,7 +389,7 @@ class PaperWhisperer:
         for attempt in range(retries):
             try:
                 with LLM_REQUEST_SEMAPHORE:
-                    response = self.client.chat.completions.create(
+                    raw_response = self.client.chat.completions.with_raw_response.create(
                         model=self.model,
                         messages=[
                             {"role": "system", "content": system_prompt},
@@ -349,13 +399,48 @@ class PaperWhisperer:
                         max_tokens=4000,
                         timeout=self.request_timeout
                     )
-                return response.choices[0].message.content
+
+                status_code = getattr(raw_response, "status_code", None)
+                response = raw_response.parse()
+
+                if status_code is None:
+                    raise ValueError("AI 服务未返回可识别的 HTTP 状态码。")
+                if not (200 <= status_code < 300):
+                    raise ValueError(describe_llm_status_code(status_code))
+
+                if isinstance(response, str):
+                    if looks_like_html_response(response):
+                        raise ValueError("AI 服务返回了网页内容而不是模型结果。通常是 API Key 缺失、无效，或 OPENAI_BASE_URL 指向了网页地址。")
+                    raise ValueError("AI 服务返回了字符串而不是标准响应对象，请检查供应商接口兼容性。")
+
+                choices = getattr(response, "choices", None)
+                if not choices:
+                    if looks_like_html_response(response):
+                        raise ValueError("AI 服务返回了网页内容而不是模型结果。通常是 API Key 缺失、无效，或 OPENAI_BASE_URL 指向了网页地址。")
+                    raise ValueError("AI 服务返回成功，但响应中缺少 choices 字段。")
+
+                message = getattr(choices[0], "message", None)
+                content = getattr(message, "content", None) if message else None
+                text_content = extract_message_text(content)
+                if looks_like_html_response(text_content):
+                    raise ValueError("AI 服务返回了网页内容而不是模型结果。通常是 API Key 缺失、无效，或 OPENAI_BASE_URL 指向了网页地址。")
+                if not text_content:
+                    raise ValueError("AI 服务返回内容为空")
+                return text_content
+            except APIStatusError as e:
+                message = describe_llm_status_code(e.status_code)
+            except APITimeoutError:
+                message = "AI 服务请求超时，请稍后重试。"
+            except APIConnectionError:
+                message = "AI 服务连接失败，请检查网络、API 地址或供应商服务状态。"
             except Exception as e:
-                if attempt < retries - 1:
-                    time.sleep(min(2 * (attempt + 1), 8))
-                else:
-                    print(f"LLM API Error: {str(e)}")
-                    return f"生成失败，请重试 ({str(e)})"
+                message = str(e)
+
+            if attempt < retries - 1:
+                time.sleep(min(2 * (attempt + 1), 8))
+            else:
+                logger.error(message)
+                return f"生成失败，请重试 ({message})"
 
     def _get_worker_count(self, task_count, configured_workers):
         return max(1, min(task_count, configured_workers))
@@ -630,8 +715,13 @@ graph TD
 
         elapsed = time.time() - t_start
         result['elapsed_seconds'] = round(elapsed, 1)
-        logger.info(f"Analysis completed in {elapsed:.1f}s for {os.path.basename(file_path)} ({len(content)} chars)")
 
+        required_fields = [result.get('summary'), result.get('quotes'), result.get('mindmap')]
+        failed_required_fields = [value for value in required_fields if is_failed_llm_result(value)]
+        if len(failed_required_fields) == len(required_fields):
+            raise RuntimeError(failed_required_fields[0])
+
+        logger.info(f"Analysis completed in {elapsed:.1f}s for {os.path.basename(file_path)} ({len(content)} chars)")
         return result
 
 # ================= 路由控制 =================
