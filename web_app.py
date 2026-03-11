@@ -11,7 +11,7 @@ from datetime import datetime
 
 import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 from PyPDF2 import PdfReader
@@ -729,6 +729,16 @@ graph TD
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+
+
+@app.get("/logo.ico")
+async def logo_ico():
+    return FileResponse("logo.ico", media_type="image/x-icon")
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    return FileResponse("logo.ico", media_type="image/x-icon")
 
 
 @app.post("/api/analyze")
