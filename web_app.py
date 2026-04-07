@@ -2,12 +2,22 @@ import json
 import logging
 import os
 import re
+import ssl
 import time
 import unicodedata
 import uuid
 import threading
 import concurrent.futures
+import urllib.error
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 from datetime import datetime
+
+try:
+    import certifi
+except ImportError:
+    certifi = None
 
 import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
@@ -66,6 +76,16 @@ def parse_bool_value(value, default=False):
         return default
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
+
+ARXIV_API_URL = "http://export.arxiv.org/api/query"
+SEMANTIC_SCHOLAR_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+SEMANTIC_SCHOLAR_TIMEOUT_SECONDS = parse_int_env("SEMANTIC_SCHOLAR_TIMEOUT_SECONDS", default=20, min_value=5, max_value=120)
+SEMANTIC_SCHOLAR_MAX_RETRIES = parse_int_env("SEMANTIC_SCHOLAR_MAX_RETRIES", default=3, min_value=1, max_value=6)
+PAPER_SEARCH_RESULT_LIMIT = parse_int_env("PAPER_SEARCH_RESULT_LIMIT", default=8, min_value=1, max_value=20)
+RECOMMENDATION_RESULT_LIMIT = parse_int_env("RECOMMENDATION_RESULT_LIMIT", default=6, min_value=1, max_value=20)
+PAPER_SEARCH_ENABLE_REWRITE = parse_bool_env("PAPER_SEARCH_ENABLE_REWRITE", default=True)
+PAPER_SEARCH_REWRITE_MODEL = os.getenv("PAPER_SEARCH_REWRITE_MODEL", "").strip()
+SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
 
 MAX_LLM_CONCURRENCY = parse_int_env("OPENAI_MAX_CONCURRENCY", default=5, min_value=1, max_value=32)
 LLM_REQUEST_SEMAPHORE = threading.BoundedSemaphore(MAX_LLM_CONCURRENCY)
@@ -140,6 +160,232 @@ def trim_text_for_log(text, limit=2000):
     return text[:limit].rstrip() + "\n...[truncated]"
 
 
+def build_ssl_context():
+    if certifi:
+        return ssl.create_default_context(cafile=certifi.where())
+    return ssl.create_default_context()
+
+
+def http_get_json(url, timeout=20, headers=None, retries=1, ssl_context=None):
+    request = urllib.request.Request(url, headers=headers or {})
+    last_error = None
+    for attempt in range(max(1, retries)):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout, context=ssl_context) as response:
+                charset = response.headers.get_content_charset() or "utf-8"
+                return json.loads(response.read().decode(charset, errors="ignore"))
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code == 429 and attempt < retries - 1:
+                time.sleep(min(2 * (attempt + 1), 6))
+                continue
+            raise
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries - 1:
+                time.sleep(min(2 * (attempt + 1), 6))
+                continue
+            raise
+    raise last_error
+
+
+def http_get_text(url, timeout=20, headers=None, retries=1, ssl_context=None):
+    request = urllib.request.Request(url, headers=headers or {})
+    last_error = None
+    for attempt in range(max(1, retries)):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout, context=ssl_context) as response:
+                charset = response.headers.get_content_charset() or "utf-8"
+                return response.read().decode(charset, errors="ignore")
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code == 429 and attempt < retries - 1:
+                time.sleep(min(2 * (attempt + 1), 6))
+                continue
+            raise
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries - 1:
+                time.sleep(min(2 * (attempt + 1), 6))
+                continue
+            raise
+    raise last_error
+
+
+def compact_text(text, limit=400):
+    collapsed = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[:limit].rstrip() + "..."
+
+
+def parse_year(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = re.search(r"(19|20)\d{2}", text)
+    return match.group(0) if match else ""
+
+
+def normalize_author_list(authors, limit=8):
+    normalized = []
+    for author in authors or []:
+        if isinstance(author, str):
+            name = author.strip()
+        elif isinstance(author, dict):
+            name = str(author.get("name") or author.get("author") or "").strip()
+        else:
+            name = str(getattr(author, "name", "") or "").strip()
+        if name:
+            normalized.append(name)
+        if len(normalized) >= limit:
+            break
+    return normalized
+
+
+def normalize_paper_record(source, record):
+    if source == "Semantic Scholar":
+        open_access_pdf = record.get("openAccessPdf") or {}
+        return {
+            "source": source,
+            "paper_id": str(record.get("paperId") or "").strip(),
+            "title": compact_text(record.get("title") or "", limit=300),
+            "abstract": compact_text(record.get("abstract") or "", limit=2000),
+            "authors": normalize_author_list(record.get("authors") or []),
+            "year": parse_year(record.get("year")),
+            "venue": compact_text(record.get("venue") or "Semantic Scholar", limit=120),
+            "url": str(record.get("url") or "").strip(),
+            "pdf_url": str(open_access_pdf.get("url") or "").strip(),
+        }
+
+    return {
+        "source": source,
+        "paper_id": str(record.get("paper_id") or record.get("id") or "").strip(),
+        "title": compact_text(record.get("title") or "", limit=300),
+        "abstract": compact_text(record.get("abstract") or record.get("summary") or "", limit=2000),
+        "authors": normalize_author_list(record.get("authors") or []),
+        "year": parse_year(record.get("year") or record.get("published") or ""),
+        "venue": compact_text(record.get("venue") or source, limit=120),
+        "url": str(record.get("url") or record.get("id") or "").strip(),
+        "pdf_url": str(record.get("pdf_url") or "").strip(),
+    }
+
+
+def deduplicate_papers(items):
+    deduplicated = []
+    seen_titles = set()
+    for item in items or []:
+        title_key = re.sub(r"\s+", " ", str(item.get("title") or "")).strip().lower()
+        if not title_key or title_key in seen_titles:
+            continue
+        seen_titles.add(title_key)
+        deduplicated.append(item)
+    return deduplicated
+
+
+def search_arxiv_papers(query, limit):
+    encoded_query = urllib.parse.quote(query)
+    url = f"{ARXIV_API_URL}?search_query=all:{encoded_query}&start=0&max_results={limit}"
+    feed_text = http_get_text(
+        url,
+        timeout=SEMANTIC_SCHOLAR_TIMEOUT_SECONDS,
+        headers={"User-Agent": "PaperWhisperer/0.7"},
+        retries=2,
+        ssl_context=build_ssl_context(),
+    )
+    root = ET.fromstring(feed_text)
+    namespace = {"atom": "http://www.w3.org/2005/Atom"}
+    items = []
+
+    for entry in root.findall("atom:entry", namespace):
+        title = compact_text(entry.findtext("atom:title", default="", namespaces=namespace), limit=300)
+        summary = compact_text(entry.findtext("atom:summary", default="", namespaces=namespace), limit=2000)
+        paper_id = (entry.findtext("atom:id", default="", namespaces=namespace) or "").strip()
+        published = (entry.findtext("atom:published", default="", namespaces=namespace) or "").strip()
+        authors = [author.findtext("atom:name", default="", namespaces=namespace) for author in entry.findall("atom:author", namespace)]
+        pdf_url = ""
+        for link in entry.findall("atom:link", namespace):
+            if link.attrib.get("title") == "pdf":
+                pdf_url = link.attrib.get("href", "").strip()
+                break
+        items.append(normalize_paper_record("arXiv", {
+            "paper_id": paper_id,
+            "title": title,
+            "abstract": summary,
+            "authors": authors,
+            "published": published,
+            "venue": "arXiv",
+            "url": paper_id,
+            "pdf_url": pdf_url,
+        }))
+    return items
+
+
+def search_semantic_scholar_papers(query, limit):
+    params = urllib.parse.urlencode({
+        "query": query,
+        "limit": limit,
+        "fields": "title,abstract,year,venue,url,authors,openAccessPdf,paperId",
+    })
+    url = f"{SEMANTIC_SCHOLAR_SEARCH_URL}?{params}"
+    headers = {"User-Agent": "PaperWhisperer/0.7"}
+    if SEMANTIC_SCHOLAR_API_KEY:
+        headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
+    payload = http_get_json(
+        url,
+        timeout=SEMANTIC_SCHOLAR_TIMEOUT_SECONDS,
+        headers=headers,
+        retries=SEMANTIC_SCHOLAR_MAX_RETRIES,
+    )
+    return [normalize_paper_record("Semantic Scholar", item) for item in payload.get("data", [])]
+
+
+def search_papers(query, limit=None):
+    clean_query = compact_text(query, limit=240)
+    if not clean_query:
+        raise ValueError("Please enter a search query.")
+
+    try:
+        resolved_limit = int(limit or PAPER_SEARCH_RESULT_LIMIT)
+    except (TypeError, ValueError):
+        resolved_limit = PAPER_SEARCH_RESULT_LIMIT
+    resolved_limit = max(1, min(resolved_limit, PAPER_SEARCH_RESULT_LIMIT))
+    items = []
+    errors = []
+
+    for source_name, search_fn in (
+        ("Semantic Scholar", search_semantic_scholar_papers),
+        ("arXiv", search_arxiv_papers),
+    ):
+        try:
+            items.extend(search_fn(clean_query, resolved_limit))
+        except urllib.error.HTTPError as exc:
+            logger.warning("%s paper search failed: %s", source_name, exc)
+            if exc.code == 429:
+                errors.append(f"{source_name}: rate limit reached, please retry in a moment")
+            else:
+                errors.append(f"{source_name}: HTTP {exc.code}")
+        except ssl.SSLCertVerificationError:
+            logger.warning("%s paper search SSL verification failed", source_name)
+            errors.append(f"{source_name}: SSL certificate verification failed")
+        except urllib.error.URLError as exc:
+            logger.warning("%s paper search failed: %s", source_name, exc)
+            reason = getattr(exc, "reason", exc)
+            if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+                errors.append(f"{source_name}: SSL certificate verification failed")
+            else:
+                errors.append(f"{source_name}: {reason}")
+        except Exception as exc:
+            logger.warning("%s paper search failed: %s", source_name, exc)
+            errors.append(f"{source_name}: {exc}")
+
+    return {
+        "query": clean_query,
+        "items": deduplicate_papers(items)[:resolved_limit],
+        "errors": errors,
+    }
+
+
 def build_session_payload(session_id, source_filename, document_content, analysis):
     generated_at = datetime.now().isoformat(timespec="seconds")
     return {
@@ -149,6 +395,11 @@ def build_session_payload(session_id, source_filename, document_content, analysi
         "document_content": document_content,
         "document_excerpt": build_document_excerpt(document_content),
         "qa_history": [],
+        "paper_search": {
+            "last_query": "",
+            "last_results": [],
+            "last_recommendation": {},
+        },
         "analysis": {
             "summary": analysis.get("summary", ""),
             "quotes": analysis.get("quotes", ""),
@@ -212,6 +463,18 @@ def extract_message_text(content):
     return str(content).strip()
 
 
+def extract_json_object(text):
+    raw_text = str(text or "").strip()
+    if raw_text.startswith("```"):
+        raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text, flags=re.IGNORECASE)
+        raw_text = re.sub(r"\s*```$", "", raw_text)
+    start = raw_text.find("{")
+    end = raw_text.rfind("}")
+    if start != -1 and end != -1 and end >= start:
+        return raw_text[start:end + 1]
+    return raw_text
+
+
 def write_session_payload(session_id, payload):
     with open(get_session_file_path(session_id), "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -229,6 +492,10 @@ def load_session_payload(session_id):
     payload.setdefault("document_excerpt", build_document_excerpt(payload.get("document_content", "")))
     payload.setdefault("qa_history", [])
     payload.setdefault("analysis", {})
+    payload.setdefault("paper_search", {})
+    payload["paper_search"].setdefault("last_query", "")
+    payload["paper_search"].setdefault("last_results", [])
+    payload["paper_search"].setdefault("last_recommendation", {})
     payload.setdefault("source_filename", "")
     payload.setdefault("session_id", session_id)
     payload.setdefault("generated_at", datetime.now().isoformat(timespec="seconds"))
@@ -367,6 +634,7 @@ class PaperWhisperer:
         self.api_key = resolve_api_key(api_key)
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+        self.search_rewrite_model = PAPER_SEARCH_REWRITE_MODEL or self.model
         self.request_timeout = parse_int_env("OPENAI_REQUEST_TIMEOUT_SECONDS", default=60, min_value=5, max_value=600)
         self.max_retries = parse_int_env("OPENAI_MAX_RETRIES", default=3, min_value=1, max_value=10)
         self.chunker = TextChunker(4000, 200)
@@ -380,7 +648,7 @@ class PaperWhisperer:
             base_url=self.base_url
         ) if self.api_key else None
 
-    def _call_llm(self, system_prompt, user_prompt, max_retries=None):
+    def _call_llm(self, system_prompt, user_prompt, max_retries=None, model=None):
         if not self.client:
             raise ValueError("API key is required. Provide it in request body or set OPENAI_API_KEY.")
 
@@ -390,7 +658,7 @@ class PaperWhisperer:
             try:
                 with LLM_REQUEST_SEMAPHORE:
                     raw_response = self.client.chat.completions.with_raw_response.create(
-                        model=self.model,
+                        model=(model or self.model),
                         messages=[
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt}
@@ -682,6 +950,85 @@ graph TD
         user_prompt = "\n\n".join(user_prompt_parts)
         return self._call_llm(system_prompt, user_prompt)
 
+    def rewrite_search_query(self, query, context_text=""):
+        clean_query = compact_text(query, limit=240)
+        if not clean_query:
+            raise ValueError("Please enter a search query.")
+
+        context_excerpt = build_document_excerpt(context_text or "", limit=6000)
+        system_prompt = (
+            "You are an academic literature retrieval assistant. "
+            "Rewrite user search requests into a precise English academic search query. "
+            "If the user is clearly asking for a specific paper by nickname, alias, version name, or shorthand, resolve it to the canonical paper title instead of broadening it. "
+            "Only broaden the query when the user's intent is genuinely ambiguous. "
+            "Return JSON only."
+        )
+        user_prompt = f'''Rewrite the following paper search request into a concise English query for Semantic Scholar and arXiv.
+
+Required JSON schema:
+{{
+  "original_query": "original user query",
+  "rewritten_query": "better english academic query",
+  "topics": ["topic 1", "topic 2", "topic 3"],
+  "why": "brief reason in Chinese"
+}}
+
+Constraints:
+- rewritten_query must be concise and in English
+- preserve the user's research intent
+- if the query likely refers to a specific known paper, prefer the canonical paper title
+- examples: "yolov1的论文" should become the actual paper title "You Only Look Once: Unified, Real-Time Object Detection"
+- do not broaden a specific-paper query into a vague family query like "YOLO papers"
+- only expand or generalize when the user query is actually unclear or ambiguous
+- topics should be short
+- why should explain what was clarified or expanded in Chinese
+- do not wrap JSON in markdown fences
+
+User query:
+{clean_query}
+
+Optional context from current paper:
+{context_excerpt}
+'''
+        raw_response = self._call_llm(system_prompt, user_prompt, model=self.search_rewrite_model)
+        try:
+            rewrite_meta = json.loads(extract_json_object(raw_response))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Search query rewriting failed: {exc}") from exc
+
+        rewritten_query = compact_text(rewrite_meta.get("rewritten_query") or "", limit=240)
+        if not rewritten_query:
+            raise ValueError("Search query rewriting returned an empty rewritten query.")
+
+        return {
+            "original_query": clean_query,
+            "rewritten_query": rewritten_query,
+            "topics": rewrite_meta.get("topics") or [],
+            "reason": str(rewrite_meta.get("why") or "").strip(),
+            "model": self.search_rewrite_model,
+        }
+
+    def recommend_papers(self, content, limit=None):
+        excerpt = build_document_excerpt(content, limit=12000)
+        if not excerpt:
+            raise ValueError("Current session does not contain document content.")
+
+        resolved_limit = max(1, min(limit or RECOMMENDATION_RESULT_LIMIT, RECOMMENDATION_RESULT_LIMIT))
+        rewrite_meta = self.rewrite_search_query(
+            query="Find closely related follow-up papers for this paper.",
+            context_text=excerpt,
+        )
+        search_result = search_papers(rewrite_meta.get("rewritten_query", ""), resolved_limit)
+        return {
+            "original_query": rewrite_meta.get("original_query", ""),
+            "query": rewrite_meta.get("rewritten_query", ""),
+            "topics": rewrite_meta.get("topics") or [],
+            "reason": rewrite_meta.get("reason", ""),
+            "rewrite_model": rewrite_meta.get("model", ""),
+            "items": search_result.get("items", []),
+            "errors": search_result.get("errors", []),
+        }
+
     def analyze(self, file_path, generate_mermaid=True, generate_evaluation=True):
         """核心分析流程（已优化为并发执行）"""
         content = DocumentLoader.load(file_path)
@@ -907,6 +1254,127 @@ async def ask_question(request: Request):
     except Exception as e:
         logger.exception("Question answering failed")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@app.post("/api/search-papers")
+async def search_papers_api(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    data = data or {}
+    if not isinstance(data, dict):
+        return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+
+    query = str(data.get("query") or "").strip()
+    limit = data.get("limit") or PAPER_SEARCH_RESULT_LIMIT
+    raw_session_id = str(data.get("session_id") or "").strip()
+    context_text = str(data.get("context_text") or "")
+
+    if not query:
+        return JSONResponse(content={"error": "Please enter a search query."}, status_code=400)
+
+    try:
+        rewrite_meta = {
+            "original_query": query,
+            "rewritten_query": query,
+            "topics": [],
+            "reason": "Direct search without AI rewriting.",
+            "model": "",
+        }
+        resolved_api_key = resolve_api_key(data.get("api_key", ""))
+        if PAPER_SEARCH_ENABLE_REWRITE:
+            if not resolved_api_key:
+                return JSONResponse(
+                    content={"error": "API key is required for AI-assisted paper search. Provide api_key or set OPENAI_API_KEY."},
+                    status_code=400,
+                )
+            whisperer = PaperWhisperer(resolved_api_key)
+            rewrite_context = context_text
+            if raw_session_id and not rewrite_context:
+                safe_session_id = sanitize_identifier(raw_session_id, "session")
+                session_payload = load_session_payload(safe_session_id)
+                if session_payload:
+                    rewrite_context = session_payload.get("document_content", "")
+            rewrite_meta = whisperer.rewrite_search_query(query, context_text=rewrite_context)
+
+        result = search_papers(rewrite_meta["rewritten_query"], limit)
+        result["original_query"] = rewrite_meta.get("original_query", query)
+        result["rewritten_query"] = rewrite_meta.get("rewritten_query", result["query"])
+        result["topics"] = rewrite_meta.get("topics", [])
+        result["reason"] = rewrite_meta.get("reason", "")
+        result["rewrite_model"] = rewrite_meta.get("model", "")
+
+        if raw_session_id:
+            safe_session_id = sanitize_identifier(raw_session_id, "session")
+            session_payload = load_session_payload(safe_session_id)
+            if session_payload:
+                session_payload.setdefault("paper_search", {})
+                session_payload["paper_search"]["last_query"] = result["rewritten_query"]
+                session_payload["paper_search"]["last_results"] = result["items"]
+                write_session_payload(safe_session_id, session_payload)
+        return JSONResponse(content=result)
+    except ValueError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=400)
+    except Exception as exc:
+        logger.exception("Paper search failed")
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/recommend-papers")
+async def recommend_papers_api(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    data = data or {}
+    if not isinstance(data, dict):
+        return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+
+    raw_session_id = str(data.get("session_id") or "").strip()
+    if not raw_session_id:
+        return JSONResponse(content={"error": "session_id is required."}, status_code=400)
+
+    safe_session_id = sanitize_identifier(raw_session_id, "session")
+    limit = data.get("limit") or RECOMMENDATION_RESULT_LIMIT
+    resolved_api_key = resolve_api_key(data.get("api_key", ""))
+    if not resolved_api_key:
+        return JSONResponse(
+            content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."},
+            status_code=400,
+        )
+
+    try:
+        session_payload = load_session_payload(safe_session_id)
+        if not session_payload:
+            return JSONResponse(
+                content={"error": "Session expired or context not found. Please upload and analyze the file again."},
+                status_code=400,
+            )
+
+        whisperer = PaperWhisperer(resolved_api_key)
+        result = whisperer.recommend_papers(session_payload.get("document_content", ""), limit=limit)
+
+        session_payload.setdefault("paper_search", {})
+        session_payload["paper_search"]["last_recommendation"] = {
+            "original_query": result.get("original_query", ""),
+            "query": result.get("query", ""),
+            "topics": result.get("topics", []),
+            "reason": result.get("reason", ""),
+            "rewrite_model": result.get("rewrite_model", ""),
+            "items": result.get("items", []),
+            "errors": result.get("errors", []),
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        write_session_payload(safe_session_id, session_payload)
+        return JSONResponse(content=result)
+    except ValueError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=400)
+    except Exception as exc:
+        logger.exception("Paper recommendation failed")
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
 
 
 if __name__ == "__main__":
