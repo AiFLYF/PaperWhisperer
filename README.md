@@ -13,6 +13,8 @@
 - 生成文本结构图，帮助理解论文层级与逻辑
 - 可选生成 Mermaid 可视化图，便于展示与分享
 - 可选输出批判性评价，辅助形成自己的判断
+- 支持基于关键词/任务/方法的论文搜索（Semantic Scholar + arXiv 聚合）
+- 支持基于当前论文内容自动生成检索主题并推荐延伸阅读
 - 支持“上传后追问”问答，并保留当前文档的最近多轮会话上下文
 - 支持导出完整会话结果（Markdown + Mermaid SVG）
 - 自动保存基础 Markdown 分析报告到 `output/`
@@ -54,6 +56,10 @@ Copy-Item .env.example .env
 OPENAI_API_KEY=sk-your-key
 OPENAI_BASE_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-4o-mini
+PAPER_SEARCH_ENABLE_REWRITE=true
+PAPER_SEARCH_REWRITE_MODEL=gpt-4o-mini
+SEMANTIC_SCHOLAR_API_KEY=
+SEMANTIC_SCHOLAR_MAX_RETRIES=3
 OPENAI_MAX_CONCURRENCY=5
 OPENAI_REQUEST_TIMEOUT_SECONDS=60
 OPENAI_MAX_RETRIES=3
@@ -71,6 +77,10 @@ PowerShell 示例：
 $env:OPENAI_API_KEY="your-api-key"
 $env:OPENAI_BASE_URL="https://api.openai.com/v1"
 $env:OPENAI_MODEL="gpt-4o-mini"
+$env:PAPER_SEARCH_ENABLE_REWRITE="true"
+$env:PAPER_SEARCH_REWRITE_MODEL="gpt-4o-mini"
+$env:SEMANTIC_SCHOLAR_API_KEY=""
+$env:SEMANTIC_SCHOLAR_MAX_RETRIES="3"
 $env:OPENAI_MAX_CONCURRENCY="5"
 $env:OPENAI_REQUEST_TIMEOUT_SECONDS="60"
 $env:OPENAI_MAX_RETRIES="3"
@@ -88,6 +98,10 @@ $env:FLASK_DEBUG="false"
 - `OPENAI_MAX_CONCURRENCY` 控制全局大模型并发上限
 - `OPENAI_REQUEST_TIMEOUT_SECONDS` 控制单次请求超时
 - `OPENAI_MAX_RETRIES` 控制失败重试次数
+- `PAPER_SEARCH_ENABLE_REWRITE` 控制手动搜索是否先经过 AI 理解与改写
+- `PAPER_SEARCH_REWRITE_MODEL` 用于指定搜索改写专用模型；未设置时回退到 `OPENAI_MODEL`
+- `SEMANTIC_SCHOLAR_API_KEY` 可选，用于提升 Semantic Scholar 搜索限额
+- `SEMANTIC_SCHOLAR_MAX_RETRIES` 控制遇到限流时的自动重试次数
 - `FASTAPI_RELOAD` 建议仅在本地开发时开启
 - 仍兼容 `FLASK_HOST` / `FLASK_PORT` / `FLASK_DEBUG` 作为回退配置
 
@@ -111,9 +125,11 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 1. 打开网页并填写 API Key（或直接使用环境变量）
 2. 上传 `.txt` / `.pdf` / `.docx` / `.pptx` 文档
 3. 点击 `Analyze Document`
-4. 查看 `Overview`、`Key Citations`、`Text Structure`、`Evaluation`
-5. 在 `Ask Questions` 区域继续追问（会自动带入当前文档会话的最近多轮上下文）
-6. 点击 `Export Session` 导出当前分析、问答记录与 Mermaid 资源
+4. 可在 `Paper Search` 区域直接检索相关论文
+5. 查看 `Overview`、`Key Citations`、`Text Structure`、`Evaluation`
+6. 在 `Auto Recommendations` 区域基于当前论文生成延伸阅读结果
+7. 在 `Ask Questions` 区域继续追问（会自动带入当前文档会话的最近多轮上下文）
+8. 点击 `Export Session` 导出当前分析、问答记录与 Mermaid 资源
 
 ## 🔌 API 接口说明
 
@@ -143,6 +159,77 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 }
 ```
 
+### `POST /api/search-papers`
+按关键词聚合检索 Semantic Scholar 与 arXiv 论文结果。默认会先经过 AI 理解与检索词改写，再执行外部论文搜索。
+
+请求体示例：
+```json
+{
+  "query": "large language model reasoning",
+  "limit": 8,
+  "session_id": "optional",
+  "api_key": "optional"
+}
+```
+
+返回结构示例：
+```json
+{
+  "original_query": "large language model reasoning",
+  "rewritten_query": "large language model reasoning chain-of-thought benchmark",
+  "query": "large language model reasoning chain-of-thought benchmark",
+  "topics": ["reasoning", "llm", "benchmark"],
+  "reason": "将用户输入补全为更适合学术检索的英文短语。",
+  "rewrite_model": "gpt-4o-mini",
+  "items": [
+    {
+      "source": "Semantic Scholar",
+      "paper_id": "...",
+      "title": "...",
+      "abstract": "...",
+      "authors": ["..."],
+      "year": "2024",
+      "venue": "NeurIPS",
+      "url": "https://...",
+      "pdf_url": "https://..."
+    }
+  ],
+  "errors": []
+}
+```
+
+### `POST /api/recommend-papers`
+基于当前分析 session 的论文内容生成检索主题，并返回一批延伸阅读结果。
+
+请求体示例：
+```json
+{
+  "session_id": "session_123",
+  "api_key": "optional",
+  "limit": 6
+}
+```
+
+返回结构示例：
+```json
+{
+  "original_query": "Find closely related follow-up papers for this paper.",
+  "query": "retrieval augmented generation benchmark",
+  "topics": ["retrieval", "rag evaluation", "benchmarking"],
+  "reason": "这些结果与当前论文的任务、方法或评估设置最相关。",
+  "rewrite_model": "gpt-4o-mini",
+  "items": [...],
+  "errors": []
+}
+```
+
+技术说明：
+- 手动搜索在默认配置下会先由大模型理解用户意图，并改写为更适合学术搜索源的英文检索短语，再复用统一搜索链路。
+- 对于明显指向单篇论文的别名或简称（如 `yolov1的论文`），改写逻辑会优先还原为正式论文标题，而不是泛化成整类论文。
+- 自动推荐同样走“先理解/改写，再搜索”的两阶段流程，并优先结合当前论文内容生成主题。
+- `PAPER_SEARCH_REWRITE_MODEL` 可单独指定搜索改写所用模型，便于与分析主模型分离配置。
+- 搜索层对 Semantic Scholar 429 做自动重试；arXiv 请求显式使用本地 CA 证书链，降低 SSL 证书校验失败概率。
+
 ## 🗂️ 项目结构
 ```text
 .
@@ -161,8 +248,9 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 - 代码中不硬编码真实 API Key
 - `uploads/`、`context/`、`output/` 默认不提交到 Git
 - 临时上传文件在分析结束后会自动清理
-- Web 会话上下文保存在 `context/*.json`，便于多轮追问与完整结果导出
+- Web 会话上下文保存在 `context/*.json`，便于多轮追问、推荐结果缓存与完整结果导出
 - 支持“请求级 key”与“环境变量 key”两种模式
+- 外部论文搜索依赖公开学术接口，单个来源失败时会降级返回其他来源结果
 
 ## ⚠️ 当前已知限制
 - 代码中部分中文提示词仍有历史编码痕迹（不影响主流程）
@@ -186,6 +274,12 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 - 导出结果不仅包含分析内容，也可带上问答历史，便于沉淀阅读笔记
 
 ## 📝 更新日志
+
+### v0.7.0
+- **论文搜索**：新增 `POST /api/search-papers`，聚合 Semantic Scholar 与 arXiv 结果并统一数据结构
+- **自动推荐**：新增 `POST /api/recommend-papers`，基于当前论文内容生成检索主题并返回延伸阅读
+- **研究工作台 UI**：Web 端新增 `Paper Search` 与 `Auto Recommendations` 面板
+- **会话扩展**：`context/<session>.json` 新增论文搜索与推荐结果缓存字段
 
 ### v0.6.1
 - **多轮问答**：Web 端会话从纯文本升级为 `context/<session>.json`，追问会携带最近多轮问答历史
