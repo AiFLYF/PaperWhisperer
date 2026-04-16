@@ -1,16 +1,18 @@
+import concurrent.futures
+import ipaddress
 import json
 import logging
+import mimetypes
 import os
 import re
 import ssl
 import time
-import unicodedata
-import uuid
 import threading
-import concurrent.futures
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 import xml.etree.ElementTree as ET
 from datetime import datetime
 
@@ -21,7 +23,7 @@ except ImportError:
 
 import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 from PyPDF2 import PdfReader
@@ -86,6 +88,7 @@ RECOMMENDATION_RESULT_LIMIT = parse_int_env("RECOMMENDATION_RESULT_LIMIT", defau
 PAPER_SEARCH_ENABLE_REWRITE = parse_bool_env("PAPER_SEARCH_ENABLE_REWRITE", default=True)
 PAPER_SEARCH_REWRITE_MODEL = os.getenv("PAPER_SEARCH_REWRITE_MODEL", "").strip()
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
+REMOTE_IMPORT_TIMEOUT_SECONDS = parse_int_env("REMOTE_IMPORT_TIMEOUT_SECONDS", default=30, min_value=5, max_value=180)
 
 MAX_LLM_CONCURRENCY = parse_int_env("OPENAI_MAX_CONCURRENCY", default=5, min_value=1, max_value=32)
 LLM_REQUEST_SEMAPHORE = threading.BoundedSemaphore(MAX_LLM_CONCURRENCY)
@@ -478,6 +481,227 @@ def extract_json_object(text):
 def write_session_payload(session_id, payload):
     with open(get_session_file_path(session_id), "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def normalize_content_type(value):
+    return str(value or "").split(";", 1)[0].strip().lower()
+
+
+def is_public_http_url(raw_url):
+    try:
+        parsed = urllib.parse.urlparse(str(raw_url or "").strip())
+    except Exception:
+        return False
+
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    hostname = (parsed.hostname or "").strip()
+    if not hostname:
+        return False
+    lowered = hostname.lower()
+    if lowered in {"localhost", "localhost.localdomain"}:
+        return False
+
+    try:
+        ip = ipaddress.ip_address(lowered)
+    except ValueError:
+        return True
+
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+
+
+def looks_like_direct_file_url(raw_url):
+    path = urllib.parse.urlparse(str(raw_url or "").strip()).path.lower()
+    return any(path.endswith(ext) for ext in SUPPORTED_EXTENSIONS)
+
+
+def guess_extension_from_content_type(content_type):
+    normalized = normalize_content_type(content_type)
+    mapping = {
+        "application/pdf": ".pdf",
+        "text/plain": ".txt",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    }
+    return mapping.get(normalized, "")
+
+
+def extract_filename_from_content_disposition(content_disposition):
+    value = str(content_disposition or "")
+    match = re.search(r"filename\*=UTF-8''([^;]+)", value, flags=re.IGNORECASE)
+    if match:
+        return urllib.parse.unquote(match.group(1)).strip('" ')
+    match = re.search(r'filename="?([^";]+)"?', value, flags=re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return ""
+
+
+def build_import_filename(title, source_url, content_disposition, content_type):
+    disposition_name = extract_filename_from_content_disposition(content_disposition)
+    url_name = os.path.basename(urllib.parse.urlparse(str(source_url or "")).path)
+    title_slug = secure_filename(title or "")
+    candidate_name = disposition_name or url_name or title_slug or "imported_paper"
+    candidate_root, candidate_ext = os.path.splitext(candidate_name)
+    inferred_ext = candidate_ext.lower() if candidate_ext.lower() in ALLOWED_EXTENSIONS else ""
+    if not inferred_ext:
+        inferred_ext = guess_extension_from_content_type(content_type)
+    if not inferred_ext:
+        inferred_ext = ".pdf"
+    safe_root = secure_filename(candidate_root) or title_slug or "imported_paper"
+    return build_safe_upload_filename(f"{safe_root}{inferred_ext}")
+
+
+def iter_downloadable_paper_urls(pdf_url, url):
+    seen = set()
+    for candidate, require_direct_file in ((pdf_url, False), (url, True)):
+        normalized_candidate = str(candidate or "").strip()
+        if not normalized_candidate or normalized_candidate in seen:
+            continue
+        seen.add(normalized_candidate)
+        yield normalized_candidate, require_direct_file
+
+
+def stream_remote_paper(title, pdf_url, url):
+    candidate_urls = list(iter_downloadable_paper_urls(pdf_url, url))
+    if not candidate_urls:
+        raise ValueError("No downloadable paper link found for this result.")
+
+    ssl_context = build_ssl_context()
+    last_error = None
+
+    for source_url, require_direct_file in candidate_urls:
+        if not is_public_http_url(source_url):
+            last_error = ValueError("Only public http/https paper URLs are allowed.")
+            continue
+        if require_direct_file and not looks_like_direct_file_url(source_url):
+            last_error = ValueError("This result does not provide a direct downloadable file. Please open it manually and upload the paper file.")
+            continue
+
+        request = urllib.request.Request(source_url, headers={"User-Agent": "PaperWhisperer/0.7"})
+        try:
+            response = urllib.request.urlopen(request, timeout=REMOTE_IMPORT_TIMEOUT_SECONDS, context=ssl_context)
+            content_type = normalize_content_type(response.headers.get("Content-Type"))
+            if content_type.startswith("text/html"):
+                response.close()
+                raise ValueError("The paper link returned an HTML page instead of a downloadable file.")
+
+            file_name = build_import_filename(
+                title=title,
+                source_url=response.geturl() or source_url,
+                content_disposition=response.headers.get("Content-Disposition"),
+                content_type=content_type,
+            )
+            if not is_allowed_file(file_name):
+                response.close()
+                raise ValueError(f"Unsupported remote file type. Please use one of: {SUPPORTED_FILE_TYPES_TEXT}")
+
+            return response, file_name, content_type
+        except Exception as exc:
+            last_error = exc
+
+    if last_error:
+        raise last_error
+    raise ValueError("Paper import failed.")
+
+
+def download_remote_paper(title, pdf_url, url):
+    response = None
+    temp_path = None
+    try:
+        response, file_name, _content_type = stream_remote_paper(title=title, pdf_url=pdf_url, url=url)
+        temp_path = os.path.join(UPLOAD_FOLDER, file_name)
+        total_bytes = 0
+        with open(temp_path, "wb") as f:
+            while True:
+                chunk = response.read(1024 * 64)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > MAX_CONTENT_LENGTH:
+                    raise ValueError(f"Remote file is too large. Limit: {MAX_CONTENT_LENGTH // (1024 * 1024)} MB")
+                f.write(chunk)
+
+        if total_bytes <= 0:
+            raise ValueError("Downloaded file is empty.")
+
+        return temp_path, file_name
+    except Exception:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+        raise
+    finally:
+        if response:
+            try:
+                response.close()
+            except Exception:
+                pass
+
+
+def analyze_saved_file(file_path, original_filename, api_key, generate_mermaid_bool, generate_evaluation_bool, session_id):
+    resolved_api_key = resolve_api_key(api_key)
+    if not resolved_api_key:
+        raise ValueError("API key is required. Provide api_key or set OPENAI_API_KEY.")
+
+    whisperer = PaperWhisperer(resolved_api_key)
+    result = whisperer.analyze(file_path, generate_mermaid_bool, generate_evaluation_bool)
+
+    safe_session_id = sanitize_identifier(session_id, "session")
+    base_name = os.path.splitext(original_filename)[0]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_file = os.path.join(OUTPUT_FOLDER, f"{base_name}_analysis_{timestamp}.md")
+
+    md_content = f"""# PaperWhisperer 分析报告
+
+> 生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+> 源文件: {original_filename}
+> 耗时: {result.get('elapsed_seconds', 'N/A')}s
+
+---
+
+## AI 摘要
+
+{result.get('summary', '')}
+
+---
+
+## 引用片段
+
+{result.get('quotes', '')}
+
+---
+
+## 思维导图
+
+{result.get('mindmap', '')}
+
+---
+
+"""
+
+    if generate_evaluation_bool:
+        md_content += f"## 论文评价\n\n{result.get('evaluation', '')}\n\n---\n"
+
+    md_content += f"## 元信息\n\n- 版本: {whisperer.version}\n- 字符数: {result['char_count']}\n"
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        f.write(md_content)
+
+    result["output_file"] = output_file
+    result["session_id"] = safe_session_id
+    result["source_filename"] = original_filename
+
+    session_payload = build_session_payload(
+        session_id=safe_session_id,
+        source_filename=original_filename,
+        document_content=whisperer.document_content,
+        analysis=result,
+    )
+    write_session_payload(safe_session_id, session_payload)
+    return result
 
 
 def load_session_payload(session_id):
@@ -1118,78 +1342,136 @@ async def analyze(
 
         generate_mermaid_bool = parse_bool_value(generate_mermaid, default=True)
         generate_evaluation_bool = parse_bool_value(generate_evaluation, default=True)
-
-        resolved_api_key = resolve_api_key(api_key)
-        if not resolved_api_key:
-            return JSONResponse(
-                content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."},
-                status_code=400,
-            )
-
-        whisperer = PaperWhisperer(resolved_api_key)
-        result = whisperer.analyze(file_path, generate_mermaid_bool, generate_evaluation_bool)
-
-        safe_session_id = sanitize_identifier(session_id, "session")
-
-        base_name = os.path.splitext(original_filename)[0]
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_file = os.path.join(OUTPUT_FOLDER, f"{base_name}_analysis_{timestamp}.md")
-
-        md_content = f"""# PaperWhisperer 分析报告
-
-> 生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-> 源文件: {original_filename}
-> 耗时: {result.get('elapsed_seconds', 'N/A')}s
-
----
-
-## AI 摘要
-
-{result.get('summary', '')}
-
----
-
-## 引用片段
-
-{result.get('quotes', '')}
-
----
-
-## 思维导图
-
-{result.get('mindmap', '')}
-
----
-
-"""
-
-        if generate_evaluation_bool:
-            md_content += f"## 论文评价\n\n{result.get('evaluation', '')}\n\n---\n"
-
-        md_content += f"## 元信息\n\n- 版本: {whisperer.version}\n- 字符数: {result['char_count']}\n"
-
-        with open(output_file, "w", encoding="utf-8") as f:
-            f.write(md_content)
-
-        result["output_file"] = output_file
-        result["session_id"] = safe_session_id
-
-        session_payload = build_session_payload(
-            session_id=safe_session_id,
-            source_filename=original_filename,
-            document_content=whisperer.document_content,
-            analysis=result,
+        result = analyze_saved_file(
+            file_path=file_path,
+            original_filename=original_filename,
+            api_key=api_key,
+            generate_mermaid_bool=generate_mermaid_bool,
+            generate_evaluation_bool=generate_evaluation_bool,
+            session_id=session_id,
         )
-        write_session_payload(safe_session_id, session_payload)
-
         return JSONResponse(content=result)
 
+    except ValueError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=400)
     except Exception as e:
         logger.exception("Document analysis failed")
         return JSONResponse(content={"error": str(e)}, status_code=500)
     finally:
         if file:
             await file.close()
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
+
+
+@app.get("/api/download-paper")
+async def download_paper(url: str = "", pdf_url: str = "", title: str = ""):
+    response = None
+    try:
+        response, file_name, content_type = stream_remote_paper(title=title, pdf_url=pdf_url, url=url)
+        media_type = content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
+        data = response.read(MAX_CONTENT_LENGTH + 1)
+        if not data:
+            return JSONResponse(content={"error": "Downloaded file is empty."}, status_code=400)
+        if len(data) > MAX_CONTENT_LENGTH:
+            return JSONResponse(content={"error": f"Remote file is too large. Limit: {MAX_CONTENT_LENGTH // (1024 * 1024)} MB"}, status_code=400)
+        quoted_name = urllib.parse.quote(file_name)
+        headers = {
+            "Content-Disposition": f"attachment; filename=\"{file_name}\"; filename*=UTF-8''{quoted_name}",
+            "X-Content-Type-Options": "nosniff",
+        }
+        return Response(content=data, media_type=media_type, headers=headers)
+    except ValueError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=400)
+    except urllib.error.HTTPError as exc:
+        logger.warning("Paper proxy download failed: %s", exc)
+        if exc.code == 404:
+            message = "The paper file could not be found at the remote source."
+        elif exc.code == 403:
+            message = "The remote source denied access to the paper file."
+        elif exc.code == 429:
+            message = "The remote source rate limited the paper download. Please retry in a moment."
+        else:
+            message = f"Remote paper download failed with HTTP {exc.code}."
+        return JSONResponse(content={"error": message}, status_code=400)
+    except urllib.error.URLError as exc:
+        logger.warning("Paper proxy download failed: %s", exc)
+        reason = getattr(exc, "reason", exc)
+        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+            message = "SSL certificate verification failed while downloading the paper file."
+        else:
+            message = f"Paper download failed: {reason}"
+        return JSONResponse(content={"error": message}, status_code=400)
+    except Exception as exc:
+        logger.exception("Paper proxy download failed")
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+    finally:
+        if response:
+            try:
+                response.close()
+            except Exception:
+                pass
+
+
+@app.post("/api/import-paper")
+async def import_paper(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    data = data or {}
+    if not isinstance(data, dict):
+        return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+
+    file_path = None
+    try:
+        title = str(data.get("title") or "").strip()
+        url = str(data.get("url") or "").strip()
+        pdf_url = str(data.get("pdf_url") or "").strip()
+        if not pdf_url and not url:
+            return JSONResponse(content={"error": "A downloadable paper URL is required."}, status_code=400)
+
+        generate_mermaid_bool = parse_bool_value(data.get("generate_mermaid"), default=True)
+        generate_evaluation_bool = parse_bool_value(data.get("generate_evaluation"), default=True)
+        file_path, original_filename = download_remote_paper(title=title, pdf_url=pdf_url, url=url)
+        result = analyze_saved_file(
+            file_path=file_path,
+            original_filename=original_filename,
+            api_key=str(data.get("api_key") or ""),
+            generate_mermaid_bool=generate_mermaid_bool,
+            generate_evaluation_bool=generate_evaluation_bool,
+            session_id=str(data.get("session_id") or ""),
+        )
+        return JSONResponse(content=result)
+    except ValueError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=400)
+    except urllib.error.HTTPError as exc:
+        logger.warning("Paper import download failed: %s", exc)
+        if exc.code == 404:
+            message = "The paper file could not be found at the remote source."
+        elif exc.code == 403:
+            message = "The remote source denied access to the paper file."
+        elif exc.code == 429:
+            message = "The remote source rate limited the paper download. Please retry in a moment."
+        else:
+            message = f"Remote paper download failed with HTTP {exc.code}."
+        return JSONResponse(content={"error": message}, status_code=400)
+    except urllib.error.URLError as exc:
+        logger.warning("Paper import download failed: %s", exc)
+        reason = getattr(exc, "reason", exc)
+        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+            message = "SSL certificate verification failed while downloading the paper file."
+        else:
+            message = f"Paper download failed: {reason}"
+        return JSONResponse(content={"error": message}, status_code=400)
+    except Exception as exc:
+        logger.exception("Paper import failed")
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+    finally:
         if file_path and os.path.exists(file_path):
             try:
                 os.remove(file_path)
