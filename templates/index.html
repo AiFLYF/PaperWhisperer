@@ -456,6 +456,7 @@
         .paper-link {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             padding: 6px 12px;
             border-radius: 999px;
             border: 1px solid var(--border-color);
@@ -463,10 +464,19 @@
             text-decoration: none;
             font-size: 13px;
             font-weight: 500;
+            background: transparent;
+            cursor: pointer;
         }
         .paper-link:hover {
             border-color: var(--primary-color);
             background: rgba(15, 118, 110, 0.08);
+        }
+        button.paper-link {
+            font-family: inherit;
+        }
+        button.paper-link:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
 
         .ask-section { margin-top: 40px; }
@@ -759,10 +769,12 @@
         let askController = null;
         let paperSearchController = null;
         let recommendController = null;
+        let importPaperController = null;
         let analyzeRequestId = 0;
         let askRequestId = 0;
         let paperSearchRequestId = 0;
         let recommendRequestId = 0;
+        let currentImportPaperKey = '';
         let currentAnalysisResult = null;
         let currentSourceFileName = '';
         let currentElapsedSeconds = null;
@@ -770,6 +782,8 @@
         let currentChatTurns = [];
         let currentPaperSearchResults = [];
         let currentPaperRecommendations = [];
+        let currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with a single query.';
+        let currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
 
         const THEME_STORAGE_KEY = 'paperwhisperer-theme';
         const SECTION_EMPTY_TEXT = {
@@ -852,16 +866,18 @@
                 if (data.rewrite_model) rewriteBits.push(`Model: ${data.rewrite_model}`);
                 if (data.errors && data.errors.length) rewriteBits.push(`Partial results: ${data.errors.join(' | ')}`);
                 rewriteBits.push(`${currentPaperSearchResults.length} paper(s)`);
+                currentPaperSearchMetaText = rewriteBits.join(' · ');
                 renderPaperList('paperSearchResults', currentPaperSearchResults, 'No matching papers found.', {
                     elementId: 'paperSearchMeta',
-                    text: rewriteBits.join(' · ')
+                    text: currentPaperSearchMetaText
                 });
             } catch (error) {
                 if (error.name === 'AbortError') {
                     return;
                 }
                 currentPaperSearchResults = [];
-                renderPaperList('paperSearchResults', [], 'Search results will appear here.', { elementId: 'paperSearchMeta', text: 'Search across Semantic Scholar and arXiv with a single query.' });
+                currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with a single query.';
+                renderPaperList('paperSearchResults', [], 'Search results will appear here.', { elementId: 'paperSearchMeta', text: currentPaperSearchMetaText });
                 showError(error.message || 'Paper search failed.');
             } finally {
                 if (requestId === paperSearchRequestId) {
@@ -915,16 +931,18 @@
                 if (data.reason) recommendationBits.push(`Why: ${data.reason}`);
                 if (data.rewrite_model) recommendationBits.push(`Model: ${data.rewrite_model}`);
                 if (data.errors && data.errors.length) recommendationBits.push(`Partial results: ${data.errors.join(' | ')}`);
+                currentPaperRecommendationMetaText = recommendationBits.join(' · ');
                 renderPaperList('paperRecommendations', currentPaperRecommendations, 'No recommendations found.', {
                     elementId: 'paperRecommendationMeta',
-                    text: recommendationBits.join(' · ')
+                    text: currentPaperRecommendationMetaText
                 });
             } catch (error) {
                 if (error.name === 'AbortError') {
                     return;
                 }
                 currentPaperRecommendations = [];
-                renderPaperList('paperRecommendations', [], 'Recommendations will appear here after analysis.', { elementId: 'paperRecommendationMeta', text: 'Analyze a paper first, then generate follow-up reading suggestions from the current session.' });
+                currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
+                renderPaperList('paperRecommendations', [], 'Recommendations will appear here after analysis.', { elementId: 'paperRecommendationMeta', text: currentPaperRecommendationMetaText });
                 showError(error.message || 'Paper recommendation failed.');
             } finally {
                 if (requestId === recommendRequestId) {
@@ -1129,23 +1147,68 @@
             }
         }
 
+        function applyAnalysisResult(data, fileName, generateEvaluation, generateMermaid) {
+            document.getElementById('result').classList.add('active');
+            setFileInfo(fileName, data.char_count);
+            setSectionContent('summary', data.summary);
+            setSectionContent('quotes', data.quotes);
+            setSectionContent('mindmap', data.mindmap);
+            setSectionContent('evaluation', data.evaluation);
+            document.getElementById('evaluationCard').style.display = generateEvaluation ? 'block' : 'none';
+
+            currentAnalysisResult = data;
+            currentSessionId = data.session_id || currentSessionId;
+            currentSourceFileName = fileName;
+            currentElapsedSeconds = data.elapsed_seconds ?? null;
+            currentOutputFile = data.output_file || '';
+            currentChatTurns = [];
+            resetPaperPanels();
+            setExportEnabled(true);
+            document.getElementById('askBtn').disabled = false;
+
+            if (generateMermaid && data.mermaid) {
+                return new Promise(resolve => {
+                    requestAnimationFrame(async () => {
+                        await renderMermaidDiagram(data.mermaid);
+                        resolve();
+                    });
+                });
+            }
+            resetMermaidCard();
+            return Promise.resolve();
+        }
+
+        function buildPaperActionKey(item) {
+            return String(item.paper_id || item.pdf_url || item.url || item.title || '').trim();
+        }
+
         function renderPaperList(elementId, items, emptyText, meta) {
             const container = document.getElementById(elementId);
             if (!container) return;
             const normalizedItems = Array.isArray(items) ? items : [];
+            const allowImport = elementId === 'paperSearchResults';
             if (!normalizedItems.length) {
                 container.innerHTML = `<p class="empty-state">${escapeHtml(emptyText || 'No papers found.')}</p>`;
             } else {
-                container.innerHTML = normalizedItems.map(item => {
+                container.innerHTML = normalizedItems.map((item, index) => {
                     const title = escapeHtml(item.title || 'Untitled paper');
                     const titleUrl = sanitizeUrl(item.url || item.pdf_url || '#');
                     const authors = Array.isArray(item.authors) && item.authors.length ? escapeHtml(item.authors.join(', ')) : 'Unknown authors';
                     const abstractText = escapeHtml(item.abstract || 'No abstract available.');
                     const reasonText = item.reason ? `<div class="paper-reason"><strong>Why:</strong> ${escapeHtml(item.reason)}</div>` : '';
                     const tags = [item.source, item.year, item.venue].filter(Boolean).map(tag => `<span class="paper-tag">${escapeHtml(String(tag))}</span>`).join('');
+                    const actionKey = buildPaperActionKey(item) || String(index);
+                    const downloadButton = (item.pdf_url || item.url)
+                        ? `<button class="paper-link" type="button" onclick="downloadPaperByIndex('${escapeHtml(elementId)}', ${index})">Download</button>`
+                        : '';
+                    const addButton = allowImport
+                        ? `<button class="paper-link" type="button" onclick="addPaperToAnalysisByIndex(${index})" ${currentImportPaperKey === actionKey ? 'disabled' : ''}>${currentImportPaperKey === actionKey ? 'Adding...' : 'Add'}</button>`
+                        : '';
                     const links = [
                         item.url ? `<a class="paper-link" href="${sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>` : '',
-                        item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer">PDF</a>` : ''
+                        item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer">PDF</a>` : '',
+                        downloadButton,
+                        addButton
                     ].join('');
                     return `
                         <article class="paper-card">
@@ -1161,9 +1224,16 @@
             }
 
             if (meta) {
+                const resolvedText = meta.text || '';
+                if (meta.elementId === 'paperSearchMeta') {
+                    currentPaperSearchMetaText = resolvedText;
+                }
+                if (meta.elementId === 'paperRecommendationMeta') {
+                    currentPaperRecommendationMetaText = resolvedText;
+                }
                 const metaElement = document.getElementById(meta.elementId);
                 if (metaElement) {
-                    metaElement.textContent = meta.text || '';
+                    metaElement.textContent = resolvedText;
                 }
             }
         }
@@ -1171,8 +1241,10 @@
         function resetPaperPanels() {
             currentPaperSearchResults = [];
             currentPaperRecommendations = [];
-            renderPaperList('paperSearchResults', [], 'Search results will appear here.', { elementId: 'paperSearchMeta', text: 'Search across Semantic Scholar and arXiv with a single query.' });
-            renderPaperList('paperRecommendations', [], 'Recommendations will appear here after analysis.', { elementId: 'paperRecommendationMeta', text: 'Analyze a paper first, then generate follow-up reading suggestions from the current session.' });
+            currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with a single query.';
+            currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
+            renderPaperList('paperSearchResults', [], 'Search results will appear here.', { elementId: 'paperSearchMeta', text: currentPaperSearchMetaText });
+            renderPaperList('paperRecommendations', [], 'Recommendations will appear here after analysis.', { elementId: 'paperRecommendationMeta', text: currentPaperRecommendationMetaText });
             setRecommendEnabled(Boolean(currentAnalysisResult && currentSessionId));
         }
 
@@ -1391,31 +1463,7 @@
                     throw new Error(data.error || 'Connection failed.');
                 }
 
-                document.getElementById('result').classList.add('active');
-                setFileInfo(file.name, data.char_count);
-                setSectionContent('summary', data.summary);
-                setSectionContent('quotes', data.quotes);
-                setSectionContent('mindmap', data.mindmap);
-                setSectionContent('evaluation', data.evaluation);
-                document.getElementById('evaluationCard').style.display = generateEvaluation ? 'block' : 'none';
-
-                currentAnalysisResult = data;
-                currentSessionId = data.session_id || currentSessionId;
-                currentSourceFileName = file.name;
-                currentElapsedSeconds = data.elapsed_seconds ?? null;
-                currentOutputFile = data.output_file || '';
-                currentChatTurns = [];
-                resetPaperPanels();
-
-                if (generateMermaid && data.mermaid) {
-                    await new Promise(resolve => requestAnimationFrame(resolve));
-                    await renderMermaidDiagram(data.mermaid);
-                } else {
-                    resetMermaidCard();
-                }
-
-                setExportEnabled(true);
-                askBtn.disabled = false;
+                await applyAnalysisResult(data, file.name, generateEvaluation, generateMermaid);
                 updateStatus('Analysis ready for follow-up questions', 'success');
             } catch (error) {
                 if (error.name === 'AbortError') {
@@ -1584,6 +1632,107 @@
                 event.preventDefault();
                 searchPapers();
             }
+        }
+
+        function getPaperListByElementId(elementId) {
+            if (elementId === 'paperSearchResults') return currentPaperSearchResults;
+            if (elementId === 'paperRecommendations') return currentPaperRecommendations;
+            return [];
+        }
+
+        function downloadPaper(item) {
+            if (!item || (!item.pdf_url && !item.url)) {
+                showError('No downloadable paper file is available for this result.');
+                return;
+            }
+            const params = new URLSearchParams();
+            if (item.url) params.set('url', item.url);
+            if (item.pdf_url) params.set('pdf_url', item.pdf_url);
+            if (item.title) params.set('title', item.title);
+            const targetUrl = `/api/download-paper?${params.toString()}`;
+            window.open(targetUrl, '_blank', 'noopener,noreferrer');
+        }
+
+        function downloadPaperByIndex(elementId, index) {
+            const items = getPaperListByElementId(elementId);
+            const item = items[index];
+            if (!item) {
+                showError('Paper result not found. Please search again.');
+                return;
+            }
+            downloadPaper(item);
+        }
+
+        async function addPaperToAnalysis(item) {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            const generateMermaid = document.getElementById('generateMermaid').checked;
+            const generateEvaluation = document.getElementById('generateEvaluation').checked;
+            const paperKey = buildPaperActionKey(item);
+
+            if (importPaperController) {
+                importPaperController.abort();
+            }
+            importPaperController = new AbortController();
+            currentImportPaperKey = paperKey;
+            currentSessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            hideError();
+            resetResultView();
+            document.getElementById('loading').classList.add('active');
+            updateStatus('Importing paper from search results...', 'idle');
+            renderPaperList('paperSearchResults', currentPaperSearchResults, 'Search results will appear here.', {
+                elementId: 'paperSearchMeta',
+                text: 'Importing selected paper into PaperWhisperer...'
+            });
+
+            try {
+                const response = await fetch('/api/import-paper', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: item.title || '',
+                        url: item.url || '',
+                        pdf_url: item.pdf_url || '',
+                        session_id: currentSessionId,
+                        api_key: apiKey,
+                        generate_mermaid: generateMermaid,
+                        generate_evaluation: generateEvaluation
+                    }),
+                    signal: importPaperController.signal
+                });
+                const data = await parseJsonSafely(response);
+                if (!response.ok) {
+                    throw new Error(data.error || 'Paper import failed.');
+                }
+
+                currentPaperSearchMetaText = 'Imported selected paper into PaperWhisperer.';
+                await applyAnalysisResult(data, data.source_filename || item.title || 'Imported paper', generateEvaluation, generateMermaid);
+                updateStatus('Imported paper ready for follow-up questions', 'success');
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    return;
+                }
+                currentSessionId = '';
+                resetResultView();
+                showError(error.message || 'Paper import failed.');
+                updateStatus('Paper import failed', 'error');
+            } finally {
+                currentImportPaperKey = '';
+                document.getElementById('loading').classList.remove('active');
+                renderPaperList('paperSearchResults', currentPaperSearchResults, 'Search results will appear here.', {
+                    elementId: 'paperSearchMeta',
+                    text: currentPaperSearchMetaText
+                });
+                importPaperController = null;
+            }
+        }
+
+        function addPaperToAnalysisByIndex(index) {
+            const item = currentPaperSearchResults[index];
+            if (!item) {
+                showError('Paper result not found. Please search again.');
+                return;
+            }
+            addPaperToAnalysis(item);
         }
 
         async function copyText(elementId, btnElement) {

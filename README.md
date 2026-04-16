@@ -14,6 +14,7 @@
 - 可选生成 Mermaid 可视化图，便于展示与分享
 - 可选输出批判性评价，辅助形成自己的判断
 - 支持基于关键词/任务/方法的论文搜索（Semantic Scholar + arXiv 聚合）
+- 支持在 `Paper Search` 中通过后端代理稳定下载结果论文文件名，或一键加入当前分析流程
 - 支持基于当前论文内容自动生成检索主题并推荐延伸阅读
 - 支持“上传后追问”问答，并保留当前文档的最近多轮会话上下文
 - 支持导出完整会话结果（Markdown + Mermaid SVG）
@@ -128,8 +129,9 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 4. 可在 `Paper Search` 区域直接检索相关论文
 5. 查看 `Overview`、`Key Citations`、`Text Structure`、`Evaluation`
 6. 在 `Auto Recommendations` 区域基于当前论文生成延伸阅读结果
-7. 在 `Ask Questions` 区域继续追问（会自动带入当前文档会话的最近多轮上下文）
-8. 点击 `Export Session` 导出当前分析、问答记录与 Mermaid 资源
+7. 在 `Paper Search` 结果中可直接点击 `Download` 下载原文，或点击 `Add` 自动导入并替换当前分析文档
+8. 在 `Ask Questions` 区域继续追问（会自动带入当前文档会话的最近多轮上下文）
+9. 点击 `Export Session` 导出当前分析、问答记录与 Mermaid 资源
 
 ## 🔌 API 接口说明
 
@@ -198,6 +200,40 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 }
 ```
 
+### `GET /api/download-paper`
+通过后端代理下载 `Paper Search` 结果对应的论文文件，并尽量返回稳定文件名。
+
+查询参数示例：
+```text
+/api/download-paper?title=Attention%20Is%20All%20You%20Need&pdf_url=https://arxiv.org/pdf/1706.03762.pdf
+```
+
+说明：
+- 服务端优先使用 `pdf_url`，其次仅在 `url` 本身就是文件直链时才尝试下载
+- 会复用与导入相同的远程链接校验逻辑，拒绝本地地址、HTML 落地页和不支持的文件类型
+- 返回 `Content-Disposition: attachment`，便于浏览器用稳定文件名保存
+
+### `POST /api/import-paper`
+把 `Paper Search` 中的搜索结果直接下载为临时文件，并复用现有分析链路生成当前会话结果。
+
+请求体示例：
+```json
+{
+  "title": "Attention Is All You Need",
+  "url": "https://www.semanticscholar.org/paper/...",
+  "pdf_url": "https://arxiv.org/pdf/1706.03762.pdf",
+  "session_id": "session_123",
+  "api_key": "optional",
+  "generate_mermaid": true,
+  "generate_evaluation": true
+}
+```
+
+说明：
+- 服务端优先使用 `pdf_url` 下载原文；若没有 `pdf_url`，仅在 `url` 本身就是文件直链时才尝试导入
+- 导入成功后返回结构与 `/api/analyze` 基本一致，并覆盖当前分析会话上下文
+- 当前实现优先面向可直接获取的 PDF 原文
+
 ### `POST /api/recommend-papers`
 基于当前分析 session 的论文内容生成检索主题，并返回一批延伸阅读结果。
 
@@ -251,12 +287,14 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 - Web 会话上下文保存在 `context/*.json`，便于多轮追问、推荐结果缓存与完整结果导出
 - 支持“请求级 key”与“环境变量 key”两种模式
 - 外部论文搜索依赖公开学术接口，单个来源失败时会降级返回其他来源结果
+- 从搜索结果导入论文时，只允许公开 `http/https` 链接，并在下载完成后清理临时文件
 
 ## ⚠️ 当前已知限制
 - 代码中部分中文提示词仍有历史编码痕迹（不影响主流程）
 - 分析质量与所选模型、提示词质量相关
 - PDF 提取效果取决于原文档文本层质量
 - DOCX/PPTX 主要提取文本层内容，复杂排版、图表和图片中的文字可能提取不完整
+- 搜索结果中的 `Add` 优先适配可直接下载的 PDF；如果结果只有论文落地页而没有文件直链，仍需手动下载后再上传
 
 ## 🛠️ 常见 API 配置问题
 - 如果提示“AI 服务返回了网页内容而不是模型结果”，通常说明 API Key 缺失/无效，或者 `OPENAI_BASE_URL` 指到了网页地址而不是 API 地址
