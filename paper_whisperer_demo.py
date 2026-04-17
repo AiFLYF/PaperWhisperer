@@ -195,7 +195,7 @@ class DocumentLoader:
 class PaperWhisperer:
     def __init__(self, use_api=True, chunk_size=None, overlap=None):
         self.name = "PaperWhisperer"
-        self.version = "0.6.0"
+        self.version = "0.8.0"
         self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()

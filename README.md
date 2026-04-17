@@ -1,6 +1,6 @@
 ﻿# 📚 PaperWhisperer
 
-![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python) ![License](https://img.shields.io/badge/License-TIM-lightgrey) ![AI](https://img.shields.io/badge/AI--Powered-OpenAI-blueviolet) ![Version](https://img.shields.io/badge/version-0.6.1-green)
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python) ![License](https://img.shields.io/badge/License-MIT-lightgrey) ![AI](https://img.shields.io/badge/AI--Powered-OpenAI-blueviolet) ![Version](https://img.shields.io/badge/version-0.9.0-green)
 
 一个面向论文/文献阅读场景的 AI 助手。
 上传 `.txt`、`.pdf`、`.docx` 或 `.pptx` 后，可自动生成结构化分析结果、可视化结构图与批判性评价，并支持基于当前文档会话继续多轮追问。
@@ -136,7 +136,7 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 ## 🔌 API 接口说明
 
 ### `POST /api/analyze`
-上传并分析文档。
+上传并分析文档（非流式版本）。
 
 表单参数：
 - `file`（必填）：`.txt`、`.pdf`、`.docx` 或 `.pptx`
@@ -147,8 +147,36 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 
 说明：若不传 `api_key`，服务端会读取 `OPENAI_API_KEY`。
 
+返回结构要点：
+- 保留顶层 `summary` / `quotes` / `mindmap` / `mermaid` / `evaluation` 字段用于兼容旧前端
+- 新增 `sections`，按 section 返回 `status`、`content`、`error`、`retryable`
+- 新增 `session_token`，用于后续问答、推荐和带上下文的搜索鉴权
+
+### `POST /api/analyze/stream`（SSE 流式）
+上传并流式分析文档，实时返回各分析模块结果。
+
+表单参数：与 `/api/analyze` 相同。
+
+SSE 事件类型：
+- `event: start` - 分析开始，返回 `session_id` 和 `source_filename`
+- `event: section` - 单个分析模块完成，返回 `name`（模块名）和 `section`（结果）
+- `event: done` - 全部分析完成，返回完整结果
+- `event: error` - 分析失败，返回错误信息
+
+前端处理示例：
+```javascript
+const response = await fetch('/api/analyze/stream', { method: 'POST', body: formData });
+const reader = response.body.getReader();
+// 解析 SSE 事件流...
+```
+
+优势：
+- 实时反馈分析进度，用户体验更好
+- 无需等待全部模块完成即可看到部分结果
+- 支持按模块显示加载状态
+
 ### `POST /api/ask`
-基于已保存的文档上下文进行追问。
+基于已保存的文档上下文进行追问（非流式版本）。
 
 说明：服务端会保存 `context/<session_id>.json`，其中包含该次分析对应文档的正文、分析结果摘要与问答历史。追问时只会使用当前 `session_id` 这一个文档会话里的 Ask Questions 历史，不会跨文档、不会做全局混用；同时会优先携带文档节选，并附加最近若干轮问答历史，而不是每轮重复塞入整篇文档。
 
@@ -157,9 +185,26 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 {
   "question": "这篇文献最重要的贡献是什么？",
   "session_id": "session_123",
+  "session_token": "returned-by-analyze",
   "api_key": "optional"
 }
 ```
+
+### `POST /api/ask/stream`（SSE 流式）
+基于已保存的文档上下文进行流式追问，实时返回答案。
+
+请求体参数：与 `/api/ask` 相同。
+
+SSE 事件类型：
+- `event: start` - 问答开始
+- `event: delta` - 增量文本片段，返回 `text` 字段
+- `event: done` - 问答完成，返回完整 `answer`
+- `event: error` - 问答失败，返回错误信息
+
+优势：
+- 打字机效果，实时显示答案
+- 用户无需等待完整答案生成
+- 更接近 ChatGPT 的交互体验
 
 ### `POST /api/search-papers`
 按关键词聚合检索 Semantic Scholar 与 arXiv 论文结果。默认会先经过 AI 理解与检索词改写，再执行外部论文搜索。
@@ -170,6 +215,7 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
   "query": "large language model reasoning",
   "limit": 8,
   "session_id": "optional",
+  "session_token": "required-when-session_id-is-provided",
   "api_key": "optional"
 }
 ```
@@ -211,6 +257,7 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 说明：
 - 服务端优先使用 `pdf_url`，其次仅在 `url` 本身就是文件直链时才尝试下载
 - 会复用与导入相同的远程链接校验逻辑，拒绝本地地址、HTML 落地页和不支持的文件类型
+- 下载代理现在采用流式响应，避免服务端整块读入远程文件
 - 返回 `Content-Disposition: attachment`，便于浏览器用稳定文件名保存
 
 ### `POST /api/import-paper`
@@ -241,6 +288,7 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 ```json
 {
   "session_id": "session_123",
+  "session_token": "returned-by-analyze",
   "api_key": "optional",
   "limit": 6
 }
@@ -285,9 +333,41 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 - `uploads/`、`context/`、`output/` 默认不提交到 Git
 - 临时上传文件在分析结束后会自动清理
 - Web 会话上下文保存在 `context/*.json`，便于多轮追问、推荐结果缓存与完整结果导出
-- 支持“请求级 key”与“环境变量 key”两种模式
+- session 现在带有 `expires_at` 过期时间，并通过 `session_token` 保护后续会话请求
+- 默认会尽量减少落盘的全文内容；若需要持久化完整文档，可通过 `SESSION_PERSIST_FULL_DOCUMENT=true` 开启
+- 支持"请求级 key"与"环境变量 key"两种模式
 - 外部论文搜索依赖公开学术接口，单个来源失败时会降级返回其他来源结果
 - 从搜索结果导入论文时，只允许公开 `http/https` 链接，并在下载完成后清理临时文件
+
+### 🛡️ 安全防护机制
+项目实现了多层安全防护，确保用户数据和系统安全：
+
+**文件上传安全**
+- `secure_filename()` - 净化文件名，移除特殊字符，防止路径穿越攻击
+- `build_safe_upload_filename()` - 强制校验文件扩展名，拒绝危险文件类型
+- `save_upload_file()` - 分块保存上传文件，服务端强制执行 16MB 大小限制
+- 上传完成后自动清理临时文件
+
+**URL 安全校验**
+- `is_public_http_url()` - 仅允许公开 `http/https` 协议
+- 拒绝 `localhost`、私有 IP 地址（如 `192.168.x.x`、`10.x.x.x`）、环回地址
+- 防止 SSRF（服务端请求伪造）攻击
+
+**会话安全**
+- `session_token` 使用 `secrets.token_urlsafe(24)` 生成高强度随机令牌
+- Token 哈希存储（SHA-256），不保存明文
+- `validate_session_token()` 使用 `secrets.compare_digest()` 安全比较，防止时序攻击
+- 会话自动过期清理（默认 24 小时）
+
+**前端安全**
+- `escapeHtml()` - 转义 HTML 特殊字符，防止 XSS
+- `sanitizeUrl()` - URL 协议白名单校验
+- `sanitizeGeneratedHtml()` - 移除 `on*` 事件属性，净化动态内容
+- 所有外部链接添加 `rel="noopener noreferrer"`
+
+**流式响应安全**
+- SSE 响应设置 `X-Accel-Buffering: no`，禁用代理缓冲
+- 远程文件下载采用流式传输，避免大文件占用内存
 
 ## ⚠️ 当前已知限制
 - 代码中部分中文提示词仍有历史编码痕迹（不影响主流程）
@@ -305,13 +385,36 @@ python paper_whisperer_demo.py <你的文件.txt|pdf|docx|pptx>
 - 如果核心分析项全部失败，`/api/analyze` 会直接返回错误，而不会再伪装成成功结果
 
 ## ✅ 项目亮点
-- 面向论文/文献阅读，不是通用聊天壳，而是围绕“读、提炼、追问、导出”设计
+- 面向论文/文献阅读，不是通用聊天壳，而是围绕"读、提炼、追问、导出"设计
 - 同时支持 `PDF`、`TXT`、`DOCX`、`PPTX` 四类常见文档格式
 - Web 端支持多轮追问，且上下文严格绑定当前文档会话
 - 支持 Mermaid 可视化结构图与 SVG 导出
 - 导出结果不仅包含分析内容，也可带上问答历史，便于沉淀阅读笔记
+- **SSE 流式响应**：分析和问答支持实时流式输出，打字机效果更流畅
+- **多层安全防护**：文件上传安全、URL 校验、会话 Token 保护、前端 XSS 防护
 
 ## 📝 更新日志
+
+### v0.9.0
+- **SSE 流式 API**：新增 `/api/analyze/stream` 和 `/api/ask/stream` 流式端点
+  - 分析结果实时推送，支持 `start`/`section`/`done`/`error` 事件
+  - 问答答案流式返回，支持 `start`/`delta`/`done`/`error` 事件
+  - 前端实现打字机效果，用户体验更流畅
+- **安全防护增强**：
+  - 文件上传：`secure_filename()` 防止路径穿越，分块上传 + 大小限制
+  - URL 校验：`is_public_http_url()` 拒绝私有 IP 和本地地址，防止 SSRF
+  - 会话安全：Token 使用 `secrets.compare_digest()` 安全比较，防止时序攻击
+  - 前端安全：XSS 防护、URL 白名单、事件属性净化
+- **前端优化**：
+  - CSS 样式内联到 `index.html`，移除外部 CSS 文件依赖
+  - 简化项目结构，减少文件数量
+
+### v0.8.0
+- **会话安全**：分析结果新增 `session_token`，追问、推荐和带上下文搜索需要 token 才能访问当前 session
+- **会话生命周期**：`context/<session>.json` 新增 `created_at` / `updated_at` / `expires_at`，并自动清理过期 session
+- **上传限额**：`/api/analyze` 改为分块保存上传文件，并在服务端强制执行大小限制
+- **分析契约**：新增 `sections` 结构化返回，按 section 提供状态、内容、错误与是否可重试
+- **下载代理**：`/api/download-paper` 改为流式响应，减少服务端内存占用
 
 ### v0.7.0
 - **论文搜索**：新增 `POST /api/search-papers`，聚合 Semantic Scholar 与 arXiv 结果并统一数据结构
