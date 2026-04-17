@@ -26,6 +26,7 @@ except ImportError:
 import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 from PyPDF2 import PdfReader
@@ -45,6 +46,7 @@ CONTEXT_FOLDER = "context"
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max limit
 
 app = FastAPI(title="PaperWhisperer")
+app.mount("/static", StaticFiles(directory="templates/static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 # Ensure required folders exist
