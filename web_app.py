@@ -1,10 +1,12 @@
 import concurrent.futures
+import hashlib
 import ipaddress
 import json
 import logging
 import mimetypes
 import os
 import re
+import secrets
 import ssl
 import time
 import threading
@@ -23,7 +25,7 @@ except ImportError:
 
 import uvicorn
 from fastapi import FastAPI, File, Form, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 from PyPDF2 import PdfReader
@@ -89,9 +91,13 @@ PAPER_SEARCH_ENABLE_REWRITE = parse_bool_env("PAPER_SEARCH_ENABLE_REWRITE", defa
 PAPER_SEARCH_REWRITE_MODEL = os.getenv("PAPER_SEARCH_REWRITE_MODEL", "").strip()
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
 REMOTE_IMPORT_TIMEOUT_SECONDS = parse_int_env("REMOTE_IMPORT_TIMEOUT_SECONDS", default=30, min_value=5, max_value=180)
+SESSION_TTL_SECONDS = parse_int_env("SESSION_TTL_SECONDS", default=24 * 60 * 60, min_value=60, max_value=30 * 24 * 60 * 60)
+SESSION_CLEANUP_INTERVAL_SECONDS = parse_int_env("SESSION_CLEANUP_INTERVAL_SECONDS", default=10 * 60, min_value=60, max_value=24 * 60 * 60)
+SESSION_PERSIST_FULL_DOCUMENT = parse_bool_env("SESSION_PERSIST_FULL_DOCUMENT", default=True)
 
 MAX_LLM_CONCURRENCY = parse_int_env("OPENAI_MAX_CONCURRENCY", default=5, min_value=1, max_value=32)
 LLM_REQUEST_SEMAPHORE = threading.BoundedSemaphore(MAX_LLM_CONCURRENCY)
+LAST_SESSION_CLEANUP_AT = 0.0
 
 
 def resolve_api_key(explicit_key):
@@ -150,6 +156,33 @@ def clean_extracted_text(text):
 
 def get_session_file_path(session_id):
     return os.path.join(CONTEXT_FOLDER, f"{session_id}.json")
+
+
+def now_iso():
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def parse_iso_datetime(value):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def build_session_expiry(now=None):
+    base_time = now or datetime.now()
+    return datetime.fromtimestamp(base_time.timestamp() + SESSION_TTL_SECONDS).isoformat(timespec="seconds")
+
+
+def generate_session_token():
+    return secrets.token_urlsafe(24)
+
+
+def hash_session_token(token):
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
 
 
 def build_document_excerpt(content, limit=12000):
@@ -389,13 +422,17 @@ def search_papers(query, limit=None):
     }
 
 
-def build_session_payload(session_id, source_filename, document_content, analysis):
-    generated_at = datetime.now().isoformat(timespec="seconds")
+def build_session_payload(session_id, source_filename, document_content, analysis, session_token):
+    generated_at = now_iso()
+    stored_document_content = document_content if SESSION_PERSIST_FULL_DOCUMENT else ""
     return {
         "session_id": session_id,
         "source_filename": source_filename,
         "generated_at": generated_at,
-        "document_content": document_content,
+        "created_at": generated_at,
+        "updated_at": generated_at,
+        "expires_at": build_session_expiry(),
+        "document_content": stored_document_content,
         "document_excerpt": build_document_excerpt(document_content),
         "qa_history": [],
         "paper_search": {
@@ -403,12 +440,16 @@ def build_session_payload(session_id, source_filename, document_content, analysi
             "last_results": [],
             "last_recommendation": {},
         },
+        "session_auth": {
+            "token_hash": hash_session_token(session_token),
+        },
         "analysis": {
             "summary": analysis.get("summary", ""),
             "quotes": analysis.get("quotes", ""),
             "mindmap": analysis.get("mindmap", ""),
             "mermaid": analysis.get("mermaid", ""),
             "evaluation": analysis.get("evaluation", ""),
+            "sections": analysis.get("sections", {}),
             "char_count": analysis.get("char_count", 0),
             "elapsed_seconds": analysis.get("elapsed_seconds"),
             "output_file": analysis.get("output_file", ""),
@@ -419,6 +460,45 @@ def build_session_payload(session_id, source_filename, document_content, analysi
 def is_failed_llm_result(value):
     text = (value or "").strip()
     return text.startswith("生成失败，请重试")
+
+
+def build_section_result(status, content="", error="", retryable=False):
+    return {
+        "status": status,
+        "content": content or "",
+        "error": error or "",
+        "retryable": bool(retryable),
+    }
+
+
+def build_sse_event(event_name, payload):
+    data = json.dumps(payload or {}, ensure_ascii=False)
+    return f"event: {event_name}\ndata: {data}\n\n"
+
+
+def build_sse_headers():
+    return {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+
+
+def is_retryable_llm_error(message):
+    normalized = str(message or "").lower()
+    retry_markers = (
+        "超时",
+        "timeout",
+        "连接失败",
+        "connection",
+        "429",
+        "限流",
+        "502",
+        "503",
+        "504",
+        "网关",
+    )
+    return any(marker in normalized for marker in retry_markers)
 
 
 def describe_llm_status_code(status_code):
@@ -479,6 +559,10 @@ def extract_json_object(text):
 
 
 def write_session_payload(session_id, payload):
+    now_text = now_iso()
+    if isinstance(payload, dict):
+        payload["updated_at"] = now_text
+        payload["expires_at"] = build_session_expiry()
     with open(get_session_file_path(session_id), "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
@@ -578,7 +662,7 @@ def stream_remote_paper(title, pdf_url, url):
             last_error = ValueError("This result does not provide a direct downloadable file. Please open it manually and upload the paper file.")
             continue
 
-        request = urllib.request.Request(source_url, headers={"User-Agent": "PaperWhisperer/0.7"})
+        request = urllib.request.Request(source_url, headers={"User-Agent": "PaperWhisperer/0.8"})
         try:
             response = urllib.request.urlopen(request, timeout=REMOTE_IMPORT_TIMEOUT_SECONDS, context=ssl_context)
             content_type = normalize_content_type(response.headers.get("Content-Type"))
@@ -603,6 +687,95 @@ def stream_remote_paper(title, pdf_url, url):
     if last_error:
         raise last_error
     raise ValueError("Paper import failed.")
+
+
+async def save_upload_file(upload_file, destination_path, max_bytes):
+    total_bytes = 0
+    try:
+        with open(destination_path, "wb") as f:
+            while True:
+                chunk = await upload_file.read(1024 * 64)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+                if total_bytes > max_bytes:
+                    raise ValueError(f"Uploaded file is too large. Limit: {max_bytes // (1024 * 1024)} MB")
+                f.write(chunk)
+        if total_bytes <= 0:
+            raise ValueError("Uploaded file is empty.")
+        return total_bytes
+    except Exception:
+        if destination_path and os.path.exists(destination_path):
+            try:
+                os.remove(destination_path)
+            except Exception:
+                pass
+        raise
+
+
+def iter_remote_file_chunks(response, max_bytes):
+    total_bytes = 0
+    try:
+        while True:
+            chunk = response.read(1024 * 64)
+            if not chunk:
+                break
+            total_bytes += len(chunk)
+            if total_bytes > max_bytes:
+                raise ValueError(f"Remote file is too large. Limit: {max_bytes // (1024 * 1024)} MB")
+            yield chunk
+        if total_bytes <= 0:
+            raise ValueError("Downloaded file is empty.")
+    finally:
+        try:
+            response.close()
+        except Exception:
+            pass
+
+
+def cleanup_expired_sessions(force=False):
+    global LAST_SESSION_CLEANUP_AT
+    now_ts = time.time()
+    if not force and now_ts - LAST_SESSION_CLEANUP_AT < SESSION_CLEANUP_INTERVAL_SECONDS:
+        return
+    LAST_SESSION_CLEANUP_AT = now_ts
+    for name in os.listdir(CONTEXT_FOLDER):
+        if not name.endswith(".json"):
+            continue
+        file_path = os.path.join(CONTEXT_FOLDER, name)
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            expires_at = parse_iso_datetime((payload or {}).get("expires_at"))
+            if expires_at and expires_at.timestamp() < now_ts:
+                os.remove(file_path)
+        except Exception:
+            continue
+
+
+def validate_session_token(session_payload, session_token):
+    expected_hash = str((session_payload.get("session_auth") or {}).get("token_hash") or "")
+    provided_hash = hash_session_token(session_token)
+    return bool(expected_hash and session_token and secrets.compare_digest(expected_hash, provided_hash))
+
+
+def get_session_document_content(session_payload):
+    content = str(session_payload.get("document_content") or "")
+    if content:
+        return content
+    return str(session_payload.get("document_excerpt") or "")
+
+
+def load_validated_session(raw_session_id, session_token, require_token=True):
+    if not raw_session_id:
+        raise ValueError("session_id is required.")
+    safe_session_id = sanitize_identifier(raw_session_id, "session")
+    session_payload = load_session_payload(safe_session_id)
+    if not session_payload:
+        raise ValueError("Session expired or context not found. Please upload and analyze the file again.")
+    if require_token and not validate_session_token(session_payload, session_token):
+        raise PermissionError("Invalid or missing session token. Please analyze the document again.")
+    return safe_session_id, session_payload
 
 
 def download_remote_paper(title, pdf_url, url):
@@ -641,15 +814,9 @@ def download_remote_paper(title, pdf_url, url):
                 pass
 
 
-def analyze_saved_file(file_path, original_filename, api_key, generate_mermaid_bool, generate_evaluation_bool, session_id):
-    resolved_api_key = resolve_api_key(api_key)
-    if not resolved_api_key:
-        raise ValueError("API key is required. Provide api_key or set OPENAI_API_KEY.")
-
-    whisperer = PaperWhisperer(resolved_api_key)
-    result = whisperer.analyze(file_path, generate_mermaid_bool, generate_evaluation_bool)
-
+def finalize_analysis_result(result, whisperer, original_filename, generate_evaluation_bool, session_id):
     safe_session_id = sanitize_identifier(session_id, "session")
+    session_token = generate_session_token()
     base_name = os.path.splitext(original_filename)[0]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = os.path.join(OUTPUT_FOLDER, f"{base_name}_analysis_{timestamp}.md")
@@ -692,6 +859,7 @@ def analyze_saved_file(file_path, original_filename, api_key, generate_mermaid_b
 
     result["output_file"] = output_file
     result["session_id"] = safe_session_id
+    result["session_token"] = session_token
     result["source_filename"] = original_filename
 
     session_payload = build_session_payload(
@@ -699,9 +867,27 @@ def analyze_saved_file(file_path, original_filename, api_key, generate_mermaid_b
         source_filename=original_filename,
         document_content=whisperer.document_content,
         analysis=result,
+        session_token=session_token,
     )
     write_session_payload(safe_session_id, session_payload)
     return result
+
+
+def analyze_saved_file(file_path, original_filename, api_key, generate_mermaid_bool, generate_evaluation_bool, session_id):
+    cleanup_expired_sessions()
+    resolved_api_key = resolve_api_key(api_key)
+    if not resolved_api_key:
+        raise ValueError("API key is required. Provide api_key or set OPENAI_API_KEY.")
+
+    whisperer = PaperWhisperer(resolved_api_key)
+    result = whisperer.analyze(file_path, generate_mermaid_bool, generate_evaluation_bool)
+    return finalize_analysis_result(
+        result=result,
+        whisperer=whisperer,
+        original_filename=original_filename,
+        generate_evaluation_bool=generate_evaluation_bool,
+        session_id=session_id,
+    )
 
 
 def load_session_payload(session_id):
@@ -712,6 +898,15 @@ def load_session_payload(session_id):
         payload = json.load(f)
     if not isinstance(payload, dict):
         return None
+
+    expires_at = parse_iso_datetime(payload.get("expires_at"))
+    if expires_at and expires_at.timestamp() < time.time():
+        try:
+            os.remove(session_file)
+        except Exception:
+            pass
+        return None
+
     payload.setdefault("document_content", "")
     payload.setdefault("document_excerpt", build_document_excerpt(payload.get("document_content", "")))
     payload.setdefault("qa_history", [])
@@ -722,7 +917,13 @@ def load_session_payload(session_id):
     payload["paper_search"].setdefault("last_recommendation", {})
     payload.setdefault("source_filename", "")
     payload.setdefault("session_id", session_id)
-    payload.setdefault("generated_at", datetime.now().isoformat(timespec="seconds"))
+    payload.setdefault("generated_at", now_iso())
+    payload.setdefault("created_at", payload.get("generated_at") or now_iso())
+    payload.setdefault("updated_at", payload.get("generated_at") or now_iso())
+    payload.setdefault("expires_at", build_session_expiry())
+    payload.setdefault("session_auth", {})
+    payload["session_auth"].setdefault("token_hash", "")
+    payload["analysis"].setdefault("sections", {})
     return payload
 
 
@@ -854,7 +1055,7 @@ class PaperWhisperer:
     """文献分析核心类"""
     def __init__(self, api_key):
         self.name = "PaperWhisperer"
-        self.version = "0.6.0"
+        self.version = "0.8.0"
         self.api_key = resolve_api_key(api_key)
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
@@ -932,7 +1133,76 @@ class PaperWhisperer:
                 time.sleep(min(2 * (attempt + 1), 8))
             else:
                 logger.error(message)
-                return f"生成失败，请重试 ({message})"
+                raise RuntimeError(message)
+
+    def _stream_llm(self, system_prompt, user_prompt, max_retries=None, model=None):
+        if not self.client:
+            raise ValueError("API key is required. Provide it in request body or set OPENAI_API_KEY.")
+
+        retries = self.max_retries if max_retries is None else max_retries
+
+        for attempt in range(retries):
+            try:
+                with LLM_REQUEST_SEMAPHORE:
+                    with self.client.chat.completions.with_streaming_response.create(
+                        model=(model or self.model),
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=4000,
+                        timeout=self.request_timeout,
+                        stream=True,
+                    ) as response:
+                        status_code = getattr(response, "status_code", None)
+                        if status_code is None:
+                            raise ValueError("AI 服务未返回可识别的 HTTP 状态码。")
+                        if not (200 <= status_code < 300):
+                            raise ValueError(describe_llm_status_code(status_code))
+
+                        saw_text = False
+                        for chunk in response.iter_lines():
+                            if not chunk:
+                                continue
+                            decoded = chunk.decode("utf-8") if isinstance(chunk, bytes) else str(chunk)
+                            line = decoded.strip()
+                            if not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if not data or data == "[DONE]":
+                                continue
+                            try:
+                                payload = json.loads(data)
+                            except json.JSONDecodeError:
+                                continue
+                            choices = payload.get("choices") or []
+                            if not choices:
+                                continue
+                            delta = choices[0].get("delta") or {}
+                            text = delta.get("content")
+                            if not text:
+                                continue
+                            saw_text = True
+                            yield str(text)
+
+                        if not saw_text:
+                            raise ValueError("AI 服务返回内容为空")
+                        return
+            except APIStatusError as e:
+                message = describe_llm_status_code(e.status_code)
+            except APITimeoutError:
+                message = "AI 服务请求超时，请稍后重试。"
+            except APIConnectionError:
+                message = "AI 服务连接失败，请检查网络、API 地址或供应商服务状态。"
+            except Exception as e:
+                message = str(e)
+
+            if attempt < retries - 1:
+                time.sleep(min(2 * (attempt + 1), 8))
+            else:
+                logger.error(message)
+                raise RuntimeError(message)
 
     def _get_worker_count(self, task_count, configured_workers):
         return max(1, min(task_count, configured_workers))
@@ -1123,9 +1393,9 @@ graph TD
 """
         return self._call_llm(system_prompt, user_prompt)
 
-    def answer_question(self, question, history=None):
+    def _build_answer_prompts(self, question, history=None):
         if not self.document_content:
-            return "没有文档内容，请先上传文档进行分析。"
+            raise ValueError("没有文档内容，请先上传文档进行分析。")
 
         history = history or []
         document_budget = 12000
@@ -1172,7 +1442,19 @@ graph TD
         user_prompt_parts.append(f"用户当前问题:\n{question}")
         user_prompt_parts.append("请给出简洁、准确的中文回答；如果是在追问，请延续上下文但不要重复长段原文。")
         user_prompt = "\n\n".join(user_prompt_parts)
+        return system_prompt, user_prompt
+
+    def answer_question(self, question, history=None):
+        system_prompt, user_prompt = self._build_answer_prompts(question, history=history)
         return self._call_llm(system_prompt, user_prompt)
+
+    def stream_answer_question(self, question, history=None):
+        system_prompt, user_prompt = self._build_answer_prompts(question, history=history)
+        full_answer = []
+        for chunk in self._stream_llm(system_prompt, user_prompt):
+            full_answer.append(chunk)
+            yield chunk
+        return "".join(full_answer)
 
     def rewrite_search_query(self, query, context_text=""):
         clean_query = compact_text(query, limit=240)
@@ -1253,47 +1535,110 @@ Optional context from current paper:
             "errors": search_result.get("errors", []),
         }
 
+    def _resolve_section_future(self, future, enabled=True):
+        if not enabled:
+            return build_section_result("disabled")
+        try:
+            content_value = future.result()
+            if not content_value:
+                return build_section_result("empty")
+            return build_section_result("success", content=content_value)
+        except Exception as exc:
+            return build_section_result(
+                "failed",
+                error=str(exc),
+                retryable=is_retryable_llm_error(str(exc)),
+            )
+
+    def _finalize_analysis_sections(self, content, sections):
+        result = {"char_count": len(content)}
+        result["sections"] = sections
+        result["summary"] = sections["summary"]["content"]
+        result["quotes"] = sections["quotes"]["content"]
+        result["mindmap"] = sections["mindmap"]["content"]
+        result["mermaid"] = sections["mermaid"]["content"]
+        result["evaluation"] = sections["evaluation"]["content"]
+
+        required_sections = [sections["summary"], sections["quotes"], sections["mindmap"]]
+        if all(section["status"] == "failed" for section in required_sections):
+            raise RuntimeError(required_sections[0]["error"] or "核心分析项全部失败")
+        return result
+
     def analyze(self, file_path, generate_mermaid=True, generate_evaluation=True):
         """核心分析流程（已优化为并发执行）"""
         content = DocumentLoader.load(file_path)
         self.document_content = content
 
-        result = {'char_count': len(content)}
-
+        sections = {}
         task_count = 3 + int(generate_mermaid) + int(generate_evaluation)
         worker_count = self._get_worker_count(task_count, self.analysis_workers)
 
         t_start = time.time()
 
-        # 使用线程池并发执行大模型请求，减少整体等待时间
         with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
             future_summary = executor.submit(self.generate_summary, content)
             future_quotes = executor.submit(self.extract_quotes, content)
             future_mindmap = executor.submit(self.generate_mindmap, content)
-
             future_mermaid = executor.submit(self.generate_mermaid_mindmap, content) if generate_mermaid else None
             future_eval = executor.submit(self.generate_evaluation, content) if generate_evaluation else None
 
-            # 获取结果
-            result['summary'] = future_summary.result()
-            result['quotes'] = future_quotes.result()
-            result['mindmap'] = future_mindmap.result()
-
-            if future_mermaid:
-                result['mermaid'] = future_mermaid.result()
-            if future_eval:
-                result['evaluation'] = future_eval.result()
+            sections["summary"] = self._resolve_section_future(future_summary)
+            sections["quotes"] = self._resolve_section_future(future_quotes)
+            sections["mindmap"] = self._resolve_section_future(future_mindmap)
+            sections["mermaid"] = self._resolve_section_future(future_mermaid, enabled=generate_mermaid)
+            sections["evaluation"] = self._resolve_section_future(future_eval, enabled=generate_evaluation)
 
         elapsed = time.time() - t_start
-        result['elapsed_seconds'] = round(elapsed, 1)
-
-        required_fields = [result.get('summary'), result.get('quotes'), result.get('mindmap')]
-        failed_required_fields = [value for value in required_fields if is_failed_llm_result(value)]
-        if len(failed_required_fields) == len(required_fields):
-            raise RuntimeError(failed_required_fields[0])
+        result = self._finalize_analysis_sections(content, sections)
+        result["elapsed_seconds"] = round(elapsed, 1)
 
         logger.info(f"Analysis completed in {elapsed:.1f}s for {os.path.basename(file_path)} ({len(content)} chars)")
         return result
+
+    def analyze_stream(self, file_path, generate_mermaid=True, generate_evaluation=True):
+        content = DocumentLoader.load(file_path)
+        self.document_content = content
+
+        sections = {
+            "summary": build_section_result("pending"),
+            "quotes": build_section_result("pending"),
+            "mindmap": build_section_result("pending"),
+            "mermaid": build_section_result("disabled") if not generate_mermaid else build_section_result("pending"),
+            "evaluation": build_section_result("disabled") if not generate_evaluation else build_section_result("pending"),
+        }
+        task_count = 3 + int(generate_mermaid) + int(generate_evaluation)
+        worker_count = self._get_worker_count(task_count, self.analysis_workers)
+        t_start = time.time()
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(self.generate_summary, content): ("summary", True),
+                executor.submit(self.extract_quotes, content): ("quotes", True),
+                executor.submit(self.generate_mindmap, content): ("mindmap", True),
+            }
+            if generate_mermaid:
+                future_map[executor.submit(self.generate_mermaid_mindmap, content)] = ("mermaid", True)
+            if generate_evaluation:
+                future_map[executor.submit(self.generate_evaluation, content)] = ("evaluation", True)
+
+            for future in concurrent.futures.as_completed(future_map):
+                section_name, enabled = future_map[future]
+                section_result = self._resolve_section_future(future, enabled=enabled)
+                sections[section_name] = section_result
+                yield {
+                    "type": "section",
+                    "name": section_name,
+                    "section": section_result,
+                }
+
+        elapsed = time.time() - t_start
+        result = self._finalize_analysis_sections(content, sections)
+        result["elapsed_seconds"] = round(elapsed, 1)
+        logger.info(f"Streaming analysis completed in {elapsed:.1f}s for {os.path.basename(file_path)} ({len(content)} chars)")
+        yield {
+            "type": "done",
+            "result": result,
+        }
 
 # ================= 路由控制 =================
 
@@ -1334,11 +1679,11 @@ async def analyze(
         )
 
     try:
+        cleanup_expired_sessions()
         original_filename = build_safe_upload_filename(file.filename)
         file_path = os.path.join(UPLOAD_FOLDER, original_filename)
 
-        with open(file_path, "wb") as f:
-            f.write(await file.read())
+        await save_upload_file(file, file_path, MAX_CONTENT_LENGTH)
 
         generate_mermaid_bool = parse_bool_value(generate_mermaid, default=True)
         generate_evaluation_bool = parse_bool_value(generate_evaluation, default=True)
@@ -1369,21 +1714,15 @@ async def analyze(
 
 @app.get("/api/download-paper")
 async def download_paper(url: str = "", pdf_url: str = "", title: str = ""):
-    response = None
     try:
         response, file_name, content_type = stream_remote_paper(title=title, pdf_url=pdf_url, url=url)
         media_type = content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
-        data = response.read(MAX_CONTENT_LENGTH + 1)
-        if not data:
-            return JSONResponse(content={"error": "Downloaded file is empty."}, status_code=400)
-        if len(data) > MAX_CONTENT_LENGTH:
-            return JSONResponse(content={"error": f"Remote file is too large. Limit: {MAX_CONTENT_LENGTH // (1024 * 1024)} MB"}, status_code=400)
         quoted_name = urllib.parse.quote(file_name)
         headers = {
             "Content-Disposition": f"attachment; filename=\"{file_name}\"; filename*=UTF-8''{quoted_name}",
             "X-Content-Type-Options": "nosniff",
         }
-        return Response(content=data, media_type=media_type, headers=headers)
+        return StreamingResponse(iter_remote_file_chunks(response, MAX_CONTENT_LENGTH), media_type=media_type, headers=headers)
     except ValueError as exc:
         return JSONResponse(content={"error": str(exc)}, status_code=400)
     except urllib.error.HTTPError as exc:
@@ -1408,12 +1747,84 @@ async def download_paper(url: str = "", pdf_url: str = "", title: str = ""):
     except Exception as exc:
         logger.exception("Paper proxy download failed")
         return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/analyze/stream")
+async def analyze_stream(
+    file: UploadFile | None = File(None),
+    api_key: str = Form(""),
+    generate_mermaid: str | None = Form(None),
+    generate_evaluation: str | None = Form(None),
+    session_id: str = Form(""),
+):
+    file_path = None
+
+    if file is None:
+        return JSONResponse(content={"error": "Please upload a file."}, status_code=400)
+    if file.filename == "":
+        return JSONResponse(content={"error": "Please select a file."}, status_code=400)
+    if not is_allowed_file(file.filename):
+        return JSONResponse(
+            content={"error": f"Unsupported file type. Please upload one of: {SUPPORTED_FILE_TYPES_TEXT}"},
+            status_code=400,
+        )
+
+    cleanup_expired_sessions()
+    resolved_api_key = resolve_api_key(api_key)
+    if not resolved_api_key:
+        return JSONResponse(content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."}, status_code=400)
+
+    original_filename = build_safe_upload_filename(file.filename)
+    file_path = os.path.join(UPLOAD_FOLDER, original_filename)
+    generate_mermaid_bool = parse_bool_value(generate_mermaid, default=True)
+    generate_evaluation_bool = parse_bool_value(generate_evaluation, default=True)
+
+    try:
+        await save_upload_file(file, file_path, MAX_CONTENT_LENGTH)
+    except ValueError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=400)
+    except Exception as exc:
+        logger.exception("Streaming analyze upload failed")
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
     finally:
-        if response:
-            try:
-                response.close()
-            except Exception:
-                pass
+        if file:
+            await file.close()
+
+    async def event_generator():
+        try:
+            whisperer = PaperWhisperer(resolved_api_key)
+            safe_session_id = sanitize_identifier(session_id, "session")
+            yield build_sse_event("start", {"session_id": safe_session_id, "source_filename": original_filename})
+
+            final_result = None
+            for event in whisperer.analyze_stream(file_path, generate_mermaid_bool, generate_evaluation_bool):
+                if event["type"] == "section":
+                    yield build_sse_event("section", {"name": event["name"], "section": event["section"]})
+                elif event["type"] == "done":
+                    final_result = event["result"]
+
+            if final_result is None:
+                raise RuntimeError("Analysis stream completed without a final result.")
+
+            final_payload = finalize_analysis_result(
+                result=final_result,
+                whisperer=whisperer,
+                original_filename=original_filename,
+                generate_evaluation_bool=generate_evaluation_bool,
+                session_id=session_id,
+            )
+            yield build_sse_event("done", final_payload)
+        except Exception as exc:
+            logger.exception("Streaming document analysis failed")
+            yield build_sse_event("error", {"error": str(exc)})
+        finally:
+            if file_path and os.path.exists(file_path):
+                try:
+                    os.remove(file_path)
+                except Exception:
+                    pass
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers=build_sse_headers())
 
 
 @app.post("/api/import-paper")
@@ -1429,6 +1840,7 @@ async def import_paper(request: Request):
 
     file_path = None
     try:
+        cleanup_expired_sessions()
         title = str(data.get("title") or "").strip()
         url = str(data.get("url") or "").strip()
         pdf_url = str(data.get("pdf_url") or "").strip()
@@ -1490,13 +1902,13 @@ async def ask_question(request: Request):
     if not isinstance(data, dict):
         return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
 
+    cleanup_expired_sessions()
     question = data.get("question", "").strip()
     raw_session_id = data.get("session_id", "")
+    session_token = str(data.get("session_token") or "")
 
     if not question:
         return JSONResponse(content={"error": "Please enter a question."}, status_code=400)
-
-    safe_session_id = sanitize_identifier(raw_session_id, "session")
 
     resolved_api_key = resolve_api_key(data.get("api_key", ""))
     if not resolved_api_key:
@@ -1506,15 +1918,10 @@ async def ask_question(request: Request):
         )
 
     try:
-        session_payload = load_session_payload(safe_session_id)
-        if not session_payload:
-            return JSONResponse(
-                content={"error": "Session expired or context not found. Please upload and analyze the file again."},
-                status_code=400,
-            )
+        safe_session_id, session_payload = load_validated_session(raw_session_id, session_token, require_token=True)
 
         whisperer = PaperWhisperer(resolved_api_key)
-        whisperer.document_content = session_payload.get("document_content", "")
+        whisperer.document_content = get_session_document_content(session_payload)
 
         t_start = time.time()
         answer = whisperer.answer_question(question, history=session_payload.get("qa_history", []))
@@ -1524,18 +1931,88 @@ async def ask_question(request: Request):
         qa_history.append({
             "question": question,
             "answer": answer,
-            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "timestamp": now_iso(),
         })
         session_payload["qa_history"] = qa_history
-        session_payload["document_excerpt"] = build_document_excerpt(session_payload.get("document_content", ""))
+        session_payload["document_excerpt"] = build_document_excerpt(get_session_document_content(session_payload))
         write_session_payload(safe_session_id, session_payload)
 
         logger.info(f"Q&A completed in {elapsed:.1f}s for session {safe_session_id}")
         return JSONResponse(content={"answer": answer})
-
+    except PermissionError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=403)
+    except ValueError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=400)
     except Exception as e:
         logger.exception("Question answering failed")
         return JSONResponse(content={"error": str(e)}, status_code=500)
+
+
+@app.post("/api/ask/stream")
+async def ask_question_stream(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+
+    data = data or {}
+    if not isinstance(data, dict):
+        return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+
+    cleanup_expired_sessions()
+    question = str(data.get("question") or "").strip()
+    raw_session_id = str(data.get("session_id") or "")
+    session_token = str(data.get("session_token") or "")
+
+    if not question:
+        return JSONResponse(content={"error": "Please enter a question."}, status_code=400)
+
+    resolved_api_key = resolve_api_key(data.get("api_key", ""))
+    if not resolved_api_key:
+        return JSONResponse(
+            content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."},
+            status_code=400,
+        )
+
+    try:
+        safe_session_id, session_payload = load_validated_session(raw_session_id, session_token, require_token=True)
+    except PermissionError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=403)
+    except ValueError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=400)
+
+    async def event_generator():
+        try:
+            whisperer = PaperWhisperer(resolved_api_key)
+            whisperer.document_content = get_session_document_content(session_payload)
+            yield build_sse_event("start", {"session_id": safe_session_id})
+
+            full_answer_parts = []
+            t_start = time.time()
+            for chunk in whisperer.stream_answer_question(question, history=session_payload.get("qa_history", [])):
+                full_answer_parts.append(chunk)
+                yield build_sse_event("delta", {"text": chunk})
+
+            answer = "".join(full_answer_parts)
+            elapsed = time.time() - t_start
+
+            qa_history = session_payload.get("qa_history", [])
+            qa_history.append({
+                "question": question,
+                "answer": answer,
+                "timestamp": now_iso(),
+            })
+            session_payload["qa_history"] = qa_history
+            session_payload["document_excerpt"] = build_document_excerpt(get_session_document_content(session_payload))
+            write_session_payload(safe_session_id, session_payload)
+
+            logger.info(f"Streaming Q&A completed in {elapsed:.1f}s for session {safe_session_id}")
+            yield build_sse_event("done", {"answer": answer})
+        except Exception as exc:
+            logger.exception("Streaming question answering failed")
+            yield build_sse_event("error", {"error": str(exc)})
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream", headers=build_sse_headers())
 
 
 @app.post("/api/search-papers")
@@ -1549,9 +2026,11 @@ async def search_papers_api(request: Request):
     if not isinstance(data, dict):
         return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
 
+    cleanup_expired_sessions()
     query = str(data.get("query") or "").strip()
     limit = data.get("limit") or PAPER_SEARCH_RESULT_LIMIT
     raw_session_id = str(data.get("session_id") or "").strip()
+    session_token = str(data.get("session_token") or "")
     context_text = str(data.get("context_text") or "")
 
     if not query:
@@ -1566,6 +2045,12 @@ async def search_papers_api(request: Request):
             "model": "",
         }
         resolved_api_key = resolve_api_key(data.get("api_key", ""))
+        session_payload = None
+        safe_session_id = ""
+
+        if raw_session_id:
+            safe_session_id, session_payload = load_validated_session(raw_session_id, session_token, require_token=True)
+
         if PAPER_SEARCH_ENABLE_REWRITE:
             if not resolved_api_key:
                 return JSONResponse(
@@ -1574,11 +2059,8 @@ async def search_papers_api(request: Request):
                 )
             whisperer = PaperWhisperer(resolved_api_key)
             rewrite_context = context_text
-            if raw_session_id and not rewrite_context:
-                safe_session_id = sanitize_identifier(raw_session_id, "session")
-                session_payload = load_session_payload(safe_session_id)
-                if session_payload:
-                    rewrite_context = session_payload.get("document_content", "")
+            if session_payload and not rewrite_context:
+                rewrite_context = get_session_document_content(session_payload)
             rewrite_meta = whisperer.rewrite_search_query(query, context_text=rewrite_context)
 
         result = search_papers(rewrite_meta["rewritten_query"], limit)
@@ -1588,15 +2070,14 @@ async def search_papers_api(request: Request):
         result["reason"] = rewrite_meta.get("reason", "")
         result["rewrite_model"] = rewrite_meta.get("model", "")
 
-        if raw_session_id:
-            safe_session_id = sanitize_identifier(raw_session_id, "session")
-            session_payload = load_session_payload(safe_session_id)
-            if session_payload:
-                session_payload.setdefault("paper_search", {})
-                session_payload["paper_search"]["last_query"] = result["rewritten_query"]
-                session_payload["paper_search"]["last_results"] = result["items"]
-                write_session_payload(safe_session_id, session_payload)
+        if session_payload:
+            session_payload.setdefault("paper_search", {})
+            session_payload["paper_search"]["last_query"] = result["rewritten_query"]
+            session_payload["paper_search"]["last_results"] = result["items"]
+            write_session_payload(safe_session_id, session_payload)
         return JSONResponse(content=result)
+    except PermissionError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=403)
     except ValueError as exc:
         return JSONResponse(content={"error": str(exc)}, status_code=400)
     except Exception as exc:
@@ -1615,11 +2096,12 @@ async def recommend_papers_api(request: Request):
     if not isinstance(data, dict):
         return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
 
+    cleanup_expired_sessions()
     raw_session_id = str(data.get("session_id") or "").strip()
+    session_token = str(data.get("session_token") or "")
     if not raw_session_id:
         return JSONResponse(content={"error": "session_id is required."}, status_code=400)
 
-    safe_session_id = sanitize_identifier(raw_session_id, "session")
     limit = data.get("limit") or RECOMMENDATION_RESULT_LIMIT
     resolved_api_key = resolve_api_key(data.get("api_key", ""))
     if not resolved_api_key:
@@ -1629,15 +2111,10 @@ async def recommend_papers_api(request: Request):
         )
 
     try:
-        session_payload = load_session_payload(safe_session_id)
-        if not session_payload:
-            return JSONResponse(
-                content={"error": "Session expired or context not found. Please upload and analyze the file again."},
-                status_code=400,
-            )
+        safe_session_id, session_payload = load_validated_session(raw_session_id, session_token, require_token=True)
 
         whisperer = PaperWhisperer(resolved_api_key)
-        result = whisperer.recommend_papers(session_payload.get("document_content", ""), limit=limit)
+        result = whisperer.recommend_papers(get_session_document_content(session_payload), limit=limit)
 
         session_payload.setdefault("paper_search", {})
         session_payload["paper_search"]["last_recommendation"] = {
@@ -1648,10 +2125,12 @@ async def recommend_papers_api(request: Request):
             "rewrite_model": result.get("rewrite_model", ""),
             "items": result.get("items", []),
             "errors": result.get("errors", []),
-            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "generated_at": now_iso(),
         }
         write_session_payload(safe_session_id, session_payload)
         return JSONResponse(content=result)
+    except PermissionError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=403)
     except ValueError as exc:
         return JSONResponse(content={"error": str(exc)}, status_code=400)
     except Exception as exc:

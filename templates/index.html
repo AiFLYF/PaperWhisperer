@@ -762,6 +762,8 @@
     
             <script>
         let currentSessionId = '';
+        let currentSessionToken = '';
+        let currentSections = {};
         let panZoomInstance = null;
         let mermaidInstance = null;
         let currentMermaidSource = '';
@@ -846,7 +848,11 @@
                 const response = await fetch('/api/search-papers', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, session_id: currentSessionId }),
+                    body: JSON.stringify({
+                        query,
+                        session_id: currentSessionId || undefined,
+                        session_token: currentSessionId ? currentSessionToken : undefined
+                    }),
                     signal: paperSearchController.signal
                 });
                 const data = await parseJsonSafely(response);
@@ -910,7 +916,7 @@
                 const response = await fetch('/api/recommend-papers', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ session_id: currentSessionId, api_key: apiKey }),
+                    body: JSON.stringify({ session_id: currentSessionId, session_token: currentSessionToken, api_key: apiKey }),
                     signal: recommendController.signal
                 });
                 const data = await parseJsonSafely(response);
@@ -1112,12 +1118,28 @@
             return sanitizeGeneratedHtml(htmlContent);
         }
 
-        function setSectionContent(id, value) {
+        function setSectionContent(id, value, errorMessage = '') {
             const element = document.getElementById(id);
             if (!element) return;
             element.dataset.rawContent = value || '';
+            if (errorMessage) {
+                element.innerHTML = `<p class="empty-state">${escapeHtml(errorMessage)}</p>`;
+                return;
+            }
             element.innerHTML = formatContent(value, SECTION_EMPTY_TEXT[id]);
             renderMath(element);
+        }
+
+        function getSectionPayload(data, sectionName) {
+            if (data && data.sections && data.sections[sectionName]) {
+                return data.sections[sectionName];
+            }
+            return {
+                status: 'success',
+                content: data ? (data[sectionName] || '') : '',
+                error: '',
+                retryable: false
+            };
         }
 
         function clearChatHistory() {
@@ -1137,6 +1159,8 @@
             currentElapsedSeconds = null;
             currentOutputFile = '';
             currentChatTurns = [];
+            currentSections = {};
+            currentSessionToken = '';
             setExportEnabled(false);
         }
 
@@ -1147,17 +1171,34 @@
             }
         }
 
-        function applyAnalysisResult(data, fileName, generateEvaluation, generateMermaid) {
+        function applyAnalysisSection(sectionName, sectionPayload, generateEvaluation, generateMermaid) {
             document.getElementById('result').classList.add('active');
-            setFileInfo(fileName, data.char_count);
-            setSectionContent('summary', data.summary);
-            setSectionContent('quotes', data.quotes);
-            setSectionContent('mindmap', data.mindmap);
-            setSectionContent('evaluation', data.evaluation);
-            document.getElementById('evaluationCard').style.display = generateEvaluation ? 'block' : 'none';
+            const section = sectionPayload || { status: 'empty', content: '', error: '', retryable: false };
+            const errorMessage = section.status === 'failed' ? (section.error || `${sectionName} generation failed.`) : '';
 
+            if (sectionName === 'evaluation') {
+                document.getElementById('evaluationCard').style.display = generateEvaluation ? 'block' : 'none';
+            }
+
+            if (sectionName === 'mermaid') {
+                if (generateMermaid && section.content) {
+                    requestAnimationFrame(() => {
+                        renderMermaidDiagram(section.content);
+                    });
+                } else if (!generateMermaid || !section.content) {
+                    resetMermaidCard();
+                }
+                return;
+            }
+
+            setSectionContent(sectionName, section.content, errorMessage);
+        }
+
+        function finalizeAnalysisResultState(data, fileName) {
             currentAnalysisResult = data;
+            currentSections = data.sections || {};
             currentSessionId = data.session_id || currentSessionId;
+            currentSessionToken = data.session_token || currentSessionToken;
             currentSourceFileName = fileName;
             currentElapsedSeconds = data.elapsed_seconds ?? null;
             currentOutputFile = data.output_file || '';
@@ -1165,16 +1206,25 @@
             resetPaperPanels();
             setExportEnabled(true);
             document.getElementById('askBtn').disabled = false;
+        }
 
-            if (generateMermaid && data.mermaid) {
-                return new Promise(resolve => {
-                    requestAnimationFrame(async () => {
-                        await renderMermaidDiagram(data.mermaid);
-                        resolve();
-                    });
-                });
-            }
-            resetMermaidCard();
+        function applyAnalysisResult(data, fileName, generateEvaluation, generateMermaid) {
+            document.getElementById('result').classList.add('active');
+            setFileInfo(fileName, data.char_count);
+
+            const summarySection = getSectionPayload(data, 'summary');
+            const quotesSection = getSectionPayload(data, 'quotes');
+            const mindmapSection = getSectionPayload(data, 'mindmap');
+            const evaluationSection = getSectionPayload(data, 'evaluation');
+            const mermaidSection = getSectionPayload(data, 'mermaid');
+
+            applyAnalysisSection('summary', summarySection, generateEvaluation, generateMermaid);
+            applyAnalysisSection('quotes', quotesSection, generateEvaluation, generateMermaid);
+            applyAnalysisSection('mindmap', mindmapSection, generateEvaluation, generateMermaid);
+            applyAnalysisSection('evaluation', evaluationSection, generateEvaluation, generateMermaid);
+            applyAnalysisSection('mermaid', mermaidSection, generateEvaluation, generateMermaid);
+
+            finalizeAnalysisResultState(data, fileName);
             return Promise.resolve();
         }
 
@@ -1355,6 +1405,70 @@
             return { error: text };
         }
 
+        async function readSseStream(response, handlers = {}) {
+            if (!response.ok) {
+                const data = await parseJsonSafely(response);
+                throw new Error(data.error || 'Connection failed.');
+            }
+
+            const contentType = response.headers.get('content-type') || '';
+            if (!contentType.includes('text/event-stream')) {
+                const data = await parseJsonSafely(response);
+                throw new Error(data.error || 'Streaming response was not returned.');
+            }
+
+            const reader = response.body && response.body.getReader ? response.body.getReader() : null;
+            if (!reader) {
+                throw new Error('Browser does not support streaming responses.');
+            }
+
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            const dispatchBlock = block => {
+                const lines = String(block || '').split('\n');
+                let eventName = 'message';
+                const dataLines = [];
+                lines.forEach(line => {
+                    if (!line || line.startsWith(':')) return;
+                    if (line.startsWith('event:')) {
+                        eventName = line.slice(6).trim() || 'message';
+                    } else if (line.startsWith('data:')) {
+                        dataLines.push(line.slice(5).trim());
+                    }
+                });
+                if (!dataLines.length) return;
+                let payload = {};
+                const rawData = dataLines.join('\n');
+                try {
+                    payload = JSON.parse(rawData);
+                } catch (error) {
+                    payload = { raw: rawData };
+                }
+                const handler = handlers[eventName] || handlers.message;
+                if (handler) {
+                    handler(payload);
+                }
+            };
+
+            while (true) {
+                const { value, done } = await reader.read();
+                buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+                const normalized = buffer.replace(/\r\n/g, '\n');
+                const blocks = normalized.split('\n\n');
+                buffer = blocks.pop() || '';
+                blocks.forEach(dispatchBlock);
+
+                if (done) {
+                    if (buffer.trim()) {
+                        dispatchBlock(buffer);
+                    }
+                    break;
+                }
+            }
+        }
+
         function setButtonLoading(button, loadingText, defaultText, isLoading) {
             button.disabled = isLoading;
             button.innerText = isLoading ? loadingText : defaultText;
@@ -1432,12 +1546,12 @@
             analyzeRequestId += 1;
             const requestId = analyzeRequestId;
 
+            resetResultView();
             currentSessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
             setButtonLoading(analyzeBtn, 'Analyzing...', 'Analyze Document', true);
             document.getElementById('loading').classList.add('active');
             hideError();
-            resetResultView();
             askBtn.disabled = true;
             updateStatus('Analyzing document...', 'idle');
 
@@ -1449,22 +1563,36 @@
             if (apiKey) formData.append('api_key', apiKey);
 
             try {
-                const response = await fetch('/api/analyze', {
+                const response = await fetch('/api/analyze/stream', {
                     method: 'POST',
                     body: formData,
                     signal: analyzeController.signal
                 });
-                const data = await parseJsonSafely(response);
 
-                if (requestId !== analyzeRequestId) {
-                    return;
-                }
-                if (!response.ok) {
-                    throw new Error(data.error || 'Connection failed.');
-                }
-
-                await applyAnalysisResult(data, file.name, generateEvaluation, generateMermaid);
-                updateStatus('Analysis ready for follow-up questions', 'success');
+                await readSseStream(response, {
+                    start: payload => {
+                        currentSessionId = payload.session_id || currentSessionId;
+                        document.getElementById('result').classList.add('active');
+                        setFileInfo(file.name, '...');
+                        updateStatus('Analysis started. Streaming sections...', 'idle');
+                    },
+                    section: payload => {
+                        if (requestId !== analyzeRequestId) return;
+                        const sectionName = payload.name;
+                        const section = payload.section || {};
+                        currentSections = { ...currentSections, [sectionName]: section };
+                        applyAnalysisSection(sectionName, section, generateEvaluation, generateMermaid);
+                        updateStatus(`Streaming ${sectionName}...`, 'idle');
+                    },
+                    done: async payload => {
+                        if (requestId !== analyzeRequestId) return;
+                        await applyAnalysisResult(payload, file.name, generateEvaluation, generateMermaid);
+                        updateStatus('Analysis ready for follow-up questions', 'success');
+                    },
+                    error: payload => {
+                        throw new Error(payload.error || 'Analysis failed.');
+                    }
+                });
             } catch (error) {
                 if (error.name === 'AbortError') {
                     return;
@@ -1516,7 +1644,7 @@
             return loadingDiv;
         }
 
-        function appendAnswer(answer) {
+        function appendStreamingAnswerShell() {
             const chatHistory = document.getElementById('chatHistory');
             const answerId = `answer-${Date.now()}`;
             const answerDiv = document.createElement('div');
@@ -1532,20 +1660,42 @@
             button.className = 'action-btn';
             button.type = 'button';
             button.textContent = 'Copy';
-            button.addEventListener('click', () => copyText(answerId, button));
+            button.disabled = true;
 
             const content = document.createElement('div');
             content.id = answerId;
             content.className = 'answer-content content';
-            content.dataset.rawContent = answer || '';
-            content.innerHTML = formatContent(answer, 'No answer available.');
+            content.dataset.rawContent = '';
+            content.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;margin:8px 0 0 0;"></div>';
 
             header.appendChild(title);
             header.appendChild(button);
             answerDiv.appendChild(header);
             answerDiv.appendChild(content);
             chatHistory.appendChild(answerDiv);
-            renderMath(answerDiv);
+            return { answerDiv, content, button, answerId };
+        }
+
+        function updateStreamingAnswer(shell, answer) {
+            if (!shell || !shell.content) return;
+            shell.content.dataset.rawContent = answer || '';
+            shell.content.innerHTML = formatContent(answer, 'No answer available.');
+            renderMath(shell.content);
+        }
+
+        function finalizeStreamingAnswer(shell, answer) {
+            if (!shell || !shell.button || !shell.content) return;
+            updateStreamingAnswer(shell, answer);
+            shell.button.disabled = false;
+            if (!shell.button.dataset.bound) {
+                shell.button.addEventListener('click', () => copyText(shell.answerId, shell.button));
+                shell.button.dataset.bound = 'true';
+            }
+        }
+
+        function appendAnswer(answer) {
+            const shell = appendStreamingAnswerShell();
+            finalizeStreamingAnswer(shell, answer);
         }
 
         async function askQuestion() {
@@ -1553,7 +1703,6 @@
             const question = questionInput.value.trim();
             const apiKey = document.getElementById('apiKey').value.trim();
             const askBtn = document.getElementById('askBtn');
-            const chatHistory = document.getElementById('chatHistory');
 
             if (!question) return;
             if (!currentSessionId) {
@@ -1573,40 +1722,47 @@
             questionInput.value = '';
             setButtonLoading(askBtn, 'Processing...', 'Send', true);
             updateStatus('Answering based on current document...', 'idle');
-            const loadingDiv = appendLoadingAnswer();
+            const streamingShell = appendStreamingAnswerShell();
+            let accumulatedAnswer = '';
 
             try {
-                const response = await fetch('/api/ask', {
+                const response = await fetch('/api/ask/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question, session_id: currentSessionId, api_key: apiKey }),
+                    body: JSON.stringify({ question, session_id: currentSessionId, session_token: currentSessionToken, api_key: apiKey }),
                     signal: askController.signal
                 });
-                const data = await parseJsonSafely(response);
 
-                if (requestId !== askRequestId) {
-                    return;
-                }
-                if (chatHistory.contains(loadingDiv)) {
-                    chatHistory.removeChild(loadingDiv);
-                }
-                if (!response.ok) {
-                    throw new Error(data.error || 'Response timeout. Please try again.');
-                }
-
-                appendAnswer(data.answer);
-                currentChatTurns.push({
-                    question,
-                    answer: data.answer || '',
-                    timestamp: new Date().toISOString()
+                await readSseStream(response, {
+                    start: () => {
+                        updateStatus('Streaming answer...', 'idle');
+                    },
+                    delta: payload => {
+                        if (requestId !== askRequestId) return;
+                        accumulatedAnswer += payload.text || '';
+                        updateStreamingAnswer(streamingShell, accumulatedAnswer);
+                    },
+                    done: payload => {
+                        if (requestId !== askRequestId) return;
+                        accumulatedAnswer = payload.answer || accumulatedAnswer;
+                        finalizeStreamingAnswer(streamingShell, accumulatedAnswer);
+                        currentChatTurns.push({
+                            question,
+                            answer: accumulatedAnswer,
+                            timestamp: new Date().toISOString()
+                        });
+                        updateStatus('Answer ready', 'success');
+                    },
+                    error: payload => {
+                        throw new Error(payload.error || 'Question request failed.');
+                    }
                 });
-                updateStatus('Answer ready', 'success');
             } catch (error) {
                 if (error.name === 'AbortError') {
                     return;
                 }
-                if (chatHistory.contains(loadingDiv)) {
-                    chatHistory.removeChild(loadingDiv);
+                if (streamingShell && streamingShell.answerDiv && streamingShell.answerDiv.parentNode) {
+                    streamingShell.answerDiv.parentNode.removeChild(streamingShell.answerDiv);
                 }
                 appendChatText('System Error', error.message || 'Question request failed.', 'chat-answer chat-error');
                 updateStatus('Question request failed', 'error');
@@ -1674,9 +1830,9 @@
             }
             importPaperController = new AbortController();
             currentImportPaperKey = paperKey;
-            currentSessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             hideError();
             resetResultView();
+            currentSessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
             document.getElementById('loading').classList.add('active');
             updateStatus('Importing paper from search results...', 'idle');
             renderPaperList('paperSearchResults', currentPaperSearchResults, 'Search results will appear here.', {
@@ -1693,6 +1849,7 @@
                         url: item.url || '',
                         pdf_url: item.pdf_url || '',
                         session_id: currentSessionId,
+                        session_token: currentSessionToken,
                         api_key: apiKey,
                         generate_mermaid: generateMermaid,
                         generate_evaluation: generateEvaluation
