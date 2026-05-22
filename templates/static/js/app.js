@@ -63,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function searchPapers() {
     const queryInput = document.getElementById('paperSearchInput');
     const searchBtn = document.getElementById('paperSearchBtn');
+    const apiKey = document.getElementById('apiKey').value.trim();
     const query = queryInput.value.trim();
 
     if (!query) {
@@ -87,8 +88,9 @@ async function searchPapers() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 query,
-                session_id: currentSessionId || undefined,
-                session_token: currentSessionId ? currentSessionToken : undefined
+                api_key: apiKey || undefined,
+                session_id: currentSessionToken ? currentSessionId : undefined,
+                session_token: currentSessionToken || undefined
             }),
             signal: paperSearchController.signal
         });
@@ -265,28 +267,43 @@ function sanitizeUrl(rawUrl) {
 }
 
 function sanitizeGeneratedHtml(html) {
-    const container = document.createElement('div');
-    container.innerHTML = html;
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const allowedTags = new Set(['A', 'B', 'BLOCKQUOTE', 'BR', 'CODE', 'DEL', 'DIV', 'EM', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'HR', 'I', 'IMG', 'LI', 'OL', 'P', 'PRE', 'S', 'SPAN', 'STRONG', 'TABLE', 'TBODY', 'TD', 'TH', 'THEAD', 'TR', 'UL']);
+    const allowedAttributes = new Set(['alt', 'class', 'colspan', 'href', 'loading', 'rel', 'rowspan', 'src', 'target', 'title']);
 
-    container.querySelectorAll('*').forEach(node => {
+    template.content.querySelectorAll('*').forEach(node => {
+        if (!allowedTags.has(node.tagName)) {
+            node.replaceWith(document.createTextNode(node.textContent || ''));
+            return;
+        }
+
         Array.from(node.attributes).forEach(attribute => {
-            if (/^on/i.test(attribute.name)) {
+            const attributeName = attribute.name.toLowerCase();
+            if (!allowedAttributes.has(attributeName) || attributeName.startsWith('on') || attributeName === 'style') {
                 node.removeAttribute(attribute.name);
             }
         });
     });
 
-    container.querySelectorAll('a').forEach(anchor => {
+    template.content.querySelectorAll('a').forEach(anchor => {
         anchor.href = sanitizeUrl(anchor.getAttribute('href'));
         anchor.target = '_blank';
         anchor.rel = 'noopener noreferrer';
     });
 
-    container.querySelectorAll('img').forEach(image => {
-        image.src = sanitizeUrl(image.getAttribute('src'));
+    template.content.querySelectorAll('img').forEach(image => {
+        const safeSrc = sanitizeUrl(image.getAttribute('src'));
+        if (safeSrc === '#') {
+            image.remove();
+            return;
+        }
+        image.src = safeSrc;
         image.loading = 'lazy';
     });
 
+    const container = document.createElement('div');
+    container.appendChild(template.content.cloneNode(true));
     return container.innerHTML;
 }
 
@@ -549,6 +566,83 @@ function resetMermaidCard() {
     document.getElementById('mermaidChart').innerHTML = '';
 }
 
+function captureWorkspaceState() {
+    return {
+        currentSessionId,
+        currentSessionToken,
+        currentSections: { ...currentSections },
+        currentMermaidSource,
+        currentAnalysisResult,
+        currentSourceFileName,
+        currentElapsedSeconds,
+        currentOutputFile,
+        currentChatTurns: [...currentChatTurns],
+        currentPaperSearchResults: [...currentPaperSearchResults],
+        currentPaperRecommendations: [...currentPaperRecommendations],
+        currentPaperSearchMetaText,
+        currentPaperRecommendationMetaText,
+        html: {
+            summary: document.getElementById('summary').innerHTML,
+            quotes: document.getElementById('quotes').innerHTML,
+            mindmap: document.getElementById('mindmap').innerHTML,
+            evaluation: document.getElementById('evaluation').innerHTML,
+            fileInfo: document.getElementById('fileInfo').innerHTML,
+            chatHistory: document.getElementById('chatHistory').innerHTML,
+            paperSearchResults: document.getElementById('paperSearchResults').innerHTML,
+            paperRecommendations: document.getElementById('paperRecommendations').innerHTML,
+            mermaidChart: document.getElementById('mermaidChart').innerHTML
+        },
+        ui: {
+            resultActive: document.getElementById('result').classList.contains('active'),
+            evaluationDisplay: document.getElementById('evaluationCard').style.display,
+            mermaidDisplay: document.getElementById('mermaidCard').style.display,
+            askDisabled: document.getElementById('askBtn').disabled,
+            exportDisabled: document.getElementById('exportBtn').disabled,
+            recommendDisabled: document.getElementById('recommendBtn').disabled
+        }
+    };
+}
+
+function restoreWorkspaceState(snapshot) {
+    if (!snapshot) return;
+    currentSessionId = snapshot.currentSessionId;
+    currentSessionToken = snapshot.currentSessionToken;
+    currentSections = { ...snapshot.currentSections };
+    currentMermaidSource = snapshot.currentMermaidSource;
+    currentAnalysisResult = snapshot.currentAnalysisResult;
+    currentSourceFileName = snapshot.currentSourceFileName;
+    currentElapsedSeconds = snapshot.currentElapsedSeconds;
+    currentOutputFile = snapshot.currentOutputFile;
+    currentChatTurns = [...snapshot.currentChatTurns];
+    currentPaperSearchResults = [...snapshot.currentPaperSearchResults];
+    currentPaperRecommendations = [...snapshot.currentPaperRecommendations];
+    currentPaperSearchMetaText = snapshot.currentPaperSearchMetaText;
+    currentPaperRecommendationMetaText = snapshot.currentPaperRecommendationMetaText;
+
+    document.getElementById('summary').innerHTML = snapshot.html.summary;
+    document.getElementById('quotes').innerHTML = snapshot.html.quotes;
+    document.getElementById('mindmap').innerHTML = snapshot.html.mindmap;
+    document.getElementById('evaluation').innerHTML = snapshot.html.evaluation;
+    document.getElementById('fileInfo').innerHTML = snapshot.html.fileInfo;
+    document.getElementById('chatHistory').innerHTML = snapshot.html.chatHistory;
+    document.getElementById('paperSearchResults').innerHTML = snapshot.html.paperSearchResults;
+    document.getElementById('paperRecommendations').innerHTML = snapshot.html.paperRecommendations;
+    document.getElementById('paperSearchMeta').textContent = currentPaperSearchMetaText;
+    document.getElementById('paperRecommendationMeta').textContent = currentPaperRecommendationMetaText;
+    document.getElementById('mermaidChart').innerHTML = snapshot.html.mermaidChart;
+
+    document.getElementById('result').classList.toggle('active', snapshot.ui.resultActive);
+    document.getElementById('evaluationCard').style.display = snapshot.ui.evaluationDisplay;
+    document.getElementById('mermaidCard').style.display = snapshot.ui.mermaidDisplay;
+    document.getElementById('askBtn').disabled = snapshot.ui.askDisabled;
+    document.getElementById('exportBtn').disabled = snapshot.ui.exportDisabled;
+    document.getElementById('recommendBtn').disabled = snapshot.ui.recommendDisabled;
+    resetPanZoom();
+    if (currentMermaidSource) {
+        requestAnimationFrame(() => renderMermaidDiagram(currentMermaidSource));
+    }
+}
+
 function resetResultView() {
     ['summary', 'quotes', 'mindmap', 'evaluation'].forEach(id => setSectionContent(id, ''));
     document.getElementById('fileInfo').innerHTML = '';
@@ -776,6 +870,8 @@ async function analyze() {
         return;
     }
 
+    const previousWorkspace = currentAnalysisResult ? captureWorkspaceState() : null;
+
     if (analyzeController) {
         analyzeController.abort();
     }
@@ -834,9 +930,14 @@ async function analyze() {
         if (error.name === 'AbortError') {
             return;
         }
-        currentSessionId = '';
-        resetResultView();
-        showError(error.message || 'Analysis failed.');
+        if (previousWorkspace) {
+            restoreWorkspaceState(previousWorkspace);
+            showError(`${error.message || 'Analysis failed.'}\n\nYour previous successful workspace has been restored.`);
+        } else {
+            currentSessionId = '';
+            resetResultView();
+            showError(error.message || 'Analysis failed.');
+        }
         updateStatus('Analysis failed', 'error');
     } finally {
         if (requestId === analyzeRequestId) {
