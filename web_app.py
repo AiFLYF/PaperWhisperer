@@ -7,6 +7,7 @@ import mimetypes
 import os
 import re
 import secrets
+import socket
 import ssl
 import time
 import threading
@@ -95,7 +96,7 @@ SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "").strip()
 REMOTE_IMPORT_TIMEOUT_SECONDS = parse_int_env("REMOTE_IMPORT_TIMEOUT_SECONDS", default=30, min_value=5, max_value=180)
 SESSION_TTL_SECONDS = parse_int_env("SESSION_TTL_SECONDS", default=24 * 60 * 60, min_value=60, max_value=30 * 24 * 60 * 60)
 SESSION_CLEANUP_INTERVAL_SECONDS = parse_int_env("SESSION_CLEANUP_INTERVAL_SECONDS", default=10 * 60, min_value=60, max_value=24 * 60 * 60)
-SESSION_PERSIST_FULL_DOCUMENT = parse_bool_env("SESSION_PERSIST_FULL_DOCUMENT", default=True)
+SESSION_PERSIST_FULL_DOCUMENT = parse_bool_env("SESSION_PERSIST_FULL_DOCUMENT", default=False)
 
 MAX_LLM_CONCURRENCY = parse_int_env("OPENAI_MAX_CONCURRENCY", default=5, min_value=1, max_value=32)
 LLM_REQUEST_SEMAPHORE = threading.BoundedSemaphore(MAX_LLM_CONCURRENCY)
@@ -130,6 +131,11 @@ def secure_filename(filename):
 def sanitize_identifier(raw_value, prefix):
     candidate = secure_filename((raw_value or "").strip())
     return candidate or f"{prefix}_{uuid.uuid4().hex}"
+
+
+def build_unique_storage_path(folder, filename):
+    root, ext = os.path.splitext(filename)
+    return os.path.join(folder, f"{root}_{uuid.uuid4().hex}{ext}")
 
 
 def build_safe_upload_filename(filename):
@@ -327,7 +333,7 @@ def search_arxiv_papers(query, limit):
     feed_text = http_get_text(
         url,
         timeout=SEMANTIC_SCHOLAR_TIMEOUT_SECONDS,
-        headers={"User-Agent": "PaperWhisperer/0.7"},
+        headers={"User-Agent": "PaperWhisperer/0.9"},
         retries=2,
         ssl_context=build_ssl_context(),
     )
@@ -366,7 +372,7 @@ def search_semantic_scholar_papers(query, limit):
         "fields": "title,abstract,year,venue,url,authors,openAccessPdf,paperId",
     })
     url = f"{SEMANTIC_SCHOLAR_SEARCH_URL}?{params}"
-    headers = {"User-Agent": "PaperWhisperer/0.7"}
+    headers = {"User-Agent": "PaperWhisperer/0.9"}
     if SEMANTIC_SCHOLAR_API_KEY:
         headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
     payload = http_get_json(
@@ -573,27 +579,47 @@ def normalize_content_type(value):
     return str(value or "").split(";", 1)[0].strip().lower()
 
 
+def is_public_ip_address(value):
+    try:
+        ip = ipaddress.ip_address(str(value or "").strip())
+    except ValueError:
+        return False
+    return ip.is_global and not (ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_private or ip.is_reserved or ip.is_unspecified)
+
+
+def resolve_public_hostname(hostname):
+    normalized = (hostname or "").strip().strip(".").lower()
+    if not normalized or normalized in {"localhost", "localhost.localdomain"} or normalized.endswith(".localhost"):
+        return False
+
+    if is_public_ip_address(normalized):
+        return True
+    try:
+        ipaddress.ip_address(normalized)
+        return False
+    except ValueError:
+        pass
+
+    try:
+        infos = socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return False
+
+    resolved_ips = {info[4][0] for info in infos if info and info[4]}
+    return bool(resolved_ips) and all(is_public_ip_address(ip) for ip in resolved_ips)
+
+
 def is_public_http_url(raw_url):
     try:
         parsed = urllib.parse.urlparse(str(raw_url or "").strip())
+        if parsed.port is not None and not (1 <= parsed.port <= 65535):
+            return False
     except Exception:
         return False
 
     if parsed.scheme not in {"http", "https"}:
         return False
-    hostname = (parsed.hostname or "").strip()
-    if not hostname:
-        return False
-    lowered = hostname.lower()
-    if lowered in {"localhost", "localhost.localdomain"}:
-        return False
-
-    try:
-        ip = ipaddress.ip_address(lowered)
-    except ValueError:
-        return True
-
-    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+    return resolve_public_hostname(parsed.hostname or "")
 
 
 def looks_like_direct_file_url(raw_url):
@@ -664,9 +690,14 @@ def stream_remote_paper(title, pdf_url, url):
             last_error = ValueError("This result does not provide a direct downloadable file. Please open it manually and upload the paper file.")
             continue
 
-        request = urllib.request.Request(source_url, headers={"User-Agent": "PaperWhisperer/0.8"})
+        request = urllib.request.Request(source_url, headers={"User-Agent": "PaperWhisperer/0.9"})
         try:
             response = urllib.request.urlopen(request, timeout=REMOTE_IMPORT_TIMEOUT_SECONDS, context=ssl_context)
+            final_url = response.geturl() or source_url
+            if not is_public_http_url(final_url):
+                response.close()
+                raise ValueError("The paper link redirected to a non-public URL.")
+
             content_type = normalize_content_type(response.headers.get("Content-Type"))
             if content_type.startswith("text/html"):
                 response.close()
@@ -674,7 +705,7 @@ def stream_remote_paper(title, pdf_url, url):
 
             file_name = build_import_filename(
                 title=title,
-                source_url=response.geturl() or source_url,
+                source_url=final_url,
                 content_disposition=response.headers.get("Content-Disposition"),
                 content_type=content_type,
             )
@@ -785,7 +816,7 @@ def download_remote_paper(title, pdf_url, url):
     temp_path = None
     try:
         response, file_name, _content_type = stream_remote_paper(title=title, pdf_url=pdf_url, url=url)
-        temp_path = os.path.join(UPLOAD_FOLDER, file_name)
+        temp_path = build_unique_storage_path(UPLOAD_FOLDER, file_name)
         total_bytes = 0
         with open(temp_path, "wb") as f:
             while True:
@@ -1057,7 +1088,7 @@ class PaperWhisperer:
     """文献分析核心类"""
     def __init__(self, api_key):
         self.name = "PaperWhisperer"
-        self.version = "0.8.0"
+        self.version = "0.9.0"
         self.api_key = resolve_api_key(api_key)
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
@@ -1683,7 +1714,7 @@ async def analyze(
     try:
         cleanup_expired_sessions()
         original_filename = build_safe_upload_filename(file.filename)
-        file_path = os.path.join(UPLOAD_FOLDER, original_filename)
+        file_path = build_unique_storage_path(UPLOAD_FOLDER, original_filename)
 
         await save_upload_file(file, file_path, MAX_CONTENT_LENGTH)
 
@@ -1777,7 +1808,7 @@ async def analyze_stream(
         return JSONResponse(content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."}, status_code=400)
 
     original_filename = build_safe_upload_filename(file.filename)
-    file_path = os.path.join(UPLOAD_FOLDER, original_filename)
+    file_path = build_unique_storage_path(UPLOAD_FOLDER, original_filename)
     generate_mermaid_bool = parse_bool_value(generate_mermaid, default=True)
     generate_evaluation_bool = parse_bool_value(generate_evaluation, default=True)
 
