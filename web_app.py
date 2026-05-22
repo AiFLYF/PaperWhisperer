@@ -603,6 +603,81 @@ def normalize_content_type(value):
     return str(value or "").split(";", 1)[0].strip().lower()
 
 
+def parse_content_length(headers):
+    raw_value = str(headers.get("Content-Length") or "").strip()
+    if not raw_value:
+        return None
+    try:
+        value = int(raw_value)
+    except ValueError:
+        return None
+    return value if value >= 0 else None
+
+
+def validate_remote_content_length(headers, max_bytes):
+    content_length = parse_content_length(headers)
+    if content_length is None:
+        return
+    if content_length <= 0:
+        raise ValueError("Downloaded file is empty.")
+    if content_length > max_bytes:
+        raise ValueError(f"Remote file is too large. Limit: {max_bytes // (1024 * 1024)} MB")
+
+
+def validate_remote_content_type(file_name, content_type):
+    normalized = normalize_content_type(content_type)
+    if not normalized:
+        return
+
+    rejected_types = {"application/json", "application/xhtml+xml", "application/xml", "text/xml"}
+    if normalized.startswith("text/html") or normalized in rejected_types:
+        raise ValueError("The paper link returned a non-document response instead of a downloadable file.")
+
+    generic_binary_types = {"application/octet-stream", "binary/octet-stream", "application/download", "application/x-download", "application/force-download"}
+    allowed_types = {
+        ".pdf": {"application/pdf", "application/x-pdf", "application/acrobat", "application/vnd.pdf"},
+        ".txt": {"text/plain", "text/markdown"},
+        ".docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/zip", "application/x-zip-compressed"},
+        ".pptx": {"application/vnd.openxmlformats-officedocument.presentationml.presentation", "application/zip", "application/x-zip-compressed"},
+    }
+    ext = os.path.splitext(file_name)[1].lower()
+    if normalized in generic_binary_types or normalized in allowed_types.get(ext, set()):
+        return
+    if ext == ".txt" and normalized.startswith("text/"):
+        return
+    raise ValueError(f"Remote content type is not compatible with {ext or 'the selected'} file.")
+
+
+def get_sample_head(sample):
+    head = bytes(sample or b"")[:2048].lstrip()
+    if head.startswith(b"\xef\xbb\xbf"):
+        head = head[3:].lstrip()
+    return head.lower()
+
+
+def validate_remote_file_signature(file_name, sample):
+    if not sample:
+        raise ValueError("Downloaded file is empty.")
+
+    head = get_sample_head(sample)
+    if head.startswith((b"<!doctype html", b"<html")) or b"<html" in head[:512]:
+        raise ValueError("The paper link returned an HTML page instead of a downloadable file.")
+
+    ext = os.path.splitext(file_name)[1].lower()
+    if ext == ".pdf" and b"%PDF-" not in sample[:1024]:
+        raise ValueError("The remote file does not look like a valid PDF.")
+    if ext in {".docx", ".pptx"} and not sample.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
+        raise ValueError(f"The remote file does not look like a valid {ext[1:].upper()} file.")
+    if ext == ".txt" and b"\x00" in sample[:2048]:
+        raise ValueError("The remote text file appears to be binary.")
+
+
+def read_remote_file_sample(response, file_name):
+    sample = response.read(4096)
+    validate_remote_file_signature(file_name, sample)
+    return sample
+
+
 def is_public_ip_address(value):
     try:
         ip = ipaddress.ip_address(str(value or "").strip())
@@ -714,19 +789,16 @@ def stream_remote_paper(title, pdf_url, url):
             last_error = ValueError("This result does not provide a direct downloadable file. Please open it manually and upload the paper file.")
             continue
 
+        response = None
         request = urllib.request.Request(source_url, headers={"User-Agent": "PaperWhisperer/0.9"})
         try:
             response = urllib.request.urlopen(request, timeout=REMOTE_IMPORT_TIMEOUT_SECONDS, context=ssl_context)
             final_url = response.geturl() or source_url
             if not is_public_http_url(final_url):
-                response.close()
                 raise ValueError("The paper link redirected to a non-public URL.")
 
             content_type = normalize_content_type(response.headers.get("Content-Type"))
-            if content_type.startswith("text/html"):
-                response.close()
-                raise ValueError("The paper link returned an HTML page instead of a downloadable file.")
-
+            validate_remote_content_length(response.headers, MAX_CONTENT_LENGTH)
             file_name = build_import_filename(
                 title=title,
                 source_url=final_url,
@@ -734,11 +806,17 @@ def stream_remote_paper(title, pdf_url, url):
                 content_type=content_type,
             )
             if not is_allowed_file(file_name):
-                response.close()
                 raise ValueError(f"Unsupported remote file type. Please use one of: {SUPPORTED_FILE_TYPES_TEXT}")
+            validate_remote_content_type(file_name, content_type)
+            initial_chunk = read_remote_file_sample(response, file_name)
 
-            return response, file_name, content_type
+            return response, file_name, content_type, initial_chunk
         except Exception as exc:
+            if response:
+                try:
+                    response.close()
+                except Exception:
+                    pass
             last_error = exc
 
     if last_error:
@@ -770,9 +848,15 @@ async def save_upload_file(upload_file, destination_path, max_bytes):
         raise
 
 
-def iter_remote_file_chunks(response, max_bytes):
+def iter_remote_file_chunks(response, max_bytes, initial_chunk=b""):
     total_bytes = 0
     try:
+        if initial_chunk:
+            total_bytes += len(initial_chunk)
+            if total_bytes > max_bytes:
+                raise ValueError(f"Remote file is too large. Limit: {max_bytes // (1024 * 1024)} MB")
+            yield initial_chunk
+
         while True:
             chunk = response.read(1024 * 64)
             if not chunk:
@@ -839,10 +923,16 @@ def download_remote_paper(title, pdf_url, url):
     response = None
     temp_path = None
     try:
-        response, file_name, _content_type = stream_remote_paper(title=title, pdf_url=pdf_url, url=url)
+        response, file_name, _content_type, initial_chunk = stream_remote_paper(title=title, pdf_url=pdf_url, url=url)
         temp_path = build_unique_storage_path(UPLOAD_FOLDER, file_name)
         total_bytes = 0
         with open(temp_path, "wb") as f:
+            if initial_chunk:
+                total_bytes += len(initial_chunk)
+                if total_bytes > MAX_CONTENT_LENGTH:
+                    raise ValueError(f"Remote file is too large. Limit: {MAX_CONTENT_LENGTH // (1024 * 1024)} MB")
+                f.write(initial_chunk)
+
             while True:
                 chunk = response.read(1024 * 64)
                 if not chunk:
@@ -1792,14 +1882,14 @@ async def analyze(
 @app.get("/api/download-paper")
 async def download_paper(url: str = "", pdf_url: str = "", title: str = ""):
     try:
-        response, file_name, content_type = stream_remote_paper(title=title, pdf_url=pdf_url, url=url)
+        response, file_name, content_type, initial_chunk = stream_remote_paper(title=title, pdf_url=pdf_url, url=url)
         media_type = content_type or mimetypes.guess_type(file_name)[0] or "application/octet-stream"
         quoted_name = urllib.parse.quote(file_name)
         headers = {
             "Content-Disposition": f"attachment; filename=\"{file_name}\"; filename*=UTF-8''{quoted_name}",
             "X-Content-Type-Options": "nosniff",
         }
-        return StreamingResponse(iter_remote_file_chunks(response, MAX_CONTENT_LENGTH), media_type=media_type, headers=headers)
+        return StreamingResponse(iter_remote_file_chunks(response, MAX_CONTENT_LENGTH, initial_chunk), media_type=media_type, headers=headers)
     except ValueError as exc:
         return JSONResponse(content={"error": str(exc)}, status_code=400)
     except urllib.error.HTTPError as exc:
