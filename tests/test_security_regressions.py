@@ -1,3 +1,4 @@
+import asyncio
 import json
 from email.message import Message
 
@@ -41,6 +42,39 @@ def public_example_urls(monkeypatch):
 
 def patch_remote_response(monkeypatch, response):
     monkeypatch.setattr(web_app.urllib.request, "urlopen", lambda *args, **kwargs: response)
+
+
+class FakeUploadFile:
+    def __init__(self, body):
+        self.body = body
+        self.offset = 0
+
+    async def read(self, size=-1):
+        if size is None or size < 0:
+            size = len(self.body) - self.offset
+        start = self.offset
+        end = min(len(self.body), start + size)
+        self.offset = end
+        return self.body[start:end]
+
+
+def test_save_upload_file_accepts_valid_pdf(tmp_path):
+    destination = tmp_path / "paper.pdf"
+    body = b"%PDF-1.7\nlocal upload"
+
+    total_bytes = asyncio.run(web_app.save_upload_file(FakeUploadFile(body), destination, web_app.MAX_CONTENT_LENGTH))
+
+    assert total_bytes == len(body)
+    assert destination.read_bytes() == body
+
+
+def test_save_upload_file_rejects_disguised_html_and_cleans_up(tmp_path):
+    destination = tmp_path / "paper.pdf"
+
+    with pytest.raises(ValueError):
+        asyncio.run(web_app.save_upload_file(FakeUploadFile(b"<html></html>"), destination, web_app.MAX_CONTENT_LENGTH))
+
+    assert not destination.exists()
 
 
 def test_remote_pdf_validation_preserves_initial_chunk(monkeypatch, public_example_urls):
