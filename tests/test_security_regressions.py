@@ -146,6 +146,38 @@ def test_download_proxy_rejects_html_response(monkeypatch, public_example_urls):
     assert "error" in response.json()
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/import-paper",
+        "/api/ask",
+        "/api/ask/stream",
+        "/api/search-papers",
+        "/api/recommend-papers",
+    ],
+)
+def test_json_api_rejects_invalid_json(path):
+    response = TestClient(web_app.app).post(
+        path,
+        content="{not valid json",
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "Invalid JSON body."
+
+
+def test_json_api_rejects_non_object_body():
+    response = TestClient(web_app.app).post(
+        "/api/ask",
+        content="[]",
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "JSON body must be an object."
+
+
 def test_load_session_payload_removes_corrupted_json(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
     session_file = tmp_path / "broken.json"

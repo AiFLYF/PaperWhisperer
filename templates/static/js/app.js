@@ -724,16 +724,25 @@ function hideError() {
 
 async function parseJsonSafely(response) {
     const contentType = response.headers.get('content-type') || '';
+    const statusText = `${response.status} ${response.statusText || ''}`.trim();
     if (contentType.includes('application/json')) {
         try {
-            return await response.json();
+            const data = await response.json();
+            return data && typeof data === 'object' ? data : { error: `Unexpected JSON response${statusText ? ` (${statusText})` : ''}.` };
         } catch (error) {
             console.warn('Response json parse failed:', error);
-            return {};
+            return { error: `Response returned malformed JSON${statusText ? ` (${statusText})` : ''}.` };
         }
     }
-    const text = await response.text();
-    return { error: text };
+
+    const text = (await response.text()).trim();
+    if (!text) {
+        return { error: `Request failed${statusText ? ` (${statusText})` : ''}.` };
+    }
+    if (/^(<!doctype html|<html|<body)/i.test(text)) {
+        return { error: 'Server returned an HTML page instead of an API response. Check the service endpoint or server logs.' };
+    }
+    return { error: text.length > 500 ? `${text.slice(0, 500)}...` : text };
 }
 
 async function readSseStream(response, handlers = {}) {
