@@ -84,6 +84,14 @@ def parse_bool_value(value, default=False):
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def clamp_int_value(value, default, min_value=1, max_value=32):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(min_value, min(max_value, parsed))
+
+
 ARXIV_API_URL = "http://export.arxiv.org/api/query"
 SEMANTIC_SCHOLAR_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 SEMANTIC_SCHOLAR_TIMEOUT_SECONDS = parse_int_env("SEMANTIC_SCHOLAR_TIMEOUT_SECONDS", default=20, min_value=5, max_value=120)
@@ -104,8 +112,9 @@ LAST_SESSION_CLEANUP_AT = 0.0
 
 
 def resolve_api_key(explicit_key):
-    if explicit_key and explicit_key.strip():
-        return explicit_key.strip()
+    explicit_text = str(explicit_key or "").strip()
+    if explicit_text:
+        return explicit_text
     return os.getenv("OPENAI_API_KEY", "").strip()
 
 
@@ -131,6 +140,10 @@ def secure_filename(filename):
 def sanitize_identifier(raw_value, prefix):
     candidate = secure_filename((raw_value or "").strip())
     return candidate or f"{prefix}_{uuid.uuid4().hex}"
+
+
+def build_session_id(raw_session_id):
+    return sanitize_identifier(raw_session_id, "session")
 
 
 def build_unique_storage_path(folder, filename):
@@ -389,11 +402,7 @@ def search_papers(query, limit=None):
     if not clean_query:
         raise ValueError("Please enter a search query.")
 
-    try:
-        resolved_limit = int(limit or PAPER_SEARCH_RESULT_LIMIT)
-    except (TypeError, ValueError):
-        resolved_limit = PAPER_SEARCH_RESULT_LIMIT
-    resolved_limit = max(1, min(resolved_limit, PAPER_SEARCH_RESULT_LIMIT))
+    resolved_limit = clamp_int_value(limit, PAPER_SEARCH_RESULT_LIMIT, min_value=1, max_value=PAPER_SEARCH_RESULT_LIMIT)
     items = []
     errors = []
 
@@ -566,13 +575,28 @@ def extract_json_object(text):
     return raw_text
 
 
+def atomic_write_json(file_path, payload):
+    temp_path = f"{file_path}.{uuid.uuid4().hex}.tmp"
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(temp_path, file_path)
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+
+
 def write_session_payload(session_id, payload):
     now_text = now_iso()
     if isinstance(payload, dict):
         payload["updated_at"] = now_text
         payload["expires_at"] = build_session_expiry()
-    with open(get_session_file_path(session_id), "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(get_session_file_path(session_id), payload)
 
 
 def normalize_content_type(value):
@@ -802,7 +826,7 @@ def get_session_document_content(session_payload):
 def load_validated_session(raw_session_id, session_token, require_token=True):
     if not raw_session_id:
         raise ValueError("session_id is required.")
-    safe_session_id = sanitize_identifier(raw_session_id, "session")
+    safe_session_id = build_session_id(raw_session_id)
     session_payload = load_session_payload(safe_session_id)
     if not session_payload:
         raise ValueError("Session expired or context not found. Please upload and analyze the file again.")
@@ -848,7 +872,7 @@ def download_remote_paper(title, pdf_url, url):
 
 
 def finalize_analysis_result(result, whisperer, original_filename, generate_evaluation_bool, session_id):
-    safe_session_id = sanitize_identifier(session_id, "session")
+    safe_session_id = build_session_id(session_id)
     session_token = generate_session_token()
     base_name = os.path.splitext(original_filename)[0]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -927,8 +951,18 @@ def load_session_payload(session_id):
     session_file = get_session_file_path(session_id)
     if not os.path.exists(session_file):
         return None
-    with open(session_file, "r", encoding="utf-8") as f:
-        payload = json.load(f)
+    try:
+        with open(session_file, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except json.JSONDecodeError:
+        try:
+            os.remove(session_file)
+        except Exception:
+            pass
+        return None
+    except OSError:
+        return None
+
     if not isinstance(payload, dict):
         return None
 
@@ -940,23 +974,33 @@ def load_session_payload(session_id):
             pass
         return None
 
-    payload.setdefault("document_content", "")
-    payload.setdefault("document_excerpt", build_document_excerpt(payload.get("document_content", "")))
-    payload.setdefault("qa_history", [])
-    payload.setdefault("analysis", {})
-    payload.setdefault("paper_search", {})
-    payload["paper_search"].setdefault("last_query", "")
-    payload["paper_search"].setdefault("last_results", [])
-    payload["paper_search"].setdefault("last_recommendation", {})
-    payload.setdefault("source_filename", "")
-    payload.setdefault("session_id", session_id)
+    document_content = str(payload.get("document_content") or "")
+    document_excerpt = str(payload.get("document_excerpt") or build_document_excerpt(document_content))
+    qa_history = payload.get("qa_history")
+    analysis = payload.get("analysis")
+    paper_search = payload.get("paper_search")
+    session_auth = payload.get("session_auth")
+
+    payload["document_content"] = document_content
+    payload["document_excerpt"] = document_excerpt
+    payload["qa_history"] = qa_history if isinstance(qa_history, list) else []
+    payload["analysis"] = analysis if isinstance(analysis, dict) else {}
+    payload["paper_search"] = paper_search if isinstance(paper_search, dict) else {}
+    payload["session_auth"] = session_auth if isinstance(session_auth, dict) else {}
+    payload["source_filename"] = str(payload.get("source_filename") or "")
+    payload["session_id"] = str(payload.get("session_id") or session_id)
     payload.setdefault("generated_at", now_iso())
     payload.setdefault("created_at", payload.get("generated_at") or now_iso())
     payload.setdefault("updated_at", payload.get("generated_at") or now_iso())
     payload.setdefault("expires_at", build_session_expiry())
-    payload.setdefault("session_auth", {})
+    payload["paper_search"].setdefault("last_query", "")
+    if not isinstance(payload["paper_search"].get("last_results"), list):
+        payload["paper_search"]["last_results"] = []
+    if not isinstance(payload["paper_search"].get("last_recommendation"), dict):
+        payload["paper_search"]["last_recommendation"] = {}
     payload["session_auth"].setdefault("token_hash", "")
-    payload["analysis"].setdefault("sections", {})
+    if not isinstance(payload["analysis"].get("sections"), dict):
+        payload["analysis"]["sections"] = {}
     return payload
 
 
@@ -1552,7 +1596,7 @@ Optional context from current paper:
         if not excerpt:
             raise ValueError("Current session does not contain document content.")
 
-        resolved_limit = max(1, min(limit or RECOMMENDATION_RESULT_LIMIT, RECOMMENDATION_RESULT_LIMIT))
+        resolved_limit = clamp_int_value(limit, RECOMMENDATION_RESULT_LIMIT, min_value=1, max_value=RECOMMENDATION_RESULT_LIMIT)
         rewrite_meta = self.rewrite_search_query(
             query="Find closely related follow-up papers for this paper.",
             context_text=excerpt,
@@ -1826,7 +1870,7 @@ async def analyze_stream(
     async def event_generator():
         try:
             whisperer = PaperWhisperer(resolved_api_key)
-            safe_session_id = sanitize_identifier(session_id, "session")
+            safe_session_id = build_session_id(session_id)
             yield build_sse_event("start", {"session_id": safe_session_id, "source_filename": original_filename})
 
             final_result = None
@@ -1844,7 +1888,7 @@ async def analyze_stream(
                 whisperer=whisperer,
                 original_filename=original_filename,
                 generate_evaluation_bool=generate_evaluation_bool,
-                session_id=session_id,
+                session_id=safe_session_id,
             )
             yield build_sse_event("done", final_payload)
         except Exception as exc:
@@ -1936,8 +1980,8 @@ async def ask_question(request: Request):
         return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
 
     cleanup_expired_sessions()
-    question = data.get("question", "").strip()
-    raw_session_id = data.get("session_id", "")
+    question = str(data.get("question") or "").strip()
+    raw_session_id = str(data.get("session_id") or "")
     session_token = str(data.get("session_token") or "")
 
     if not question:
