@@ -655,27 +655,37 @@ def get_sample_head(sample):
     return head.lower()
 
 
-def validate_remote_file_signature(file_name, sample):
+def validate_document_file_signature(file_name, sample, source_name):
     if not sample:
-        raise ValueError("Downloaded file is empty.")
+        raise ValueError(f"The {source_name} is empty.")
 
     head = get_sample_head(sample)
     if head.startswith((b"<!doctype html", b"<html")) or b"<html" in head[:512]:
-        raise ValueError("The paper link returned an HTML page instead of a downloadable file.")
+        raise ValueError(f"The {source_name} appears to be an HTML page instead of a document.")
 
     ext = os.path.splitext(file_name)[1].lower()
     if ext == ".pdf" and b"%PDF-" not in sample[:1024]:
-        raise ValueError("The remote file does not look like a valid PDF.")
+        raise ValueError(f"The {source_name} does not look like a valid PDF.")
     if ext in {".docx", ".pptx"} and not sample.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")):
-        raise ValueError(f"The remote file does not look like a valid {ext[1:].upper()} file.")
+        raise ValueError(f"The {source_name} does not look like a valid {ext[1:].upper()} file.")
     if ext == ".txt" and b"\x00" in sample[:2048]:
-        raise ValueError("The remote text file appears to be binary.")
+        raise ValueError(f"The {source_name} appears to be binary.")
+
+
+def validate_remote_file_signature(file_name, sample):
+    validate_document_file_signature(file_name, sample, "remote file")
 
 
 def read_remote_file_sample(response, file_name):
     sample = response.read(4096)
     validate_remote_file_signature(file_name, sample)
     return sample
+
+
+def validate_saved_file_signature(file_path):
+    with open(file_path, "rb") as f:
+        sample = f.read(4096)
+    validate_document_file_signature(os.path.basename(file_path), sample, "uploaded file")
 
 
 def is_public_ip_address(value):
@@ -838,6 +848,7 @@ async def save_upload_file(upload_file, destination_path, max_bytes):
                 f.write(chunk)
         if total_bytes <= 0:
             raise ValueError("Uploaded file is empty.")
+        validate_saved_file_signature(destination_path)
         return total_bytes
     except Exception:
         if destination_path and os.path.exists(destination_path):
