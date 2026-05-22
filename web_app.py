@@ -501,6 +501,25 @@ def build_sse_headers():
     }
 
 
+async def parse_json_object_request(request):
+    try:
+        raw_body = await request.body()
+    except Exception:
+        return None, JSONResponse(content={"error": "Unable to read request body."}, status_code=400)
+
+    if not raw_body or not raw_body.strip():
+        return {}, None
+
+    try:
+        data = json.loads(raw_body)
+    except json.JSONDecodeError:
+        return None, JSONResponse(content={"error": "Invalid JSON body."}, status_code=400)
+
+    if not isinstance(data, dict):
+        return None, JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+    return data, None
+
+
 def is_retryable_llm_error(message):
     normalized = str(message or "").lower()
     retry_markers = (
@@ -2007,14 +2026,9 @@ async def analyze_stream(
 
 @app.post("/api/import-paper")
 async def import_paper(request: Request):
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-
-    data = data or {}
-    if not isinstance(data, dict):
-        return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+    data, error_response = await parse_json_object_request(request)
+    if error_response is not None:
+        return error_response
 
     file_path = None
     try:
@@ -2071,14 +2085,9 @@ async def import_paper(request: Request):
 
 @app.post("/api/ask")
 async def ask_question(request: Request):
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-
-    data = data or {}
-    if not isinstance(data, dict):
-        return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+    data, error_response = await parse_json_object_request(request)
+    if error_response is not None:
+        return error_response
 
     cleanup_expired_sessions()
     question = str(data.get("question") or "").strip()
@@ -2128,14 +2137,9 @@ async def ask_question(request: Request):
 
 @app.post("/api/ask/stream")
 async def ask_question_stream(request: Request):
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-
-    data = data or {}
-    if not isinstance(data, dict):
-        return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+    data, error_response = await parse_json_object_request(request)
+    if error_response is not None:
+        return error_response
 
     cleanup_expired_sessions()
     question = str(data.get("question") or "").strip()
@@ -2195,14 +2199,9 @@ async def ask_question_stream(request: Request):
 
 @app.post("/api/search-papers")
 async def search_papers_api(request: Request):
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-
-    data = data or {}
-    if not isinstance(data, dict):
-        return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+    data, error_response = await parse_json_object_request(request)
+    if error_response is not None:
+        return error_response
 
     cleanup_expired_sessions()
     query = str(data.get("query") or "").strip()
@@ -2265,14 +2264,9 @@ async def search_papers_api(request: Request):
 
 @app.post("/api/recommend-papers")
 async def recommend_papers_api(request: Request):
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-
-    data = data or {}
-    if not isinstance(data, dict):
-        return JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+    data, error_response = await parse_json_object_request(request)
+    if error_response is not None:
+        return error_response
 
     cleanup_expired_sessions()
     raw_session_id = str(data.get("session_id") or "").strip()
