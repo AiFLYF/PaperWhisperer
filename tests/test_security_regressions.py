@@ -415,6 +415,40 @@ def test_public_hostname_validation_does_not_cache_private_ip_literals():
     assert web_app.PUBLIC_HOSTNAME_CACHE == {}
 
 
+def test_analyze_endpoint_missing_file_returns_structured_error():
+    response = TestClient(web_app.app).post("/api/analyze")
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"] == "Please upload a file."
+    assert payload["code"] == "missing_file"
+    assert "timestamp" in payload
+
+
+def test_analyze_stream_missing_file_returns_structured_error():
+    response = TestClient(web_app.app).post("/api/analyze/stream")
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"] == "Please upload a file."
+    assert payload["code"] == "missing_file"
+    assert "timestamp" in payload
+
+
+def test_import_paper_missing_url_returns_structured_error():
+    response = TestClient(web_app.app).post(
+        "/api/import-paper",
+        content=json.dumps({}),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert payload["error"] == "A downloadable paper URL is required."
+    assert payload["code"] == "missing_paper_url"
+    assert "timestamp" in payload
+
+
 def test_analyze_stream_emits_sections_and_done(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path / "context"))
     monkeypatch.setattr(web_app, "OUTPUT_FOLDER", str(tmp_path / "output"))
@@ -549,7 +583,10 @@ def test_download_proxy_rejects_html_response(monkeypatch, public_example_urls):
     )
 
     assert response.status_code == 400
-    assert "error" in response.json()
+    payload = response.json()
+    assert "error" in payload
+    assert payload["code"] == "invalid_request"
+    assert "timestamp" in payload
 
 
 @pytest.mark.parametrize(
