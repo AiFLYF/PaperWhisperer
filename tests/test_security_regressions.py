@@ -76,6 +76,10 @@ def test_index_page_renders():
     assert 'aria-pressed="true"' in response.text
     assert "Ask about evidence, methods, limitations, or reproducibility" in response.text
     assert 'id="backToTopBtn"' in response.text
+    assert 'class="skip-links"' in response.text
+    assert 'href="#uploadWorkspace"' in response.text
+    assert 'id="uploadWorkspace"' in response.text
+    assert 'aria-labelledby="uploadWorkspaceTitle"' in response.text
     assert 'rel="preconnect" href="https://cdn.jsdelivr.net"' in response.text
     assert 'rel="dns-prefetch" href="https://github.com"' in response.text
     assert 'fetchpriority="high"' in response.text
@@ -128,6 +132,8 @@ def test_static_frontend_assets_are_served():
     assert "@media (pointer: coarse)" in css_response.text
     assert "-webkit-tap-highlight-color" in css_response.text
     assert ".back-to-top.show" in css_response.text
+    assert ".skip-links" in css_response.text
+    assert ".skip-links a:focus-visible" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():

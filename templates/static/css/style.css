@@ -99,6 +99,39 @@ body[data-theme="dark"] {
     border: 0;
 }
 
+.skip-links {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 100;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.skip-links a {
+    position: absolute;
+    transform: translateY(-180%);
+    padding: 10px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--bg-card);
+    color: var(--primary-color);
+    box-shadow: var(--shadow);
+    font-weight: 700;
+    text-decoration: none;
+    transition: var(--transition);
+    pointer-events: auto;
+}
+
+.skip-links a:focus-visible {
+    position: static;
+    transform: translateY(0);
+    outline: 3px solid rgba(15, 118, 110, 0.28);
+    outline-offset: 3px;
+}
+
 .container { max-width: 1040px; margin: 0 auto; position: relative; }
 
 .nav-header {

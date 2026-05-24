@@ -19,6 +19,11 @@
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
+    <nav class="skip-links" aria-label="Skip links">
+        <a href="#uploadWorkspace">Skip to upload</a>
+        <a href="#paperSearchTitle">Skip to paper search</a>
+        <a href="#result">Skip to analysis workspace</a>
+    </nav>
 
     <div class="container">
         <header class="nav-header">
@@ -45,7 +50,8 @@
             </div>
         </header>
         
-        <div class="card">
+        <section class="card" id="uploadWorkspace" aria-labelledby="uploadWorkspaceTitle" tabindex="-1">
+            <h2 class="sr-only" id="uploadWorkspaceTitle">Document upload workspace</h2>
             <p class="card-intro">Supports `PDF`, `TXT`, `DOCX`, and `PPTX` files. A successful analysis replaces the current session; failed attempts keep the last completed workspace available.</p>
             <div class="form-group">
                 <label for="apiKey">API Key (Optional)</label>
@@ -78,8 +84,8 @@
                 </label>
             </div>
             <button class="btn" id="analyzeBtn" type="button">Analyze Document</button>
-        </div>
-        
+        </section>
+
         <div class="loading" id="loading" role="status" aria-live="polite">
             <div class="spinner"></div>
             <div class="loading-text" id="loadingText">Preparing document analysis...</div>
