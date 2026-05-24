@@ -118,7 +118,7 @@
             </div>
             <div class="paper-actions">
                 <label class="sr-only" for="paperSearchInput">Paper search query</label>
-                <input type="text" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta">
+                <input type="search" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" autocomplete="off" spellcheck="false" inputmode="search">
                 <button class="btn" type="button" id="paperSearchBtn">Search Papers</button>
                 <button class="action-btn request-cancel" type="button" id="cancelPaperSearchBtn" hidden disabled aria-disabled="true">Cancel search</button>
             </div>
@@ -235,7 +235,7 @@
                 </div>
                 <div class="ask-input-group">
                     <label class="sr-only" for="questionInput">Question about the current document</label>
-                    <input type="text" id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint">
+                    <input type="text" id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint" autocomplete="off" spellcheck="false">
                     <button class="btn" id="askBtn" type="button" disabled aria-disabled="true">Send</button>
                     <button class="action-btn request-cancel" type="button" id="cancelAskBtn" hidden disabled aria-disabled="true">Cancel</button>
                 </div>
