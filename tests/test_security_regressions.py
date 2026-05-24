@@ -473,6 +473,11 @@ def test_public_hostname_validation_does_not_cache_private_ip_literals():
     assert web_app.PUBLIC_HOSTNAME_CACHE == {}
 
 
+def test_public_http_url_rejects_invalid_ports():
+    assert web_app.is_public_http_url("https://example.com:99999/paper.pdf") is False
+    assert web_app.is_public_http_url("https://example.com:notaport/paper.pdf") is False
+
+
 def test_analyze_endpoint_missing_file_returns_structured_error():
     response = TestClient(web_app.app).post("/api/analyze")
 

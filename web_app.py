@@ -1045,11 +1045,10 @@ def resolve_public_hostname(hostname):
 
 
 def is_public_http_url(raw_url):
+    parsed = urllib.parse.urlparse(str(raw_url or "").strip())
     try:
-        parsed = urllib.parse.urlparse(str(raw_url or "").strip())
-        if parsed.port is not None and not (1 <= parsed.port <= 65535):
-            return False
-    except Exception:
+        parsed.port
+    except ValueError:
         return False
 
     if parsed.scheme not in {"http", "https"}:
