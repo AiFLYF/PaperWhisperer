@@ -36,7 +36,7 @@
                 <a class="github-link" href="https://github.com/AiFLYF/PaperWhisperer" target="_blank" rel="noopener noreferrer" aria-label="Open GitHub repository" title="GitHub">
                     <img src="https://github.com/favicon.ico" alt="GitHub" width="18" height="18" loading="lazy">
                 </a>
-                <button class="theme-toggle" onclick="toggleTheme()" id="themeBtn" aria-label="Toggle Theme">
+                <button class="theme-toggle" type="button" id="themeBtn" aria-label="Toggle Theme">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
                 </button>
             </div>
@@ -67,7 +67,7 @@
                     <span>Enable research brief</span>
                 </label>
             </div>
-            <button class="btn" id="analyzeBtn" onclick="analyze()">Analyze Document</button>
+            <button class="btn" id="analyzeBtn" type="button">Analyze Document</button>
         </div>
         
         <div class="loading" id="loading" role="status" aria-live="polite">
@@ -82,8 +82,8 @@
             </div>
             <div class="paper-actions">
                 <label class="sr-only" for="paperSearchInput">Paper search query</label>
-                <input type="text" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" onkeypress="handlePaperSearchKeyPress(event)">
-                <button class="btn" type="button" id="paperSearchBtn" onclick="searchPapers()">Search Papers</button>
+                <input type="text" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta">
+                <button class="btn" type="button" id="paperSearchBtn">Search Papers</button>
             </div>
             <div class="paper-meta" id="paperSearchMeta">Search across Semantic Scholar and arXiv with a single query.</div>
             <div class="paper-list" id="paperSearchResults"></div>
@@ -92,7 +92,7 @@
         <div class="result-card reading-queue-card">
             <div class="section-header">
                 <h3 class="section-title">Reading Queue</h3>
-                <button class="action-btn" type="button" onclick="clearReadingQueue()">Clear</button>
+                <button class="action-btn" type="button" id="clearReadingQueueBtn">Clear</button>
             </div>
             <div class="paper-meta" id="readingQueueMeta">Save papers from search or recommendations into this session reading queue.</div>
             <div class="reading-queue" id="readingQueue"></div>
@@ -104,7 +104,7 @@
             <div class="result-card">
                 <div class="section-header">
                     <h3 class="section-title">Session Export</h3>
-                    <button class="action-btn" type="button" id="exportBtn" onclick="exportSessionReport()" disabled>Export Session</button>
+                    <button class="action-btn" type="button" id="exportBtn" disabled>Export Session</button>
                 </div>
                 <div class="content" id="exportPreview"><p class="empty-state">Export the current analysis, Q&A history, research trace, and Mermaid assets after a successful run.</p></div>
             </div>
@@ -112,7 +112,7 @@
             <div class="result-card">
                 <div class="section-header">
                     <h3 class="section-title">Overview</h3>
-                    <button class="action-btn" type="button" onclick="copyText('summary', this)">Copy</button>
+                    <button class="action-btn" type="button" data-copy-target="summary">Copy</button>
                 </div>
                 <div class="content" id="summary"></div>
             </div>
@@ -120,7 +120,7 @@
             <div class="result-card">
                 <div class="section-header">
                     <h3 class="section-title">Key Citations</h3>
-                    <button class="action-btn" type="button" onclick="copyText('quotes', this)">Copy</button>
+                    <button class="action-btn" type="button" data-copy-target="quotes">Copy</button>
                 </div>
                 <div class="content" id="quotes"></div>
             </div>
@@ -128,7 +128,7 @@
             <div class="result-card">
                 <div class="section-header">
                     <h3 class="section-title">Text Structure</h3>
-                    <button class="action-btn" type="button" onclick="copyText('mindmap', this)">Copy</button>
+                    <button class="action-btn" type="button" data-copy-target="mindmap">Copy</button>
                 </div>
                 <div class="content" id="mindmap"></div>
             </div>
@@ -137,10 +137,10 @@
                 <div class="section-header">
                     <h3 class="section-title">Visual Map</h3>
                     <div class="canvas-toolbar">
-                        <button class="tool-btn" onclick="zoomIn()" title="Zoom In" aria-label="Zoom in visual map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
-                        <button class="tool-btn" onclick="zoomOut()" title="Zoom Out" aria-label="Zoom out visual map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
-                        <button class="tool-btn" onclick="zoomReset()" title="Reset View" aria-label="Reset visual map view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></button>
-                        <button class="tool-btn" onclick="downloadMermaidSVG()" title="Download SVG" aria-label="Download visual map SVG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
+                        <button class="tool-btn" type="button" id="zoomInBtn" title="Zoom In" aria-label="Zoom in visual map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+                        <button class="tool-btn" type="button" id="zoomOutBtn" title="Zoom Out" aria-label="Zoom out visual map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
+                        <button class="tool-btn" type="button" id="zoomResetBtn" title="Reset View" aria-label="Reset visual map view"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg></button>
+                        <button class="tool-btn" type="button" id="downloadMermaidBtn" title="Download SVG" aria-label="Download visual map SVG"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>
                     </div>
                 </div>
                 <div class="mermaid-wrapper" id="mermaidWrapper">
@@ -151,7 +151,7 @@
             <div class="result-card" id="evaluationCard">
                 <div class="section-header">
                     <h3 class="section-title">Evaluation</h3>
-                    <button class="action-btn" type="button" onclick="copyText('evaluation', this)">Copy</button>
+                    <button class="action-btn" type="button" data-copy-target="evaluation">Copy</button>
                 </div>
                 <div class="content" id="evaluation"></div>
             </div>
@@ -159,7 +159,7 @@
             <div class="result-card" id="researchBriefCard">
                 <div class="section-header">
                     <h3 class="section-title">Deep Research Brief</h3>
-                    <button class="action-btn" type="button" onclick="copyText('research_brief', this)">Copy</button>
+                    <button class="action-btn" type="button" data-copy-target="research_brief">Copy</button>
                 </div>
                 <div class="content" id="research_brief"></div>
             </div>
@@ -167,7 +167,7 @@
             <div class="result-card">
                 <div class="section-header">
                     <h3 class="section-title">Auto Recommendations</h3>
-                    <button class="action-btn" type="button" id="recommendBtn" onclick="recommendPapers()" disabled>Recommend from current paper</button>
+                    <button class="action-btn" type="button" id="recommendBtn" disabled>Recommend from current paper</button>
                 </div>
                 <div class="paper-meta" id="paperRecommendationMeta">Analyze a paper first, then generate follow-up reading suggestions from the current session.</div>
                 <div class="paper-list" id="paperRecommendations"></div>
@@ -176,15 +176,15 @@
             <div class="ask-section">
                 <h3 class="section-title">Ask Questions</h3>
                 <div class="answer-mode-group" id="answerModeGroup" aria-label="Answer mode">
-                    <button class="mode-chip active" type="button" data-mode="evidence" onclick="setAnswerMode('evidence')">Evidence</button>
-                    <button class="mode-chip" type="button" data-mode="explain" onclick="setAnswerMode('explain')">Explain</button>
-                    <button class="mode-chip" type="button" data-mode="critique" onclick="setAnswerMode('critique')">Critique</button>
-                    <button class="mode-chip" type="button" data-mode="reproduce" onclick="setAnswerMode('reproduce')">Reproduce</button>
+                    <button class="mode-chip active" type="button" data-mode="evidence">Evidence</button>
+                    <button class="mode-chip" type="button" data-mode="explain">Explain</button>
+                    <button class="mode-chip" type="button" data-mode="critique">Critique</button>
+                    <button class="mode-chip" type="button" data-mode="reproduce">Reproduce</button>
                 </div>
                 <div class="ask-input-group">
                     <label class="sr-only" for="questionInput">Question about the current document</label>
-                    <input type="text" id="questionInput" placeholder="Query data, methods, or specific formulas..." onkeypress="handleKeyPress(event)">
-                    <button class="btn" id="askBtn" onclick="askQuestion()">Send</button>
+                    <input type="text" id="questionInput" placeholder="Query data, methods, or specific formulas...">
+                    <button class="btn" id="askBtn" type="button">Send</button>
                 </div>
                 <div class="smart-prompts" id="smartPrompts" aria-label="Suggested follow-up questions"></div>
                 <div class="next-actions" id="nextActions" aria-label="Recommended next actions"></div>
@@ -198,7 +198,7 @@
                     Crafted with <span class="heart">&hearts;</span> by
                     <a class="author-link" href="https://github.com/AiFLYF" target="_blank" rel="noopener noreferrer">FLYF</a>
                     &
-                    <button class="ai-toggle" type="button" id="aiToggleBtn" onclick="toggleAIList()" aria-expanded="false" aria-controls="aiList">AI <span class="arrow">▾</span></button>
+                    <button class="ai-toggle" type="button" id="aiToggleBtn" aria-expanded="false" aria-controls="aiList">AI <span class="arrow">▾</span></button>
                 </span>
                 <div class="ai-list" id="aiList">
                     <span class="ai-pill">Gemini</span>
