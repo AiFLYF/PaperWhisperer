@@ -71,8 +71,35 @@ document.addEventListener('DOMContentLoaded', () => {
     renderReadingQueue();
     setAnswerMode(currentAnswerMode);
     updateStatus('Waiting for document', 'idle');
-    document.getElementById('file').addEventListener('change', updateFileMeta);
+
+    bindClick('themeBtn', toggleTheme);
+    bindClick('analyzeBtn', analyze);
+    bindClick('paperSearchBtn', searchPapers);
+    bindClick('clearReadingQueueBtn', clearReadingQueue);
+    bindClick('exportBtn', exportSessionReport);
+    bindClick('recommendBtn', recommendPapers);
+    bindClick('askBtn', askQuestion);
+    bindClick('aiToggleBtn', toggleAIList);
+    bindClick('zoomInBtn', zoomIn);
+    bindClick('zoomOutBtn', zoomOut);
+    bindClick('zoomResetBtn', zoomReset);
+    bindClick('downloadMermaidBtn', downloadMermaidSVG);
+
+    document.getElementById('file')?.addEventListener('change', updateFileMeta);
+    document.getElementById('paperSearchInput')?.addEventListener('keydown', handlePaperSearchKeyPress);
+    document.getElementById('questionInput')?.addEventListener('keydown', handleKeyPress);
+    document.querySelectorAll('.mode-chip').forEach(button => {
+        button.addEventListener('click', () => setAnswerMode(button.dataset.mode));
+    });
+    document.querySelectorAll('[data-copy-target]').forEach(button => {
+        button.addEventListener('click', () => copyText(button.dataset.copyTarget, button));
+    });
 });
+
+function bindClick(id, handler) {
+    const element = document.getElementById(id);
+    if (element) element.addEventListener('click', handler);
+}
 
 async function searchPapers() {
     const queryInput = document.getElementById('paperSearchInput');
