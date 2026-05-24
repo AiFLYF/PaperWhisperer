@@ -722,7 +722,7 @@ function getSectionPayload(data, sectionName) {
 }
 
 function clearChatHistory() {
-    document.getElementById('chatHistory').innerHTML = '';
+    document.getElementById('chatHistory').replaceChildren();
 }
 
 function setExportEnabled(enabled) {
@@ -865,7 +865,7 @@ function renderSmartPrompts(questions = currentSuggestedQuestions) {
     const container = document.getElementById('smartPrompts');
     if (!container) return;
     currentSuggestedQuestions = normalizeSmartTextItems(questions);
-    container.innerHTML = '';
+    container.replaceChildren();
     container.classList.toggle('is-hidden', !currentSuggestedQuestions.length);
     currentSuggestedQuestions.forEach(question => {
         const button = document.createElement('button');
@@ -881,7 +881,7 @@ function renderNextActions(actions = currentNextActions) {
     const container = document.getElementById('nextActions');
     if (!container) return;
     currentNextActions = normalizeSmartActions(actions);
-    container.innerHTML = '';
+    container.replaceChildren();
     container.classList.toggle('is-hidden', !currentNextActions.length);
     currentNextActions.forEach(action => {
         const button = document.createElement('button');
@@ -1222,7 +1222,7 @@ function resetMermaidCard() {
     resetPanZoom();
     currentMermaidSource = '';
     setMermaidCardVisible(false);
-    document.getElementById('mermaidChart').innerHTML = '';
+    document.getElementById('mermaidChart').replaceChildren();
 }
 
 function captureWorkspaceState() {
@@ -1321,7 +1321,7 @@ function restoreWorkspaceState(snapshot) {
 
 function resetResultView() {
     ['summary', 'quotes', 'mindmap', 'evaluation', 'research_brief'].forEach(id => setSectionContent(id, ''));
-    document.getElementById('fileInfo').innerHTML = '';
+    document.getElementById('fileInfo').replaceChildren();
     document.getElementById('result').classList.remove('active');
     setControlDisabled(document.getElementById('askBtn'), true);
     setOptionalCardVisible('evaluationCard', true);
@@ -1468,7 +1468,7 @@ function updateFileMeta(validationError = '') {
 
 function setFileInfo(fileName, charCount) {
     const fileInfo = document.getElementById('fileInfo');
-    fileInfo.innerHTML = '';
+    fileInfo.replaceChildren();
 
     const left = document.createElement('span');
     left.textContent = 'Document: ';
