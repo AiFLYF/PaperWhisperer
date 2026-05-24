@@ -43,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 APP_NAME = "PaperWhisperer"
 APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.9.0").strip() or "0.9.0"
+APP_USER_AGENT = f"{APP_NAME}/{APP_VERSION}"
 UPLOAD_FOLDER = "uploads"
 OUTPUT_FOLDER = "output"
 CONTEXT_FOLDER = "context"
@@ -540,7 +541,7 @@ def search_arxiv_papers(query, limit):
     feed_text = http_get_text(
         url,
         timeout=SEMANTIC_SCHOLAR_TIMEOUT_SECONDS,
-        headers={"User-Agent": "PaperWhisperer/0.9"},
+        headers={"User-Agent": APP_USER_AGENT},
         retries=2,
         ssl_context=build_ssl_context(),
     )
@@ -579,7 +580,7 @@ def search_semantic_scholar_papers(query, limit):
         "fields": "title,abstract,year,venue,url,authors,openAccessPdf,paperId",
     })
     url = f"{SEMANTIC_SCHOLAR_SEARCH_URL}?{params}"
-    headers = {"User-Agent": "PaperWhisperer/0.9"}
+    headers = {"User-Agent": APP_USER_AGENT}
     if SEMANTIC_SCHOLAR_API_KEY:
         headers["x-api-key"] = SEMANTIC_SCHOLAR_API_KEY
     payload = http_get_json(
@@ -1050,7 +1051,7 @@ def stream_remote_paper(title, pdf_url, url):
             continue
 
         response = None
-        request = urllib.request.Request(source_url, headers={"User-Agent": "PaperWhisperer/0.9"})
+        request = urllib.request.Request(source_url, headers={"User-Agent": APP_USER_AGENT})
         try:
             response = urllib.request.urlopen(request, timeout=REMOTE_IMPORT_TIMEOUT_SECONDS, context=ssl_context)
             final_url = response.geturl() or source_url
