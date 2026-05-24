@@ -111,6 +111,8 @@ def test_static_frontend_assets_are_served():
     assert ".action-btn:disabled" in css_response.text
     assert ".answer-mode-hint" in css_response.text
     assert ".section-state" in css_response.text
+    assert "@media (pointer: coarse)" in css_response.text
+    assert "-webkit-tap-highlight-color" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():

@@ -1047,6 +1047,26 @@ button.paper-link:disabled {
     }
 }
 
+@media (pointer: coarse) {
+    .btn,
+    .action-btn,
+    .mode-chip,
+    .prompt-chip,
+    .next-action-btn,
+    .paper-link,
+    .tool-btn {
+        min-height: 44px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .paper-card:hover,
+    .result-card:hover,
+    .prompt-chip:hover,
+    .next-action-btn:hover {
+        transform: none;
+    }
+}
+
 @media (max-width: 768px) {
     body { padding: 20px 16px; }
     .nav-header { flex-direction: column; align-items: stretch; padding: 20px; }
@@ -1058,8 +1078,11 @@ button.paper-link:disabled {
     .hero-copy { font-size: 15px; }
     .card, .result-card { padding: 20px; }
     .section-header { align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+    .section-header .action-btn { min-width: 92px; }
     .paper-actions { flex-direction: column; }
     .paper-actions input, .paper-actions .btn { width: 100%; min-width: 0; }
+    .paper-card,
+    .queue-item { padding: 16px; }
     .paper-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .paper-link { width: 100%; }
     .export-preview-grid,
@@ -1083,6 +1106,7 @@ button.paper-link:disabled {
     .status-chip { width: 100%; justify-content: center; }
     .theme-toggle, .github-link { width: 44px; height: 44px; }
     .card, .result-card { padding: 16px; border-radius: 20px; }
+    .section-header .action-btn { flex: 1 1 auto; }
     .options-group { gap: 10px; margin-bottom: 22px; }
     .checkbox-label { flex-basis: 100%; }
     .canvas-toolbar { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); }
@@ -1091,6 +1115,8 @@ button.paper-link:disabled {
     .export-preview-grid,
     .workspace-guidance { grid-template-columns: 1fr; }
     .paper-links { grid-template-columns: 1fr; }
+    .answer-mode-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .mode-chip { width: 100%; }
     .chat-item { max-width: 100%; padding: 14px 16px; }
     .prompt-chip, .next-action-btn { width: 100%; justify-content: center; }
     .site-footer { margin-top: 36px; }
