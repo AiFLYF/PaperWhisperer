@@ -75,6 +75,8 @@ def test_index_page_renders():
     assert 'id="themeBtn" aria-label="Switch to dark theme" aria-pressed="false"' in response.text
     assert 'stroke-width="2" aria-hidden="true" focusable="false"' in response.text
     assert 'stroke-linejoin="round" aria-hidden="true" focusable="false"' in response.text
+    assert 'id="zoomInBtn" title="Zoom In" aria-label="Zoom in visual map" aria-controls="mermaidChart"' in response.text
+    assert 'id="downloadMermaidBtn" title="Download SVG" aria-label="Download visual map SVG" aria-controls="mermaidChart"' in response.text
     assert "Deep Research Brief" in response.text
     assert "Reading Queue" in response.text
     assert 'id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" aria-invalid="false" aria-keyshortcuts="Alt+U"' in response.text
