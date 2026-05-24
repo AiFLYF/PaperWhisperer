@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 from email.message import Message
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -79,6 +80,17 @@ def test_static_frontend_assets_are_served():
     assert "setAnswerMode" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
+
+
+def test_standalone_landing_page_accessibility_regressions():
+    html = Path(__file__).resolve().parents[1].joinpath("index.html").read_text(encoding="utf-8")
+
+    assert 'class="skip-link" href="#main-content"' in html
+    assert '<main id="main-content">' in html
+    assert 'aria-label="Primary navigation"' in html
+    assert "@media(prefers-reduced-motion:reduce)" in html
+    assert "rel=\"noopener noreferrer\"" in html
+    assert 'target="_blank" rel="noopener"' not in html
 
 
 def test_health_endpoint_reports_runtime_status():
