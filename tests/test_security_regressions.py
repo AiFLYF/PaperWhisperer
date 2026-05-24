@@ -77,7 +77,7 @@ def test_index_page_renders():
     assert 'stroke-linejoin="round" aria-hidden="true" focusable="false"' in response.text
     assert "Deep Research Brief" in response.text
     assert "Reading Queue" in response.text
-    assert 'id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" aria-invalid="false"' in response.text
+    assert 'id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" aria-invalid="false" aria-keyshortcuts="Alt+U"' in response.text
     assert 'class="file-meta" id="fileMeta" role="status" aria-live="polite"' in response.text
     assert "Drop a paper here or browse" in response.text
     assert 'id="analysisProgressSteps"' in response.text
@@ -86,8 +86,8 @@ def test_index_page_renders():
     assert "Upload" in response.text
     assert 'id="answerModeHint"' in response.text
     assert 'id="apiKey" placeholder="Enter your API Key" autocomplete="off" autocapitalize="off" spellcheck="false"' in response.text
-    assert 'type="search" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="search"' in response.text
-    assert 'id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint" autocomplete="off" autocapitalize="off" spellcheck="false"' in response.text
+    assert 'type="search" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="search" aria-keyshortcuts="Alt+S"' in response.text
+    assert 'id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint" autocomplete="off" autocapitalize="off" spellcheck="false" aria-keyshortcuts="Alt+Q"' in response.text
     assert 'id="answerModeGroup" role="radiogroup" aria-label="Answer mode" aria-describedby="answerModeHint"' in response.text
     assert 'role="radio" data-mode="evidence" aria-checked="true" aria-pressed="true" tabindex="0"' in response.text
     assert 'role="radio" data-mode="reproduce" aria-checked="false" aria-pressed="false" tabindex="-1"' in response.text
