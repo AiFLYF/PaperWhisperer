@@ -437,6 +437,8 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
 .btn:hover:not(:disabled) { background: linear-gradient(135deg, var(--primary-hover), #1f9c88); transform: translateY(-2px); }
 .btn:hover:not(:disabled)::after { transform: translateX(120%); }
 .btn:disabled { background: var(--border-color); color: #ffffff; cursor: not-allowed; opacity: 0.6; box-shadow: none; }
+.btn.is-busy,
+.action-btn.is-busy { cursor: wait; }
 
 .loading, .error { display: none; margin-bottom: 24px; }
 .loading.active { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; }
