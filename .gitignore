@@ -9,4 +9,6 @@ __pycache__
 uploads/
 output/
 context/
+.claude/*.lock
+.ipynb_checkpoints/
 .CLAUDE.md
