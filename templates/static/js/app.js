@@ -530,6 +530,19 @@ function sanitizeUrl(rawUrl) {
     return '#';
 }
 
+function sanitizeImageUrl(rawUrl) {
+    if (!rawUrl) return '#';
+    try {
+        const parsed = new URL(rawUrl, window.location.origin);
+        if (['http:', 'https:'].includes(parsed.protocol)) {
+            return parsed.href;
+        }
+    } catch (error) {
+        console.warn('Unsafe image url ignored:', rawUrl, error);
+    }
+    return '#';
+}
+
 function sanitizeGeneratedHtml(html) {
     const template = document.createElement('template');
     template.innerHTML = html;
@@ -557,7 +570,7 @@ function sanitizeGeneratedHtml(html) {
     });
 
     template.content.querySelectorAll('img').forEach(image => {
-        const safeSrc = sanitizeUrl(image.getAttribute('src'));
+        const safeSrc = sanitizeImageUrl(image.getAttribute('src'));
         if (safeSrc === '#') {
             image.remove();
             return;
