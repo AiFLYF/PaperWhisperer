@@ -82,7 +82,7 @@ def test_index_page_renders():
     assert 'id="answerModeHint"' in response.text
     assert 'aria-pressed="true"' in response.text
     assert "Ask about evidence, methods, limitations, or reproducibility" in response.text
-    assert 'id="backToTopBtn"' in response.text
+    assert 'id="backToTopBtn" aria-label="Back to top" aria-hidden="true" tabindex="-1"' in response.text
     assert 'class="skip-links"' in response.text
     assert 'href="#uploadWorkspace"' in response.text
     assert 'class="workspace-quick-nav"' in response.text
@@ -179,6 +179,8 @@ def test_static_frontend_assets_are_served():
     assert "initializeBackToTop" in js_response.text
     assert "scheduleBackToTopVisibilityUpdate" in js_response.text
     assert "backToTopFramePending" in js_response.text
+    assert "button.setAttribute('aria-hidden', String(!isVisible))" in js_response.text
+    assert "button.tabIndex = isVisible ? 0 : -1" in js_response.text
     assert "requestAnimationFrame(() =>" in js_response.text
     assert "window.addEventListener('scroll', scheduleBackToTopVisibilityUpdate, { passive: true })" in js_response.text
     assert "window.addEventListener('scroll', updateBackToTopVisibility" not in js_response.text
