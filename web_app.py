@@ -41,12 +41,14 @@ load_project_env()
 
 logger = logging.getLogger(__name__)
 
+APP_NAME = "PaperWhisperer"
+APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.9.0").strip() or "0.9.0"
 UPLOAD_FOLDER = "uploads"
 OUTPUT_FOLDER = "output"
 CONTEXT_FOLDER = "context"
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max limit
 
-app = FastAPI(title="PaperWhisperer")
+app = FastAPI(title=APP_NAME)
 app.mount("/static", StaticFiles(directory="templates/static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
@@ -2118,7 +2120,8 @@ async def health_check():
     return JSONResponse(
         content={
             "status": "ok",
-            "app": "PaperWhisperer",
+            "app": APP_NAME,
+            "version": APP_VERSION,
             "timestamp": now_iso(),
             "folders": {
                 name: {

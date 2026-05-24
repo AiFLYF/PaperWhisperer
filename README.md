@@ -102,6 +102,7 @@ python -m pytest tests/test_security_regressions.py
 | `OPENAI_MAX_CONCURRENCY` | `5` | 全局 LLM 并发上限。 |
 | `OPENAI_REQUEST_TIMEOUT_SECONDS` | `60` | 单次 LLM 请求超时。 |
 | `OPENAI_MAX_RETRIES` | `3` | LLM 失败重试次数。 |
+| `PAPERWHISPERER_VERSION` | `0.9.0` | 可选部署版本标识，会出现在 `/api/health`。 |
 | `PAPER_SEARCH_ENABLE_REWRITE` | `true` | 搜索前是否用 AI 改写检索词。 |
 | `PAPER_SEARCH_REWRITE_MODEL` | `OPENAI_MODEL` | 搜索改写模型。 |
 | `SEMANTIC_SCHOLAR_API_KEY` | 空 | 可选，用于提升 Semantic Scholar 限额。 |
@@ -292,6 +293,7 @@ data: {"answer":"完整答案"}
 {
   "status": "ok",
   "app": "PaperWhisperer",
+  "version": "0.9.0",
   "timestamp": "2026-05-25T00:00:00Z",
   "folders": {
     "uploads": {"exists": true, "writable": true},

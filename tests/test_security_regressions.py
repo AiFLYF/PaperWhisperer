@@ -101,6 +101,7 @@ def test_health_endpoint_reports_runtime_status():
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["app"] == "PaperWhisperer"
+    assert payload["version"] == web_app.APP_VERSION
     assert set(payload["folders"]) == {"uploads", "output", "context"}
 
 
