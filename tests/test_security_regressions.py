@@ -771,6 +771,22 @@ def test_json_api_rejects_non_object_body():
     assert "timestamp" in payload
 
 
+def test_parse_json_object_request_logs_body_read_failure(caplog):
+    class BrokenRequest:
+        async def body(self):
+            raise RuntimeError("client disconnected")
+
+    data, response = asyncio.run(web_app.parse_json_object_request(BrokenRequest()))
+
+    assert data is None
+    assert response.status_code == 400
+    payload = json.loads(response.body)
+    assert payload["error"] == "Unable to read request body."
+    assert payload["code"] == "body_read_failed"
+    assert "timestamp" in payload
+    assert "Failed to read JSON request body: client disconnected" in caplog.text
+
+
 def test_load_session_payload_removes_corrupted_json(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
     session_file = tmp_path / "broken.json"
