@@ -129,7 +129,7 @@ def test_index_page_renders():
     assert 'aria-labelledby="paperSearchTitle"' in response.text
     assert 'aria-labelledby="readingQueueTitle"' in response.text
     assert 'role="region" aria-label="Analysis results workspace" tabindex="-1"' in response.text
-    assert 'class="result-card is-hidden" id="mermaidCard"' in response.text
+    assert 'class="result-card is-hidden" id="mermaidCard" aria-labelledby="visualMapTitle" aria-hidden="true"' in response.text
     assert 'style="display: none;"' not in response.text
     assert 'aria-labelledby="askQuestionsTitle"' in response.text
     assert 'class="smart-prompts is-hidden" id="smartPrompts" role="region" aria-label="Suggested follow-up questions" aria-live="polite" aria-hidden="true"' in response.text
@@ -185,6 +185,9 @@ def test_static_frontend_assets_are_served():
     assert "Switch to dark theme" in js_response.text
     assert "getPaperStateDetails" in js_response.text
     assert "getWorkspaceGuidanceItems" in js_response.text
+    assert "function setOptionalCardVisible(cardId, visible)" in js_response.text
+    assert "card.setAttribute('aria-hidden', String(!visible))" in js_response.text
+    assert "setOptionalCardVisible('mermaidCard', visible)" in js_response.text
     assert "container.setAttribute('aria-hidden', String(!currentSuggestedQuestions.length))" in js_response.text
     assert "container.setAttribute('aria-hidden', String(!currentNextActions.length))" in js_response.text
     assert "document.getElementById('chatHistory').replaceChildren()" in js_response.text
