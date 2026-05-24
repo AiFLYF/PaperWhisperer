@@ -496,6 +496,8 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
 }
 
 .file-meta {
+    display: grid;
+    gap: 10px;
     font-size: 13px;
     color: var(--text-secondary);
     margin-top: 10px;
@@ -503,6 +505,61 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     border-radius: var(--radius-sm);
     background: rgba(15, 118, 110, 0.08);
     border: 1px dashed rgba(15, 118, 110, 0.16);
+}
+
+.file-meta-ready {
+    border-style: solid;
+    border-color: rgba(15, 118, 110, 0.28);
+    background: rgba(15, 118, 110, 0.10);
+}
+
+.file-meta-error {
+    border-style: solid;
+    border-color: rgba(217, 72, 15, 0.36);
+    background: rgba(217, 72, 15, 0.08);
+}
+
+.file-meta-summary,
+.file-meta-details {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.file-meta-status,
+.file-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--surface-highlight);
+}
+
+.file-meta-status {
+    color: var(--primary-color);
+    font-weight: 800;
+}
+
+.file-meta-error .file-meta-status {
+    color: #d9480f;
+}
+
+.file-meta-label {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.file-meta-name strong {
+    max-width: min(420px, 68vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .options-group { display: flex; gap: 16px; margin-bottom: 32px; flex-wrap: wrap; }

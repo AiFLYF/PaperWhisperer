@@ -1292,22 +1292,67 @@ function formatFileSize(bytes) {
     return `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+function getUploadFileExtension(fileName) {
+    const dotIndex = fileName.lastIndexOf('.');
+    return dotIndex >= 0 ? fileName.slice(dotIndex).toUpperCase() : 'Unknown';
+}
+
+function appendFileMetaItem(container, label, value, extraClass = '') {
+    const item = document.createElement('span');
+    item.className = `file-meta-item${extraClass ? ` ${extraClass}` : ''}`;
+
+    const itemLabel = document.createElement('span');
+    itemLabel.className = 'file-meta-label';
+    itemLabel.textContent = label;
+
+    const itemValue = document.createElement('strong');
+    itemValue.textContent = value;
+
+    item.append(itemLabel, itemValue);
+    container.appendChild(item);
+}
+
 function updateFileMeta(validationError = '') {
     const fileInput = document.getElementById('file');
     const file = fileInput?.files?.[0];
     const fileMeta = document.getElementById('fileMeta');
     const dropZone = document.getElementById('dropZone');
     if (!fileMeta) return;
+
+    fileMeta.classList.remove('file-meta-ready', 'file-meta-error');
+    fileMeta.innerHTML = '';
+
     if (!file) {
         fileMeta.textContent = 'No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.';
         dropZone?.classList.remove('has-file', 'has-error');
         return;
     }
 
-    dropZone?.classList.toggle('has-file', !validationError);
-    dropZone?.classList.toggle('has-error', Boolean(validationError));
-    const status = validationError ? 'Cannot upload' : 'Selected';
-    fileMeta.textContent = `${status}: ${file.name} · ${formatFileSize(file.size)}${validationError ? ` · ${validationError}` : ''}`;
+    const hasError = Boolean(validationError);
+    dropZone?.classList.toggle('has-file', !hasError);
+    dropZone?.classList.toggle('has-error', hasError);
+    fileMeta.classList.add(hasError ? 'file-meta-error' : 'file-meta-ready');
+
+    const summary = document.createElement('div');
+    summary.className = 'file-meta-summary';
+
+    const status = document.createElement('span');
+    status.className = 'file-meta-status';
+    status.textContent = hasError ? 'Review needed' : 'Ready to analyze';
+
+    const guidance = document.createElement('span');
+    guidance.textContent = hasError ? validationError : 'Supported document type and size.';
+
+    summary.append(status, guidance);
+
+    const details = document.createElement('div');
+    details.className = 'file-meta-details';
+    appendFileMetaItem(details, 'Name', file.name, 'file-meta-name');
+    appendFileMetaItem(details, 'Size', formatFileSize(file.size));
+    appendFileMetaItem(details, 'Type', getUploadFileExtension(file.name));
+    appendFileMetaItem(details, 'Limit', formatFileSize(MAX_UPLOAD_BYTES));
+
+    fileMeta.append(summary, details);
 }
 
 function setFileInfo(fileName, charCount) {
