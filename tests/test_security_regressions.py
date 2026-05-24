@@ -215,6 +215,8 @@ def test_static_frontend_assets_are_served():
     assert "errorEl.classList.add('is-hidden')" in js_response.text
     assert "errorEl.style.display" not in js_response.text
     assert "clipboard-fallback-field" in js_response.text
+    assert "textarea.remove()" in js_response.text
+    assert "document.body.removeChild(textarea)" not in js_response.text
     assert "textarea.style.position" not in js_response.text
     assert "textarea.style.opacity" not in js_response.text
     assert "errorEl.focus({ preventScroll: true })" in js_response.text

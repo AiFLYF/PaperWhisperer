@@ -2044,14 +2044,17 @@ async function copyText(elementId, btnElement) {
             await navigator.clipboard.writeText(text);
         } else {
             const textarea = document.createElement('textarea');
-            textarea.value = text;
-            textarea.setAttribute('readonly', '');
-            textarea.className = 'clipboard-fallback-field';
-            document.body.appendChild(textarea);
-            textarea.focus();
-            textarea.select();
-            document.execCommand('copy');
-            document.body.removeChild(textarea);
+            try {
+                textarea.value = text;
+                textarea.setAttribute('readonly', '');
+                textarea.className = 'clipboard-fallback-field';
+                document.body.appendChild(textarea);
+                textarea.focus();
+                textarea.select();
+                document.execCommand('copy');
+            } finally {
+                textarea.remove();
+            }
         }
         btnElement.textContent = 'Copied';
         btnElement.classList.add('action-success');
