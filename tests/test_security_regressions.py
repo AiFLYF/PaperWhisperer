@@ -182,6 +182,9 @@ def test_static_frontend_assets_are_served():
     assert "fileInfo.replaceChildren()" in js_response.text
     assert "getReadingQueueKey" in js_response.text
     assert "hasReadingQueueItem" in js_response.text
+    assert "container.replaceChildren(...cards)" in js_response.text
+    assert "removeButton.dataset.queueRemoveIndex = String(index)" in js_response.text
+    assert "titleLink.textContent = item.title" in js_response.text
     assert "ANSWER_MODE_DETAILS" in js_response.text
     assert "renderSectionStateCard" in js_response.text
     assert "function sanitizeImageUrl(rawUrl)" in js_response.text

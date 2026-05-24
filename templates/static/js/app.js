@@ -914,33 +914,71 @@ function renderReadingQueue(message = '') {
             : 'Save papers from search or recommendations into this session reading queue.');
     }
     if (!currentReadingQueue.length) {
-        container.innerHTML = '<p class="empty-state">No saved papers yet. Save strong search or recommendation results to build an export-ready reading trail.</p>';
+        const empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = 'No saved papers yet. Save strong search or recommendation results to build an export-ready reading trail.';
+        container.replaceChildren(empty);
         return;
     }
-    container.innerHTML = currentReadingQueue.map((item, index) => {
-        const bits = [item.source, item.year, item.venue].filter(Boolean).map(value => escapeHtml(value)).join(' · ');
-        const authors = item.authors.length ? escapeHtml(item.authors.join(', ')) : 'Unknown authors';
-        const titleUrl = sanitizeUrl(item.url || item.pdf_url || '#');
-        const openLink = item.url ? `<a class="paper-link" href="${sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">Open</a>` : '';
-        const pdfLink = item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">PDF</a>` : '';
-        return `
-            <article class="queue-item">
-                <div class="queue-rank" aria-label="Reading queue item ${index + 1}">${index + 1}</div>
-                <div class="queue-body">
-                    <div class="queue-title"><a href="${titleUrl}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">${escapeHtml(item.title)}</a></div>
-                    <div class="queue-details">
-                        ${bits ? `<span>${bits}</span>` : '<span>Metadata pending</span>'}
-                        <span>${authors}</span>
-                    </div>
-                    <div class="queue-actions">
-                        ${openLink}
-                        ${pdfLink}
-                        <button class="paper-link" type="button" data-queue-remove-index="${index}">Remove</button>
-                    </div>
-                </div>
-            </article>
-        `;
-    }).join('');
+
+    const cards = currentReadingQueue.map((item, index) => {
+        const article = document.createElement('article');
+        article.className = 'queue-item';
+
+        const rank = document.createElement('div');
+        rank.className = 'queue-rank';
+        rank.setAttribute('aria-label', `Reading queue item ${index + 1}`);
+        rank.textContent = String(index + 1);
+
+        const body = document.createElement('div');
+        body.className = 'queue-body';
+
+        const title = document.createElement('div');
+        title.className = 'queue-title';
+        const titleLink = document.createElement('a');
+        titleLink.href = sanitizeUrl(item.url || item.pdf_url || '#');
+        titleLink.target = '_blank';
+        titleLink.rel = 'noopener noreferrer';
+        titleLink.referrerPolicy = 'strict-origin-when-cross-origin';
+        titleLink.textContent = item.title;
+        title.appendChild(titleLink);
+
+        const details = document.createElement('div');
+        details.className = 'queue-details';
+        const metadata = document.createElement('span');
+        metadata.textContent = [item.source, item.year, item.venue].filter(Boolean).join(' · ') || 'Metadata pending';
+        const authors = document.createElement('span');
+        authors.textContent = item.authors.length ? item.authors.join(', ') : 'Unknown authors';
+        details.append(metadata, authors);
+
+        const actions = document.createElement('div');
+        actions.className = 'queue-actions';
+        [
+            ['Open', item.url],
+            ['PDF', item.pdf_url]
+        ].forEach(([label, url]) => {
+            if (!url) return;
+            const link = document.createElement('a');
+            link.className = 'paper-link';
+            link.href = sanitizeUrl(url);
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.referrerPolicy = 'strict-origin-when-cross-origin';
+            link.textContent = label;
+            actions.appendChild(link);
+        });
+        const removeButton = document.createElement('button');
+        removeButton.className = 'paper-link';
+        removeButton.type = 'button';
+        removeButton.dataset.queueRemoveIndex = String(index);
+        removeButton.textContent = 'Remove';
+        actions.appendChild(removeButton);
+
+        body.append(title, details, actions);
+        article.append(rank, body);
+        return article;
+    });
+    container.replaceChildren(...cards);
 }
 
 async function saveReadingQueue({ silent = true, message = '' } = {}) {
