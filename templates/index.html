@@ -70,7 +70,7 @@
             </div>
             <div class="form-group">
                 <label for="file">Document Source</label>
-                <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" aria-invalid="false">
+                <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" aria-invalid="false" aria-keyshortcuts="Alt+U">
                     <div class="drop-zone-icon" aria-hidden="true">↑</div>
                     <div>
                         <div class="drop-zone-title">Drop a paper here or browse</div>
@@ -118,7 +118,7 @@
             </div>
             <div class="paper-actions">
                 <label class="sr-only" for="paperSearchInput">Paper search query</label>
-                <input type="search" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="search">
+                <input type="search" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="search" aria-keyshortcuts="Alt+S">
                 <button class="btn" type="button" id="paperSearchBtn">Search Papers</button>
                 <button class="action-btn request-cancel" type="button" id="cancelPaperSearchBtn" hidden disabled aria-disabled="true">Cancel search</button>
             </div>
@@ -235,7 +235,7 @@
                 </div>
                 <div class="ask-input-group">
                     <label class="sr-only" for="questionInput">Question about the current document</label>
-                    <input type="text" id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint" autocomplete="off" autocapitalize="off" spellcheck="false">
+                    <input type="text" id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint" autocomplete="off" autocapitalize="off" spellcheck="false" aria-keyshortcuts="Alt+Q">
                     <button class="btn" id="askBtn" type="button" disabled aria-disabled="true">Send</button>
                     <button class="action-btn request-cancel" type="button" id="cancelAskBtn" hidden disabled aria-disabled="true">Cancel</button>
                 </div>
