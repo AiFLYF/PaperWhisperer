@@ -1639,11 +1639,14 @@ async function renderMermaidDiagram(source) {
 
     const instance = await loadMermaidRenderer();
     setMermaidCardVisible(true);
-    mermaidDiv.innerHTML = '';
+    mermaidDiv.replaceChildren();
     currentMermaidSource = cleanSource;
 
     if (!instance) {
-        mermaidDiv.innerHTML = '<p class="empty-state mermaid-fallback-message">Mermaid failed to load.</p>';
+        const fallback = document.createElement('p');
+        fallback.className = 'empty-state mermaid-fallback-message';
+        fallback.textContent = 'Mermaid failed to load.';
+        mermaidDiv.appendChild(fallback);
         return;
     }
 
@@ -1669,7 +1672,13 @@ async function renderMermaidDiagram(source) {
         });
     } catch (error) {
         console.error('Mermaid render failed:', error);
-        mermaidDiv.innerHTML = `<p class="mermaid-error-message">Structure too complex to render. Raw data fallback:</p><pre class="mermaid-raw-fallback">${escapeHtml(cleanSource)}</pre>`;
+        const message = document.createElement('p');
+        message.className = 'mermaid-error-message';
+        message.textContent = 'Structure too complex to render. Raw data fallback:';
+        const fallback = document.createElement('pre');
+        fallback.className = 'mermaid-raw-fallback';
+        fallback.textContent = cleanSource;
+        mermaidDiv.replaceChildren(message, fallback);
     }
 }
 

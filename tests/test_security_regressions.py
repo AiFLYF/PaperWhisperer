@@ -176,6 +176,8 @@ def test_static_frontend_assets_are_served():
     assert "document.getElementById('chatHistory').replaceChildren()" in js_response.text
     assert "container.replaceChildren()" in js_response.text
     assert "document.getElementById('mermaidChart').replaceChildren()" in js_response.text
+    assert "mermaidDiv.replaceChildren()" in js_response.text
+    assert "fallback.textContent = cleanSource" in js_response.text
     assert "document.getElementById('fileInfo').replaceChildren()" in js_response.text
     assert "fileInfo.replaceChildren()" in js_response.text
     assert "getReadingQueueKey" in js_response.text
