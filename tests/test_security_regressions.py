@@ -196,6 +196,9 @@ def test_static_frontend_assets_are_served():
     assert "errorEl.classList.remove('is-hidden')" in js_response.text
     assert "errorEl.classList.add('is-hidden')" in js_response.text
     assert "errorEl.style.display" not in js_response.text
+    assert "clipboard-fallback-field" in js_response.text
+    assert "textarea.style.position" not in js_response.text
+    assert "textarea.style.opacity" not in js_response.text
     assert "errorEl.focus({ preventScroll: true })" in js_response.text
     assert "useExampleQuery" in js_response.text
     assert "Example query loaded" in js_response.text
@@ -232,6 +235,7 @@ def test_static_frontend_assets_are_served():
     assert ".mermaid-error-message" in css_response.text
     assert ".mermaid-raw-fallback" in css_response.text
     assert ".is-hidden" in css_response.text
+    assert ".clipboard-fallback-field" in css_response.text
     assert ".paper-state" in css_response.text
     assert ".workspace-guidance" in css_response.text
     assert ".btn.is-busy" in css_response.text

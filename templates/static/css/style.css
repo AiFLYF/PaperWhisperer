@@ -103,6 +103,12 @@ body[data-theme="dark"] {
     border: 0;
 }
 
+.clipboard-fallback-field {
+    position: fixed;
+    opacity: 0;
+    pointer-events: none;
+}
+
 .skip-links {
     position: fixed;
     top: 14px;
