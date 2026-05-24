@@ -303,6 +303,8 @@ data: {"answer":"完整答案"}
 }
 ```
 
+该接口响应包含 `Cache-Control: no-store`，探活和部署检查会读取实时运行状态。
+
 ## Session 生命周期
 
 - 分析成功后服务端会写入 `context/<session_id>.json`。
