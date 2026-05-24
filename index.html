@@ -37,6 +37,18 @@ body{
   overflow-x:hidden;
   cursor:none;
 }
+.skip-link{
+  position:fixed;top:12px;left:12px;z-index:10000;
+  padding:10px 14px;background:var(--accent);color:var(--void);
+  font-family:var(--orb);font-size:10px;letter-spacing:1.4px;
+  text-transform:uppercase;text-decoration:none;transform:translateY(-160%);
+  transition:transform .2s ease;
+}
+.skip-link:focus{transform:none}
+a:focus-visible,.btn:focus-visible{
+  outline:2px solid var(--accent2);
+  outline-offset:4px;
+}
 
 /* ── CURSOR ─────────────────────────────────────────────────────────── */
 #cursor{
@@ -511,6 +523,21 @@ footer{
   #cursor,#cursor-ring{display:none}
   .nav-links .nav-link{display:none}
 }
+@media(pointer:coarse){
+  body,.btn,.fcard,.step,.format-badge,.tech-tag{cursor:auto}
+  #cursor,#cursor-ring{display:none}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{
+    animation-duration:.01ms!important;
+    animation-iteration-count:1!important;
+    scroll-behavior:auto!important;
+    transition-duration:.01ms!important;
+  }
+  body,.btn,.fcard,.step,.format-badge,.tech-tag{cursor:auto}
+  #space-canvas,.neb,.hero-float,.scroll-hint,#cursor,#cursor-ring{display:none}
+  .reveal{opacity:1;transform:none}
+}
 @media(max-width:480px){
   .steps-grid{grid-template-columns:1fr}
   .hero-ctas{flex-direction:column;align-items:center}
@@ -519,12 +546,13 @@ footer{
 </style>
 </head>
 <body>
+<a class="skip-link" href="#features">Skip to content</a>
 
-<div id="cursor"></div>
-<div id="cursor-ring"></div>
+<div id="cursor" aria-hidden="true"></div>
+<div id="cursor-ring" aria-hidden="true"></div>
 <div id="progress"></div>
 
-<canvas id="space-canvas"></canvas>
+<canvas id="space-canvas" aria-hidden="true"></canvas>
 
 <div class="neb neb-1" data-p=".14"></div>
 <div class="neb neb-2" data-p="-.1"></div>
@@ -776,8 +804,10 @@ pip install -r requirements.txt
 // ══════════════════════════════════════════════════════════
 //  SPACE CANVAS — multi-layer parallax star field
 // ══════════════════════════════════════════════════════════
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const coarsePointer = window.matchMedia('(pointer: coarse)').matches;
 const canvas = document.getElementById('space-canvas');
-const ctx = canvas.getContext('2d');
+const ctx = reduceMotion ? null : canvas.getContext('2d');
 let W, H, sc = 0;
 
 const LAYERS = [
@@ -871,18 +901,20 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
-resize();
-loop();
-window.addEventListener('resize', resize, { passive: true });
+if (!reduceMotion) {
+  resize();
+  loop();
+  window.addEventListener('resize', resize, { passive: true });
 
-(function schedule() {
-  const d = 3200 + Math.random() * 5800;
-  setTimeout(() => {
-    spawnShooting();
-    if (Math.random() > .55) setTimeout(spawnShooting, 280 + Math.random() * 400);
-    schedule();
-  }, d);
-})();
+  (function schedule() {
+    const d = 3200 + Math.random() * 5800;
+    setTimeout(() => {
+      spawnShooting();
+      if (Math.random() > .55) setTimeout(spawnShooting, 280 + Math.random() * 400);
+      schedule();
+    }, d);
+  })();
+}
 
 // ══════════════════════════════════════════════════════════
 //  SCROLL — parallax + nav + progress
@@ -913,78 +945,88 @@ window.addEventListener('scroll', () => {
 // ══════════════════════════════════════════════════════════
 //  SCROLL REVEAL
 // ══════════════════════════════════════════════════════════
-const io = new IntersectionObserver(entries => {
-  entries.forEach(e => {
-    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-  });
-}, { threshold: .09, rootMargin: '0px 0px -50px 0px' });
-document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+if (reduceMotion) {
+  document.querySelectorAll('.reveal').forEach(el => el.classList.add('in'));
+} else {
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    });
+  }, { threshold: .09, rootMargin: '0px 0px -50px 0px' });
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+}
 
 // ══════════════════════════════════════════════════════════
 //  CURSOR
 // ══════════════════════════════════════════════════════════
-const cur = document.getElementById('cursor');
-const curR = document.getElementById('cursor-ring');
-let cx = 0, cy = 0, rx = 0, ry = 0;
+if (!coarsePointer && !reduceMotion) {
+  const cur = document.getElementById('cursor');
+  const curR = document.getElementById('cursor-ring');
+  let cx = 0, cy = 0, rx = 0, ry = 0;
 
-window.addEventListener('mousemove', e => {
-  cx = e.clientX; cy = e.clientY;
-  cur.style.left = cx + 'px';
-  cur.style.top = cy + 'px';
-}, { passive: true });
+  window.addEventListener('mousemove', e => {
+    cx = e.clientX; cy = e.clientY;
+    cur.style.left = cx + 'px';
+    cur.style.top = cy + 'px';
+  }, { passive: true });
 
-(function animCursor() {
-  rx += (cx - rx) * .12;
-  ry += (cy - ry) * .12;
-  curR.style.left = rx + 'px';
-  curR.style.top = ry + 'px';
-  requestAnimationFrame(animCursor);
-})();
+  (function animCursor() {
+    rx += (cx - rx) * .12;
+    ry += (cy - ry) * .12;
+    curR.style.left = rx + 'px';
+    curR.style.top = ry + 'px';
+    requestAnimationFrame(animCursor);
+  })();
 
-document.querySelectorAll('a,button,.fcard,.format-badge,.tech-tag,.step,.api-route').forEach(el => {
-  el.addEventListener('mouseenter', () => document.body.classList.add('c-hover'));
-  el.addEventListener('mouseleave', () => document.body.classList.remove('c-hover'));
-});
+  document.querySelectorAll('a,button,.fcard,.format-badge,.tech-tag,.step,.api-route').forEach(el => {
+    el.addEventListener('mouseenter', () => document.body.classList.add('c-hover'));
+    el.addEventListener('mouseleave', () => document.body.classList.remove('c-hover'));
+  });
+}
 
 // ══════════════════════════════════════════════════════════
 //  3D CARD TILT
 // ══════════════════════════════════════════════════════════
-document.querySelectorAll('[data-tilt]').forEach(card => {
-  card.addEventListener('mousemove', e => {
-    const r = card.getBoundingClientRect();
-    const mx = (e.clientX - r.left) / r.width;
-    const my = (e.clientY - r.top) / r.height;
-    card.style.transform =
-      `perspective(700px) rotateX(${(my - .5) * -14}deg) rotateY(${(mx - .5) * 14}deg) translateZ(6px)`;
-    card.style.setProperty('--mx', mx * 100 + '%');
-    card.style.setProperty('--my', my * 100 + '%');
+if (!coarsePointer && !reduceMotion) {
+  document.querySelectorAll('[data-tilt]').forEach(card => {
+    card.addEventListener('mousemove', e => {
+      const r = card.getBoundingClientRect();
+      const mx = (e.clientX - r.left) / r.width;
+      const my = (e.clientY - r.top) / r.height;
+      card.style.transform =
+        `perspective(700px) rotateX(${(my - .5) * -14}deg) rotateY(${(mx - .5) * 14}deg) translateZ(6px)`;
+      card.style.setProperty('--mx', mx * 100 + '%');
+      card.style.setProperty('--my', my * 100 + '%');
+    });
+    card.addEventListener('mouseleave', () => {
+      card.style.transform = '';
+      card.style.transition = 'transform .6s cubic-bezier(.34,1.56,.64,1), background .3s';
+      setTimeout(() => { card.style.transition = ''; }, 600);
+    });
   });
-  card.addEventListener('mouseleave', () => {
-    card.style.transform = '';
-    card.style.transition = 'transform .6s cubic-bezier(.34,1.56,.64,1), background .3s';
-    setTimeout(() => { card.style.transition = ''; }, 600);
-  });
-});
+}
 
 // ══════════════════════════════════════════════════════════
 //  MAGNETIC BUTTONS
 // ══════════════════════════════════════════════════════════
-document.querySelectorAll('.mag').forEach(btn => {
-  btn.addEventListener('mousemove', e => {
-    const r = btn.getBoundingClientRect();
-    const dx = e.clientX - (r.left + r.width / 2);
-    const dy = e.clientY - (r.top + r.height / 2);
-    btn.style.transform = `translate(${dx * .28}px, ${dy * .38}px)`;
+if (!coarsePointer && !reduceMotion) {
+  document.querySelectorAll('.mag').forEach(btn => {
+    btn.addEventListener('mousemove', e => {
+      const r = btn.getBoundingClientRect();
+      const dx = e.clientX - (r.left + r.width / 2);
+      const dy = e.clientY - (r.top + r.height / 2);
+      btn.style.transform = `translate(${dx * .28}px, ${dy * .38}px)`;
+    });
+    btn.addEventListener('mouseleave', () => {
+      btn.style.transition = 'transform .5s cubic-bezier(.34,1.56,.64,1), all .25s ease';
+      btn.style.transform = '';
+      setTimeout(() => { btn.style.transition = ''; }, 500);
+    });
+    btn.addEventListener('mouseenter', () => {
+      btn.style.transition = 'transform .08s linear, all .25s ease';
+    });
   });
-  btn.addEventListener('mouseleave', () => {
-    btn.style.transition = 'transform .5s cubic-bezier(.34,1.56,.64,1), all .25s ease';
-    btn.style.transform = '';
-    setTimeout(() => { btn.style.transition = ''; }, 500);
-  });
-  btn.addEventListener('mouseenter', () => {
-    btn.style.transition = 'transform .08s linear, all .25s ease';
-  });
-});
+}
 
 // ══════════════════════════════════════════════════════════
 //  HERO MOUSE PARALLAX — floating orbs follow mouse
@@ -993,16 +1035,18 @@ const heroEl = document.getElementById('hero');
 const hf = [document.getElementById('hf1'), document.getElementById('hf2'), document.getElementById('hf3')];
 const depths = [22, 16, 12];
 
-heroEl.addEventListener('mousemove', e => {
-  const ox = (e.clientX / window.innerWidth - .5);
-  const oy = (e.clientY / window.innerHeight - .5);
-  hf.forEach((el, i) => {
-    el.style.transform = `translate(${ox * depths[i]}px, ${oy * depths[i]}px)`;
+if (!coarsePointer && !reduceMotion) {
+  heroEl.addEventListener('mousemove', e => {
+    const ox = (e.clientX / window.innerWidth - .5);
+    const oy = (e.clientY / window.innerHeight - .5);
+    hf.forEach((el, i) => {
+      el.style.transform = `translate(${ox * depths[i]}px, ${oy * depths[i]}px)`;
+    });
+  }, { passive: true });
+  heroEl.addEventListener('mouseleave', () => {
+    hf.forEach(el => { el.style.transform = ''; el.style.transition = 'transform .8s ease'; });
   });
-}, { passive: true });
-heroEl.addEventListener('mouseleave', () => {
-  hf.forEach(el => { el.style.transform = ''; el.style.transition = 'transform .8s ease'; });
-});
+}
 </script>
 </body>
 </html>
