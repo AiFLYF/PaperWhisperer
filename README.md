@@ -330,6 +330,7 @@ data: {"answer":"完整答案"}
 - 远程下载只允许公开 HTTP/HTTPS 链接，拒绝 localhost、私有 IP、环回地址等 SSRF 风险目标。
 - 远程响应会校验 `Content-Type`、`Content-Length` 和文件头。
 - JSON API 会统一拒绝非法 JSON 或非对象 body，并返回 `error`、`code`、`timestamp` 便于定位问题。
+- 响应会附加 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy` 和 `Permissions-Policy` 等防御性安全头。
 - 前端动态内容经过 HTML 转义和 URL 白名单处理。
 - SSE 设置 `X-Accel-Buffering: no`，降低代理缓冲影响。
 
