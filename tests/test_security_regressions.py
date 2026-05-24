@@ -202,9 +202,15 @@ def test_static_frontend_assets_are_served():
     assert "addButton.setAttribute('aria-disabled', String(addButtonDisabled))" in js_response.text
     assert "abstract.textContent = item.abstract || 'No abstract available.'" in js_response.text
     assert "ANSWER_MODE_DETAILS" in js_response.text
+    assert "function replaceWithFormattedContent(element, content, fallbackText)" in js_response.text
+    assert "element.replaceChildren(template.content.cloneNode(true))" in js_response.text
     assert "function createSectionStateCard" in js_response.text
     assert "element.replaceChildren(createSectionStateCard('Section needs review', errorMessage, 'error'))" in js_response.text
     assert "detailElement.textContent = detail" in js_response.text
+    assert "replaceWithFormattedContent(body, message, 'No content available.')" in js_response.text
+    assert "replaceWithFormattedContent(shell.content, answer, 'No answer available.')" in js_response.text
+    assert "body.innerHTML = formatContent(message" not in js_response.text
+    assert "shell.content.innerHTML = formatContent(answer" not in js_response.text
     assert "renderSectionStateCard" not in js_response.text
     assert "function sanitizeImageUrl(rawUrl)" in js_response.text
     assert "const safeSrc = sanitizeImageUrl(image.getAttribute('src'))" in js_response.text
