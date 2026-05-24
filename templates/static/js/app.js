@@ -811,6 +811,7 @@ function setAnswerMode(mode) {
         button.classList.toggle('active', selected);
         button.setAttribute('aria-checked', selected ? 'true' : 'false');
         button.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        button.tabIndex = selected ? 0 : -1;
     });
     const hint = document.getElementById('answerModeHint');
     if (hint) hint.textContent = ANSWER_MODE_DETAILS[currentAnswerMode];
