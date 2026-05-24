@@ -46,12 +46,28 @@ APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.9.0").strip() or "0.9.0"
 APP_USER_AGENT = f"{APP_NAME}/{APP_VERSION}"
 APP_STARTED_AT = time.time()
 STATIC_ICON_CACHE_CONTROL = "public, max-age=86400, immutable"
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
 UPLOAD_FOLDER = "uploads"
 OUTPUT_FOLDER = "output"
 CONTEXT_FOLDER = "context"
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max limit
 
 app = FastAPI(title=APP_NAME, version=APP_VERSION)
+
+
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    for header, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+    return response
+
+
 app.mount("/static", StaticFiles(directory="templates/static"), name="static")
 templates = Jinja2Templates(directory="templates")
 

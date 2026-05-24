@@ -64,6 +64,10 @@ def test_index_page_renders():
     response = TestClient(web_app.app).get("/")
 
     assert response.status_code == 200
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["x-frame-options"] == "DENY"
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    assert "camera=(), microphone=(), geolocation=()" in response.headers["permissions-policy"]
     assert "PaperWhisperer" in response.text
     assert "aria-live=\"polite\"" in response.text
     assert "Deep Research Brief" in response.text
