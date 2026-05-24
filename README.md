@@ -18,7 +18,7 @@ PaperWhisperer 是一个面向论文和技术文档阅读的 AI Research Workspa
 - 支持从公开 PDF 直链导入论文并替换当前分析会话。
 - 支持导出 Markdown 会话报告和 Mermaid SVG，导出预览会用分组卡片展示分析、问答、论文线索和可视化资产；Mermaid 渲染器会在需要图谱时按需加载。
 - 内置上传校验、远程 URL 校验、会话 token、XSS 防护和 JSON 请求校验。
-- 前端提供拖拽上传、结构化文件反馈、分析进度、结果状态卡、请求取消按钮、顶部快速导航、跳转链接、快捷键、返回顶部、键盘焦点流转、减少动效适配、移动端触控优化和资源加载预热。
+- 前端提供拖拽上传、结构化文件反馈、分析进度、结果状态卡、请求取消按钮、顶部快速导航、跳转链接、快捷键、返回顶部、语义化按钮反馈、键盘焦点流转、减少动效适配、移动端触控优化和资源加载预热。
 
 ## 使用场景
 
@@ -331,7 +331,8 @@ data: {"answer":"完整答案"}
 - 远程响应会校验 `Content-Type`、`Content-Length` 和文件头。
 - JSON API 会统一拒绝非法 JSON 或非对象 body，并返回 `error`、`code`、`timestamp` 便于定位问题。
 - 响应会附加 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy` 和 `Permissions-Policy` 等防御性安全头。
-- 前端动态内容经过 HTML 转义和 URL 白名单处理。
+- 前端动态内容经过 HTML 转义和 URL 白名单处理，生成内容中的图片源仅允许 HTTP/HTTPS。
+- 临时上传、远程下载、session 和响应关闭路径会记录清理失败，方便排查磁盘或网络资源异常。
 - SSE 设置 `X-Accel-Buffering: no`，降低代理缓冲影响。
 
 ## 项目结构
@@ -370,8 +371,8 @@ data: {"answer":"完整答案"}
 - 新增 Reading Queue 阅读队列和 `/api/reading-queue`。
 - 新增 Evidence / Explain / Critique / Reproduce 追问模式。
 - 增强 Session Export，包含分析、阅读队列、搜索轨迹、推荐结果、Q&A 模式和 Mermaid 资源。
-- 强化前端可访问性：状态 live region、错误 alert 聚焦、主题切换状态、禁用控件语义和减少动效滚动。
-- 强化安全回归测试：上传、远程下载、JSON、session、阅读队列和问答模式。
+- 强化前端可访问性：状态 live region、错误 alert 聚焦、主题切换状态、禁用/忙碌控件语义、语义化折叠区域和减少动效滚动。
+- 强化安全与稳定性：上传、远程下载、JSON、session、阅读队列、问答模式、临时资源清理日志和生成内容 URL 白名单。
 
 ## License
 
