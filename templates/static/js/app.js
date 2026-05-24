@@ -115,6 +115,13 @@ function bindClick(id, handler) {
     if (element) element.addEventListener('click', handler);
 }
 
+function focusAnalysisWorkspace({ scroll = true } = {}) {
+    const result = document.getElementById('result');
+    if (!result || !result.classList.contains('active')) return;
+    if (scroll) result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    result.focus({ preventScroll: true });
+}
+
 function updateBackToTopVisibility() {
     const button = document.getElementById('backToTopBtn');
     if (!button) return;
@@ -1408,6 +1415,7 @@ async function analyze() {
                 await applyAnalysisResult(payload, file.name, generateEvaluation, generateMermaid, generateResearchBrief);
                 updateAnalysisProgress('ready', 'Workspace ready. You can ask questions or export the session.');
                 updateStatus('Analysis ready for follow-up questions', 'success');
+                focusAnalysisWorkspace();
             },
             error: payload => {
                 throw new Error(payload.error || 'Analysis failed.');
@@ -1420,6 +1428,7 @@ async function analyze() {
         if (previousWorkspace) {
             restoreWorkspaceState(previousWorkspace);
             showError(`${error.message || 'Analysis failed.'}\n\nYour previous successful workspace has been restored.`);
+            focusAnalysisWorkspace({ scroll: false });
         } else {
             currentSessionId = '';
             resetResultView();
