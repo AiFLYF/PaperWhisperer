@@ -150,6 +150,9 @@ def test_static_frontend_assets_are_served():
     assert "queue-rank" in js_response.text
     assert "queue-details" in js_response.text
     assert "queue-actions" in js_response.text
+    assert "handleReadingQueueClick" in js_response.text
+    assert "data-queue-remove-index" in js_response.text
+    assert "onclick=\"removePaperFromQueue" not in js_response.text
     assert "exportPreviewItems" in js_response.text
     assert "Export contents summary" in js_response.text
     assert "Mermaid SVG can be exported" in js_response.text
