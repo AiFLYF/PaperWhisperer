@@ -149,6 +149,10 @@ def test_static_frontend_assets_are_served():
     assert "Nothing to copy yet" in js_response.text
     assert "Session report exported" in js_response.text
     assert "Exported Report + SVG" in js_response.text
+    assert "btnElement.textContent = 'Copied'" in js_response.text
+    assert "btnElement.innerText" not in js_response.text
+    assert "exportBtn.textContent = svgSource ? 'Exported Report + SVG' : 'Exported Report'" in js_response.text
+    assert "exportBtn.innerText" not in js_response.text
     assert "exportBtn.setAttribute('aria-busy', 'true')" in js_response.text
     assert "exportBtn.removeAttribute('aria-busy')" in js_response.text
     assert "setControlDisabled(exportBtn, true)" in js_response.text

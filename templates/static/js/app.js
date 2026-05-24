@@ -2028,12 +2028,12 @@ async function copyText(elementId, btnElement) {
     const rawText = (content.dataset && typeof content.dataset.rawContent === 'string')
         ? content.dataset.rawContent
         : '';
-    const text = (rawText || content.innerText || content.textContent || '').trim();
-    const originalText = btnElement.innerText;
+    const text = (rawText || content.textContent || '').trim();
+    const originalText = btnElement.textContent;
     if (!text) {
-        btnElement.innerText = 'No content';
+        btnElement.textContent = 'No content';
         updateStatus('Nothing to copy yet', 'idle');
-        setTimeout(() => { btnElement.innerText = originalText; }, 1600);
+        setTimeout(() => { btnElement.textContent = originalText; }, 1600);
         return;
     }
 
@@ -2053,16 +2053,16 @@ async function copyText(elementId, btnElement) {
             document.execCommand('copy');
             document.body.removeChild(textarea);
         }
-        btnElement.innerText = 'Copied';
+        btnElement.textContent = 'Copied';
         btnElement.classList.add('action-success');
         updateStatus('Content copied', 'success');
     } catch (error) {
         console.warn('Copy failed:', error);
-        btnElement.innerText = 'Copy failed';
+        btnElement.textContent = 'Copy failed';
         updateStatus('Copy failed', 'error');
     }
     setTimeout(() => {
-        btnElement.innerText = originalText;
+        btnElement.textContent = originalText;
         setControlDisabled(btnElement, false);
         btnElement.removeAttribute('aria-busy');
         btnElement.classList.remove('action-success');
@@ -2386,13 +2386,13 @@ function exportSessionReport() {
     }
 
     if (exportBtn) {
-        const originalText = exportBtn.innerText;
-        exportBtn.innerText = svgSource ? 'Exported Report + SVG' : 'Exported Report';
+        const originalText = exportBtn.textContent;
+        exportBtn.textContent = svgSource ? 'Exported Report + SVG' : 'Exported Report';
         exportBtn.classList.add('action-success');
         exportBtn.setAttribute('aria-busy', 'true');
         setControlDisabled(exportBtn, true);
         setTimeout(() => {
-            exportBtn.innerText = originalText;
+            exportBtn.textContent = originalText;
             exportBtn.classList.remove('action-success');
             exportBtn.removeAttribute('aria-busy');
             setControlDisabled(exportBtn, false);
