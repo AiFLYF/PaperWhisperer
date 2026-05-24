@@ -116,6 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('file')?.addEventListener('change', handleFileSelection);
     document.getElementById('paperSearchInput')?.addEventListener('keydown', handlePaperSearchKeyPress);
     document.getElementById('questionInput')?.addEventListener('keydown', handleKeyPress);
+    document.getElementById('readingQueue')?.addEventListener('click', handleReadingQueueClick);
     document.addEventListener('keydown', handleWorkspaceShortcut);
     document.querySelectorAll('.mode-chip').forEach(button => {
         button.addEventListener('click', () => setAnswerMode(button.dataset.mode));
@@ -834,7 +835,7 @@ function renderReadingQueue(message = '') {
                     <div class="queue-actions">
                         ${openLink}
                         ${pdfLink}
-                        <button class="paper-link" type="button" onclick="removePaperFromQueue(${index})">Remove</button>
+                        <button class="paper-link" type="button" data-queue-remove-index="${index}">Remove</button>
                     </div>
                 </div>
             </article>
@@ -886,6 +887,14 @@ function addPaperToQueueByIndex(elementId, index) {
         return;
     }
     addPaperToQueue(item);
+}
+
+function handleReadingQueueClick(event) {
+    const removeButton = event.target.closest('[data-queue-remove-index]');
+    if (!removeButton) return;
+    const index = Number(removeButton.dataset.queueRemoveIndex);
+    if (!Number.isInteger(index)) return;
+    removePaperFromQueue(index);
 }
 
 function removePaperFromQueue(index) {
