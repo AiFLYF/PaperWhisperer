@@ -491,6 +491,8 @@ function createThemeIcon(name) {
     svg.setAttribute('fill', 'none');
     svg.setAttribute('stroke', 'currentColor');
     svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
     (THEME_ICONS[name] || THEME_ICONS.moon).forEach(([tagName, attributes]) => {
         const element = document.createElementNS(SVG_NS, tagName);
         Object.entries(attributes).forEach(([attribute, value]) => element.setAttribute(attribute, value));
