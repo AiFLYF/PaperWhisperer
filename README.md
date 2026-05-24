@@ -373,7 +373,7 @@ data: {"answer":"完整答案"}
 - 新增 Reading Queue 阅读队列和 `/api/reading-queue`。
 - 新增 Evidence / Explain / Critique / Reproduce 追问模式。
 - 增强 Session Export，包含分析、阅读队列、搜索轨迹、推荐结果、Q&A 模式和 Mermaid 资源。
-- 强化前端可访问性：状态 live region、错误 alert 聚焦、上传区域无效状态、分析进度当前步骤、追问模式 radio 语义与方向键/Home/End 导航、主题/图谱工具图标装饰语义、快捷键元数据、禁用/忙碌控件语义、语义化折叠区域和减少动效滚动。
+- 强化前端可访问性：状态 live region、错误 alert 聚焦、上传区域无效状态、分析进度当前步骤、追问模式 radio 语义与方向键/Home/End 导航、智能建议区域 live region、主题/图谱工具图标装饰语义、快捷键元数据、禁用/忙碌控件语义、语义化折叠区域和减少动效滚动。
 - 强化安全与稳定性：上传、远程下载、JSON、session、阅读队列、问答模式、临时资源清理日志、生成内容 URL 白名单、状态卡 DOM 文本节点渲染、格式化内容集中替换和前端动态内容硬化。
 
 ## License

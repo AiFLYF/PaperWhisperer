@@ -909,6 +909,7 @@ function renderSmartPrompts(questions = currentSuggestedQuestions) {
     currentSuggestedQuestions = normalizeSmartTextItems(questions);
     container.replaceChildren();
     container.classList.toggle('is-hidden', !currentSuggestedQuestions.length);
+    container.setAttribute('aria-hidden', String(!currentSuggestedQuestions.length));
     currentSuggestedQuestions.forEach(question => {
         const button = document.createElement('button');
         button.className = 'prompt-chip';
@@ -925,6 +926,7 @@ function renderNextActions(actions = currentNextActions) {
     currentNextActions = normalizeSmartActions(actions);
     container.replaceChildren();
     container.classList.toggle('is-hidden', !currentNextActions.length);
+    container.setAttribute('aria-hidden', String(!currentNextActions.length));
     currentNextActions.forEach(action => {
         const button = document.createElement('button');
         button.className = 'next-action-btn';
