@@ -185,6 +185,10 @@ def test_static_frontend_assets_are_served():
     assert "container.replaceChildren(...cards)" in js_response.text
     assert "removeButton.dataset.queueRemoveIndex = String(index)" in js_response.text
     assert "titleLink.textContent = item.title" in js_response.text
+    assert "stateElement.append(icon, body)" in js_response.text
+    assert "button.dataset.paperAction = action" in js_response.text
+    assert "addButton.setAttribute('aria-disabled', String(addButtonDisabled))" in js_response.text
+    assert "abstract.textContent = item.abstract || 'No abstract available.'" in js_response.text
     assert "ANSWER_MODE_DETAILS" in js_response.text
     assert "renderSectionStateCard" in js_response.text
     assert "function sanitizeImageUrl(rawUrl)" in js_response.text
@@ -213,7 +217,7 @@ def test_static_frontend_assets_are_served():
     assert "aria-disabled" in js_response.text
     assert "setControlDisabled" in js_response.text
     assert "element.setAttribute('aria-disabled', String(disabled))" in js_response.text
-    assert "aria-disabled=\"${String(addButtonDisabled)}\"" in js_response.text
+    assert "addButton.setAttribute('aria-disabled', String(addButtonDisabled))" in js_response.text
     assert "is-busy" in js_response.text
     assert "Search query needed" in js_response.text
     assert "Question needed" in js_response.text
@@ -288,7 +292,9 @@ def test_static_frontend_assets_are_served():
     assert "currentSuggestedQuestions.length ? 'flex'" not in js_response.text
     assert "currentNextActions.length ? 'flex'" not in js_response.text
     assert "queue-rank" in js_response.text
-    assert "target=\"_blank\" rel=\"noopener noreferrer\" referrerpolicy=\"strict-origin-when-cross-origin\"" in js_response.text
+    assert "link.target = '_blank'" in js_response.text
+    assert "link.rel = 'noopener noreferrer'" in js_response.text
+    assert "link.referrerPolicy = 'strict-origin-when-cross-origin'" in js_response.text
     assert "queue-details" in js_response.text
     assert "queue-actions" in js_response.text
     assert "handleReadingQueueClick" in js_response.text
