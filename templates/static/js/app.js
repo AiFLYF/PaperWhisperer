@@ -1428,12 +1428,14 @@ function updateFileMeta(validationError = '') {
     if (!file) {
         fileMeta.textContent = 'No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.';
         dropZone?.classList.remove('has-file', 'has-error');
+        dropZone?.setAttribute('aria-invalid', 'false');
         return;
     }
 
     const hasError = Boolean(validationError);
     dropZone?.classList.toggle('has-file', !hasError);
     dropZone?.classList.toggle('has-error', hasError);
+    dropZone?.setAttribute('aria-invalid', String(hasError));
     fileMeta.classList.add(hasError ? 'file-meta-error' : 'file-meta-ready');
 
     const summary = document.createElement('div');

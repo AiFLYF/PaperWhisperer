@@ -75,7 +75,8 @@ def test_index_page_renders():
     assert 'id="themeBtn" aria-label="Switch to dark theme" aria-pressed="false"' in response.text
     assert "Deep Research Brief" in response.text
     assert "Reading Queue" in response.text
-    assert 'id="dropZone"' in response.text
+    assert 'id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" aria-invalid="false"' in response.text
+    assert 'class="file-meta" id="fileMeta" role="status" aria-live="polite"' in response.text
     assert "Drop a paper here or browse" in response.text
     assert 'id="analysisProgressSteps"' in response.text
     assert 'class="error is-hidden" id="error" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1"' in response.text
@@ -144,6 +145,8 @@ def test_static_frontend_assets_are_served():
     assert "MAX_UPLOAD_BYTES" in js_response.text
     assert "getUploadFileExtension" in js_response.text
     assert "appendFileMetaItem" in js_response.text
+    assert "dropZone?.setAttribute('aria-invalid', 'false')" in js_response.text
+    assert "dropZone?.setAttribute('aria-invalid', String(hasError))" in js_response.text
     assert "Ready to analyze" in js_response.text
     assert "Review needed" in js_response.text
     assert "Supported document type and size." in js_response.text
