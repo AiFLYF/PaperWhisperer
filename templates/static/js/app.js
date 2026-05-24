@@ -943,16 +943,20 @@ function clearReadingQueue() {
     saveReadingQueue({ silent: false, message: 'Reading queue cleared.' });
 }
 
+function setOptionalCardVisible(cardId, visible) {
+    document.getElementById(cardId)?.classList.toggle('is-hidden', !visible);
+}
+
 function applyAnalysisSection(sectionName, sectionPayload, generateEvaluation, generateMermaid, generateResearchBrief = true) {
     document.getElementById('result').classList.add('active');
     const section = sectionPayload || { status: 'empty', content: '', error: '', retryable: false };
     const errorMessage = section.status === 'failed' ? (section.error || `${sectionName} generation failed.`) : '';
 
     if (sectionName === 'evaluation') {
-        document.getElementById('evaluationCard').style.display = generateEvaluation ? 'block' : 'none';
+        setOptionalCardVisible('evaluationCard', generateEvaluation);
     }
     if (sectionName === 'research_brief') {
-        document.getElementById('researchBriefCard').style.display = generateResearchBrief ? 'block' : 'none';
+        setOptionalCardVisible('researchBriefCard', generateResearchBrief);
     }
 
     if (sectionName === 'mermaid') {
@@ -1173,7 +1177,8 @@ function captureWorkspaceState() {
         },
         ui: {
             resultActive: document.getElementById('result').classList.contains('active'),
-            evaluationDisplay: document.getElementById('evaluationCard').style.display,
+            evaluationHidden: document.getElementById('evaluationCard').classList.contains('is-hidden'),
+            researchBriefHidden: document.getElementById('researchBriefCard').classList.contains('is-hidden'),
             mermaidHidden: document.getElementById('mermaidCard').classList.contains('is-hidden'),
             askDisabled: document.getElementById('askBtn').disabled,
             exportDisabled: document.getElementById('exportBtn').disabled,
@@ -1220,7 +1225,8 @@ function restoreWorkspaceState(snapshot) {
     document.getElementById('mermaidChart').innerHTML = snapshot.html.mermaidChart;
 
     document.getElementById('result').classList.toggle('active', snapshot.ui.resultActive);
-    document.getElementById('evaluationCard').style.display = snapshot.ui.evaluationDisplay;
+    setOptionalCardVisible('evaluationCard', !snapshot.ui.evaluationHidden);
+    setOptionalCardVisible('researchBriefCard', !snapshot.ui.researchBriefHidden);
     setMermaidCardVisible(!snapshot.ui.mermaidHidden);
     setControlDisabled(document.getElementById('askBtn'), snapshot.ui.askDisabled);
     setControlDisabled(document.getElementById('exportBtn'), snapshot.ui.exportDisabled);
@@ -1236,8 +1242,8 @@ function resetResultView() {
     document.getElementById('fileInfo').innerHTML = '';
     document.getElementById('result').classList.remove('active');
     setControlDisabled(document.getElementById('askBtn'), true);
-    document.getElementById('evaluationCard').style.display = '';
-    document.getElementById('researchBriefCard').style.display = '';
+    setOptionalCardVisible('evaluationCard', true);
+    setOptionalCardVisible('researchBriefCard', true);
     clearChatHistory();
     resetMermaidCard();
     resetExportState();

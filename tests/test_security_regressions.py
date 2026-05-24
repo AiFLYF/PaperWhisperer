@@ -174,9 +174,16 @@ def test_static_frontend_assets_are_served():
     assert "mermaid-svg-fit" in js_response.text
     assert "mermaid-error-message" in js_response.text
     assert "setMermaidCardVisible" in js_response.text
+    assert "setOptionalCardVisible" in js_response.text
     assert "mermaidHidden" in js_response.text
+    assert "evaluationHidden" in js_response.text
+    assert "researchBriefHidden" in js_response.text
+    assert "setOptionalCardVisible('evaluationCard', generateEvaluation)" in js_response.text
+    assert "setOptionalCardVisible('researchBriefCard', generateResearchBrief)" in js_response.text
     assert "mermaidCard.style.display" not in js_response.text
     assert "document.getElementById('mermaidCard').style.display" not in js_response.text
+    assert "document.getElementById('evaluationCard').style.display" not in js_response.text
+    assert "document.getElementById('researchBriefCard').style.display" not in js_response.text
     assert "createInlineSpinner" in js_response.text
     assert "style=\"width:16px" not in js_response.text
     assert "style=\"color:#d9480f" not in js_response.text
