@@ -79,6 +79,7 @@ def test_index_page_renders():
     assert 'class="file-meta" id="fileMeta" role="status" aria-live="polite"' in response.text
     assert "Drop a paper here or browse" in response.text
     assert 'id="analysisProgressSteps"' in response.text
+    assert 'class="progress-step active" data-step="upload" aria-current="step"' in response.text
     assert 'class="error is-hidden" id="error" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1"' in response.text
     assert "Upload" in response.text
     assert 'id="answerModeHint"' in response.text
@@ -151,6 +152,8 @@ def test_static_frontend_assets_are_served():
     assert "Review needed" in js_response.text
     assert "Supported document type and size." in js_response.text
     assert "updateAnalysisProgress" in js_response.text
+    assert "element.setAttribute('aria-current', 'step')" in js_response.text
+    assert "element.removeAttribute('aria-current')" in js_response.text
     assert "btn.setAttribute('aria-pressed', String(isDark))" in js_response.text
     assert "button.setAttribute('aria-checked', selected ? 'true' : 'false')" in js_response.text
     assert "button.tabIndex = selected ? 0 : -1" in js_response.text
