@@ -601,6 +601,13 @@ def test_analyze_stream_error_event_is_structured(tmp_path, monkeypatch):
     assert '"timestamp"' in response.text
 
 
+def test_retry_delay_is_capped():
+    assert web_app.get_retry_delay_seconds(0) == 2
+    assert web_app.get_retry_delay_seconds(2) == 6
+    assert web_app.get_retry_delay_seconds(10) == 6
+    assert web_app.get_retry_delay_seconds(10, max_delay=8) == 8
+
+
 def test_remote_error_descriptions_are_consistent():
     assert web_app.describe_remote_http_error(404) == "The paper file could not be found at the remote source."
     assert web_app.describe_remote_http_error(403) == "The remote source denied access to the paper file."
