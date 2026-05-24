@@ -1010,6 +1010,14 @@ def set_cached_public_hostname_result(normalized, result):
         PUBLIC_HOSTNAME_CACHE[normalized] = (time.time() + PUBLIC_HOSTNAME_CACHE_TTL_SECONDS, bool(result))
 
 
+def is_ip_literal(value):
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
+
+
 def resolve_public_hostname(hostname):
     normalized = (hostname or "").strip().strip(".").lower()
     if not normalized or normalized in {"localhost", "localhost.localdomain"} or normalized.endswith(".localhost"):
@@ -1017,11 +1025,8 @@ def resolve_public_hostname(hostname):
 
     if is_public_ip_address(normalized):
         return True
-    try:
-        ipaddress.ip_address(normalized)
+    if is_ip_literal(normalized):
         return False
-    except ValueError:
-        pass
 
     cached_result = get_cached_public_hostname_result(normalized)
     if cached_result is not None:
