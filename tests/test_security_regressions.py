@@ -124,7 +124,7 @@ def test_index_page_renders():
     assert 'src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer referrerpolicy="strict-origin-when-cross-origin"' in response.text
     assert 'fetchpriority="high"' in response.text
     assert 'class="github-link" href="https://github.com/AiFLYF/PaperWhisperer" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin"' in response.text
-    assert 'src="https://github.com/favicon.ico" alt="GitHub" width="18" height="18" loading="lazy" decoding="async" referrerpolicy="strict-origin-when-cross-origin"' in response.text
+    assert 'src="https://github.com/favicon.ico" alt="" aria-hidden="true" width="18" height="18" loading="lazy" decoding="async" referrerpolicy="strict-origin-when-cross-origin"' in response.text
     assert 'class="author-link" href="https://github.com/AiFLYF" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin"' in response.text
     assert 'aria-labelledby="paperSearchTitle"' in response.text
     assert 'aria-labelledby="readingQueueTitle"' in response.text
