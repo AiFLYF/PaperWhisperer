@@ -201,7 +201,7 @@ async function recommendPapers() {
     recommendRequestId += 1;
     const requestId = recommendRequestId;
 
-    recommendBtn.disabled = true;
+    setButtonLoading(recommendBtn, 'Recommending...', 'Recommend from current paper', true);
     hideError();
     renderPaperList('paperRecommendations', [], 'Generating recommendations...', { elementId: 'paperRecommendationMeta', text: 'Generating search topics from the current paper...' });
 
@@ -246,6 +246,7 @@ async function recommendPapers() {
         showError(error.message || 'Paper recommendation failed.');
     } finally {
         if (requestId === recommendRequestId) {
+            setButtonLoading(recommendBtn, 'Recommending...', 'Recommend from current paper', false);
             setRecommendEnabled(Boolean(currentSessionId));
             recommendController = null;
         }
@@ -1248,8 +1249,15 @@ async function readSseStream(response, handlers = {}) {
 }
 
 function setButtonLoading(button, loadingText, defaultText, isLoading) {
+    if (!button) return;
     button.disabled = isLoading;
     button.textContent = isLoading ? loadingText : defaultText;
+    button.classList.toggle('is-busy', isLoading);
+    if (isLoading) {
+        button.setAttribute('aria-busy', 'true');
+    } else {
+        button.removeAttribute('aria-busy');
+    }
 }
 
 function normalizeMermaidSource(source) {
