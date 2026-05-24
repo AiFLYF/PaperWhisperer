@@ -839,6 +839,15 @@ def close_response_safely(response, description="remote response"):
         logger.exception("Failed to close %s", description)
 
 
+async def close_upload_file_safely(upload_file, description="upload file"):
+    if not upload_file:
+        return
+    try:
+        await upload_file.close()
+    except Exception:
+        logger.exception("Failed to close %s", description)
+
+
 def atomic_write_json(file_path, payload):
     temp_path = f"{file_path}.{uuid.uuid4().hex}.tmp"
     try:
@@ -2199,8 +2208,7 @@ async def analyze(
         logger.exception("Document analysis failed")
         return JSONResponse(content={"error": str(e)}, status_code=500)
     finally:
-        if file:
-            await file.close()
+        await close_upload_file_safely(file, "analysis upload file")
         remove_file_safely(file_path, "analyzed upload file")
 
 
@@ -2281,8 +2289,7 @@ async def analyze_stream(
         logger.exception("Streaming analyze upload failed")
         return JSONResponse(content={"error": str(exc)}, status_code=500)
     finally:
-        if file:
-            await file.close()
+        await close_upload_file_safely(file, "streaming analysis upload file")
 
     async def event_generator():
         try:
