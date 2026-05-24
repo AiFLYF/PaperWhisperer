@@ -428,6 +428,57 @@ def test_ask_api_persists_answer_mode(tmp_path, monkeypatch):
     assert response.json()["answer"] == "reproduce: answer"
 
 
+def test_ask_stream_persists_answer_mode_and_sse_events(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    token = "token"
+    session_id = "session"
+    web_app.write_session_payload(
+        session_id,
+        {
+            "expires_at": web_app.build_session_expiry(),
+            "document_content": "document",
+            "qa_history": [],
+            "session_auth": {"token_hash": web_app.hash_session_token(token)},
+        },
+    )
+
+    def fake_stream_answer(self, question, history=None, answer_mode="evidence"):
+        yield f"{answer_mode}: "
+        yield "streamed answer"
+
+    monkeypatch.setattr(web_app.PaperWhisperer, "stream_answer_question", fake_stream_answer)
+
+    response = TestClient(web_app.app).post(
+        "/api/ask/stream",
+        content=json.dumps(
+            {
+                "session_id": session_id,
+                "session_token": token,
+                "api_key": "key",
+                "question": "What?",
+                "answer_mode": "critique",
+            }
+        ),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    assert "event: start" in response.text
+    assert "event: delta" in response.text
+    assert "critique: " in response.text
+    assert "streamed answer" in response.text
+    assert "event: done" in response.text
+    payload = web_app.load_session_payload(session_id)
+    assert payload["qa_history"] == [
+        {
+            "question": "What?",
+            "answer": "critique: streamed answer",
+            "answer_mode": "critique",
+            "timestamp": payload["qa_history"][0]["timestamp"],
+        }
+    ]
+
+
 def test_cleanup_expired_sessions_removes_malformed_json(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
     monkeypatch.setattr(web_app, "LAST_SESSION_CLEANUP_AT", 0.0)
