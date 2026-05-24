@@ -343,7 +343,7 @@ async function searchPapers() {
             return;
         }
         if (!response.ok) {
-            throw new Error(data.error || 'Paper search failed.');
+            throw buildApiError(data, 'Paper search failed.');
         }
 
         currentPaperSearchResults = Array.isArray(data.items) ? data.items : [];
@@ -410,7 +410,7 @@ async function recommendPapers() {
             return;
         }
         if (!response.ok) {
-            throw new Error(data.error || 'Paper recommendation failed.');
+            throw buildApiError(data, 'Paper recommendation failed.');
         }
 
         currentPaperRecommendations = Array.isArray(data.items)
@@ -907,7 +907,7 @@ async function saveReadingQueue({ silent = true, message = '' } = {}) {
             })
         });
         const data = await parseJsonSafely(response);
-        if (!response.ok) throw new Error(data.error || 'Reading queue save failed.');
+        if (!response.ok) throw buildApiError(data, 'Reading queue save failed.');
         currentReadingQueue = normalizeReadingQueue(data.items || currentReadingQueue);
         renderReadingQueue(message);
     } catch (error) {
@@ -1461,6 +1461,13 @@ function hideError() {
     errorEl.classList.add('is-hidden');
 }
 
+function buildApiError(data, fallbackMessage) {
+    const error = new Error(data.error || fallbackMessage);
+    if (data.code) error.code = data.code;
+    if (data.timestamp) error.timestamp = data.timestamp;
+    return error;
+}
+
 async function parseJsonSafely(response) {
     const contentType = response.headers.get('content-type') || '';
     const statusText = `${response.status} ${response.statusText || ''}`.trim();
@@ -1487,13 +1494,13 @@ async function parseJsonSafely(response) {
 async function readSseStream(response, handlers = {}) {
     if (!response.ok) {
         const data = await parseJsonSafely(response);
-        throw new Error(data.error || 'Connection failed.');
+        throw buildApiError(data, 'Connection failed.');
     }
 
     const contentType = response.headers.get('content-type') || '';
     if (!contentType.includes('text/event-stream')) {
         const data = await parseJsonSafely(response);
-        throw new Error(data.error || 'Streaming response was not returned.');
+        throw buildApiError(data, 'Streaming response was not returned.');
     }
 
     const reader = response.body && response.body.getReader ? response.body.getReader() : null;
@@ -2011,7 +2018,7 @@ async function addPaperToAnalysis(item) {
         });
         const data = await parseJsonSafely(response);
         if (!response.ok) {
-            throw new Error(data.error || 'Paper import failed.');
+            throw buildApiError(data, 'Paper import failed.');
         }
 
         currentPaperSearchMetaText = 'Imported selected paper into PaperWhisperer.';

@@ -160,6 +160,11 @@ def test_static_frontend_assets_are_served():
     assert "Nothing to copy yet" in js_response.text
     assert "Session report exported" in js_response.text
     assert "Exported Report + SVG" in js_response.text
+    assert "function buildApiError(data, fallbackMessage)" in js_response.text
+    assert "if (data.code) error.code = data.code" in js_response.text
+    assert "if (data.timestamp) error.timestamp = data.timestamp" in js_response.text
+    assert "throw buildApiError(data, 'Paper search failed.')" in js_response.text
+    assert "throw buildApiError(data, 'Connection failed.')" in js_response.text
     assert "btnElement.textContent = 'Copied'" in js_response.text
     assert "btnElement.innerText" not in js_response.text
     assert "exportBtn.textContent = svgSource ? 'Exported Report + SVG' : 'Exported Report'" in js_response.text
