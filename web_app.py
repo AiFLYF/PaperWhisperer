@@ -755,7 +755,8 @@ def describe_remote_url_error(reason):
 async def parse_json_object_request(request):
     try:
         raw_body = await request.body()
-    except Exception:
+    except Exception as exc:
+        logger.warning("Failed to read JSON request body: %s", exc)
         return None, build_error_response("Unable to read request body.", code="body_read_failed")
 
     if not raw_body or not raw_body.strip():
