@@ -1374,6 +1374,7 @@ def load_session_payload(session_id):
         return None
 
     if not isinstance(payload, dict):
+        remove_file_safely(session_file, "non-object session file")
         return None
 
     expires_at = parse_iso_datetime(payload.get("expires_at"))
