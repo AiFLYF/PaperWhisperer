@@ -572,6 +572,19 @@ def test_cleanup_expired_sessions_removes_malformed_json(tmp_path, monkeypatch, 
     assert "Removed unreadable session file" in caplog.text
 
 
+def test_arxiv_search_uses_app_user_agent(monkeypatch):
+    captured = {}
+
+    def fake_http_get_text(url, timeout=None, headers=None, retries=None, ssl_context=None):
+        captured["headers"] = headers
+        return "<?xml version='1.0'?><feed xmlns='http://www.w3.org/2005/Atom'></feed>"
+
+    monkeypatch.setattr(web_app, "http_get_text", fake_http_get_text)
+
+    assert web_app.search_arxiv_papers("retrieval augmented generation", 2) == []
+    assert captured["headers"]["User-Agent"] == web_app.APP_USER_AGENT
+
+
 def test_semantic_scholar_search_uses_app_user_agent(monkeypatch):
     captured = {}
 
