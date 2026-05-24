@@ -428,7 +428,7 @@ def test_ask_api_persists_answer_mode(tmp_path, monkeypatch):
     assert response.json()["answer"] == "reproduce: answer"
 
 
-def test_cleanup_expired_sessions_removes_malformed_json(tmp_path, monkeypatch):
+def test_cleanup_expired_sessions_removes_malformed_json(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
     monkeypatch.setattr(web_app, "LAST_SESSION_CLEANUP_AT", 0.0)
     session_file = tmp_path / "broken.json"
@@ -437,6 +437,7 @@ def test_cleanup_expired_sessions_removes_malformed_json(tmp_path, monkeypatch):
     web_app.cleanup_expired_sessions(force=True)
 
     assert not session_file.exists()
+    assert "Removed unreadable session file" in caplog.text
 
 
 def test_search_papers_falls_back_to_direct_search_without_api_key(monkeypatch):
