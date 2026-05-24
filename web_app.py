@@ -439,7 +439,15 @@ def build_ssl_context():
 
 
 def get_retry_delay_seconds(attempt, max_delay=6):
-    return min(2 * (attempt + 1), max_delay)
+    try:
+        attempt_index = max(0, int(attempt))
+    except (TypeError, ValueError):
+        attempt_index = 0
+    try:
+        delay_cap = max(1, int(max_delay))
+    except (TypeError, ValueError):
+        delay_cap = 6
+    return min(2 * (attempt_index + 1), delay_cap)
 
 
 def http_get_json(url, timeout=20, headers=None, retries=1, ssl_context=None):

@@ -620,6 +620,10 @@ def test_retry_delay_is_capped():
     assert web_app.get_retry_delay_seconds(2) == 6
     assert web_app.get_retry_delay_seconds(10) == 6
     assert web_app.get_retry_delay_seconds(10, max_delay=8) == 8
+    assert web_app.get_retry_delay_seconds(-1) == 2
+    assert web_app.get_retry_delay_seconds("bad") == 2
+    assert web_app.get_retry_delay_seconds(2, max_delay=0) == 1
+    assert web_app.get_retry_delay_seconds(2, max_delay="bad") == 6
 
 
 def test_remote_error_descriptions_are_consistent():
