@@ -567,6 +567,7 @@ function sanitizeGeneratedHtml(html) {
         anchor.href = sanitizeUrl(anchor.getAttribute('href'));
         anchor.target = '_blank';
         anchor.rel = 'noopener noreferrer';
+        anchor.referrerPolicy = 'strict-origin-when-cross-origin';
     });
 
     template.content.querySelectorAll('img').forEach(image => {
@@ -577,6 +578,8 @@ function sanitizeGeneratedHtml(html) {
         }
         image.src = safeSrc;
         image.loading = 'lazy';
+        image.decoding = 'async';
+        image.referrerPolicy = 'strict-origin-when-cross-origin';
     });
 
     const container = document.createElement('div');
