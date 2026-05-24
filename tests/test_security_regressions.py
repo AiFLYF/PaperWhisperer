@@ -1054,6 +1054,18 @@ def test_cleanup_expired_sessions_removes_malformed_json(tmp_path, monkeypatch, 
     assert "Removed unreadable session file" in caplog.text
 
 
+def test_cleanup_expired_sessions_removes_non_object_json(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    monkeypatch.setattr(web_app, "LAST_SESSION_CLEANUP_AT", 0.0)
+    session_file = tmp_path / "broken.json"
+    session_file.write_text("[]", encoding="utf-8")
+
+    web_app.cleanup_expired_sessions(force=True)
+
+    assert not session_file.exists()
+    assert "session payload must be an object" in caplog.text
+
+
 def test_arxiv_search_uses_app_user_agent(monkeypatch):
     captured = {}
 
