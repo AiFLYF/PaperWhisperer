@@ -265,7 +265,10 @@ function handleWorkspaceShortcut(event) {
 function updateBackToTopVisibility() {
     const button = document.getElementById('backToTopBtn');
     if (!button) return;
-    button.classList.toggle('show', window.scrollY > 640);
+    const isVisible = window.scrollY > 640;
+    button.classList.toggle('show', isVisible);
+    button.setAttribute('aria-hidden', String(!isVisible));
+    button.tabIndex = isVisible ? 0 : -1;
 }
 
 function scheduleBackToTopVisibilityUpdate() {
