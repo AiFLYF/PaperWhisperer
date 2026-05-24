@@ -135,6 +135,7 @@ def test_index_page_renders():
     assert 'class="smart-prompts is-hidden" id="smartPrompts"' in response.text
     assert 'class="next-actions is-hidden" id="nextActions"' in response.text
     assert 'id="aiToggleBtn" aria-expanded="false" aria-controls="aiList" aria-label="Show AI collaborators"' in response.text
+    assert 'class="arrow" aria-hidden="true"' in response.text
     assert 'class="ai-list" id="aiList" hidden' in response.text
 
 
