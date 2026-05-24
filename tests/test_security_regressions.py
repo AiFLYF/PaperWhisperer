@@ -381,6 +381,18 @@ def test_close_response_safely_logs_cleanup_failures(caplog):
     assert "Failed to close test response" in caplog.text
 
 
+def test_close_upload_file_safely_logs_cleanup_failures(caplog):
+    class BrokenUploadFile:
+        async def close(self):
+            raise OSError("close failed")
+
+    caplog.set_level("ERROR", logger=web_app.__name__)
+
+    asyncio.run(web_app.close_upload_file_safely(BrokenUploadFile(), "test upload"))
+
+    assert "Failed to close test upload" in caplog.text
+
+
 def test_public_hostname_validation_uses_short_cache(monkeypatch):
     web_app.PUBLIC_HOSTNAME_CACHE.clear()
     calls = []
