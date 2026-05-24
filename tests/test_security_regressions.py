@@ -82,6 +82,10 @@ def test_index_page_renders():
     assert 'aria-labelledby="uploadWorkspaceTitle"' in response.text
     assert 'class="shortcut-hints"' in response.text
     assert '<kbd>Alt</kbd> + <kbd>S</kbd> Search' in response.text
+    assert 'id="cancelAnalyzeBtn"' in response.text
+    assert 'id="cancelPaperSearchBtn"' in response.text
+    assert 'id="cancelRecommendBtn"' in response.text
+    assert 'id="cancelAskBtn"' in response.text
     assert 'rel="preconnect" href="https://cdn.jsdelivr.net"' in response.text
     assert 'rel="dns-prefetch" href="https://github.com"' in response.text
     assert 'fetchpriority="high"' in response.text
@@ -126,6 +130,10 @@ def test_static_frontend_assets_are_served():
     assert "loadMermaidRenderer" in js_response.text
     assert "mermaidReadyPromise" in js_response.text
     assert "const mermaidReady = import" not in js_response.text
+    assert "cancelAnalyzeRequest" in js_response.text
+    assert "cancelPaperSearchRequest" in js_response.text
+    assert "setCancelVisible" in js_response.text
+    assert "Analysis canceled" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
@@ -144,6 +152,8 @@ def test_static_frontend_assets_are_served():
     assert ".skip-links a:focus-visible" in css_response.text
     assert ".shortcut-hints" in css_response.text
     assert ".shortcut-hints kbd" in css_response.text
+    assert ".request-cancel" in css_response.text
+    assert ".request-actions" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():

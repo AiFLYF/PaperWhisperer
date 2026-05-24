@@ -88,7 +88,10 @@
                     <span>Enable research brief</span>
                 </label>
             </div>
-            <button class="btn" id="analyzeBtn" type="button">Analyze Document</button>
+            <div class="request-actions">
+                <button class="btn" id="analyzeBtn" type="button">Analyze Document</button>
+                <button class="action-btn request-cancel" type="button" id="cancelAnalyzeBtn" hidden>Cancel analysis</button>
+            </div>
         </section>
 
         <div class="loading" id="loading" role="status" aria-live="polite">
@@ -111,6 +114,7 @@
                 <label class="sr-only" for="paperSearchInput">Paper search query</label>
                 <input type="text" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta">
                 <button class="btn" type="button" id="paperSearchBtn">Search Papers</button>
+                <button class="action-btn request-cancel" type="button" id="cancelPaperSearchBtn" hidden>Cancel search</button>
             </div>
             <div class="paper-meta" id="paperSearchMeta">Search across Semantic Scholar and arXiv with a single query.</div>
             <div class="paper-list" id="paperSearchResults"></div>
@@ -194,7 +198,10 @@
             <section class="result-card" aria-labelledby="recommendationsTitle">
                 <div class="section-header">
                     <h3 class="section-title" id="recommendationsTitle">Auto Recommendations</h3>
-                    <button class="action-btn" type="button" id="recommendBtn" disabled>Recommend from current paper</button>
+                    <div class="section-actions">
+                        <button class="action-btn" type="button" id="recommendBtn" disabled>Recommend from current paper</button>
+                        <button class="action-btn request-cancel" type="button" id="cancelRecommendBtn" hidden>Cancel</button>
+                    </div>
                 </div>
                 <div class="paper-meta" id="paperRecommendationMeta">Analyze a paper first, then generate follow-up reading suggestions from the current session.</div>
                 <div class="paper-list" id="paperRecommendations"></div>
@@ -213,6 +220,7 @@
                     <label class="sr-only" for="questionInput">Question about the current document</label>
                     <input type="text" id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint">
                     <button class="btn" id="askBtn" type="button">Send</button>
+                    <button class="action-btn request-cancel" type="button" id="cancelAskBtn" hidden>Cancel</button>
                 </div>
                 <div class="smart-prompts" id="smartPrompts" aria-label="Suggested follow-up questions"></div>
                 <div class="next-actions" id="nextActions" aria-label="Recommended next actions"></div>

@@ -26,6 +26,8 @@ let currentSuggestedQuestions = [];
 let currentNextActions = [];
 let currentReadingQueue = [];
 let currentAnswerMode = 'evidence';
+let pendingAnalysisSnapshot = null;
+let activeStreamingAnswerShell = null;
 let currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with a single query.';
 let currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
 
@@ -104,6 +106,10 @@ document.addEventListener('DOMContentLoaded', () => {
     bindClick('zoomResetBtn', zoomReset);
     bindClick('downloadMermaidBtn', downloadMermaidSVG);
     bindClick('backToTopBtn', scrollToTop);
+    bindClick('cancelAnalyzeBtn', cancelAnalyzeRequest);
+    bindClick('cancelPaperSearchBtn', cancelPaperSearchRequest);
+    bindClick('cancelRecommendBtn', cancelRecommendRequest);
+    bindClick('cancelAskBtn', cancelAskRequest);
 
     initializeBackToTop();
     initializeUploadDropZone();
@@ -122,6 +128,75 @@ document.addEventListener('DOMContentLoaded', () => {
 function bindClick(id, handler) {
     const element = document.getElementById(id);
     if (element) element.addEventListener('click', handler);
+}
+
+function setCancelVisible(id, isVisible) {
+    const button = document.getElementById(id);
+    if (!button) return;
+    button.hidden = !isVisible;
+    button.disabled = !isVisible;
+}
+
+function cancelAnalyzeRequest() {
+    if (!analyzeController) return;
+    analyzeController.abort();
+    analyzeRequestId += 1;
+    document.getElementById('loading').classList.remove('active');
+    setButtonLoading(document.getElementById('analyzeBtn'), 'Analyzing...', 'Analyze Document', false);
+    setCancelVisible('cancelAnalyzeBtn', false);
+    analyzeController = null;
+    if (pendingAnalysisSnapshot) {
+        restoreWorkspaceState(pendingAnalysisSnapshot);
+        pendingAnalysisSnapshot = null;
+        focusAnalysisWorkspace({ scroll: false });
+    } else {
+        currentSessionId = '';
+        resetResultView();
+    }
+    updateStatus('Analysis canceled', 'idle');
+}
+
+function cancelPaperSearchRequest() {
+    if (!paperSearchController) return;
+    paperSearchController.abort();
+    paperSearchRequestId += 1;
+    setButtonLoading(document.getElementById('paperSearchBtn'), 'Searching...', 'Search Papers', false);
+    setCancelVisible('cancelPaperSearchBtn', false);
+    paperSearchController = null;
+    renderPaperList('paperSearchResults', currentPaperSearchResults, currentPaperSearchResults.length ? '' : 'Search results will appear here.', {
+        elementId: 'paperSearchMeta',
+        text: currentPaperSearchMetaText
+    });
+    updateStatus('Paper search canceled', 'idle');
+}
+
+function cancelRecommendRequest() {
+    if (!recommendController) return;
+    recommendController.abort();
+    recommendRequestId += 1;
+    setButtonLoading(document.getElementById('recommendBtn'), 'Recommending...', 'Recommend from current paper', false);
+    setRecommendEnabled(Boolean(currentSessionId));
+    setCancelVisible('cancelRecommendBtn', false);
+    recommendController = null;
+    renderPaperList('paperRecommendations', currentPaperRecommendations, currentPaperRecommendations.length ? '' : 'Recommendations will appear here after analysis.', {
+        elementId: 'paperRecommendationMeta',
+        text: currentPaperRecommendationMetaText
+    });
+    updateStatus('Recommendations canceled', 'idle');
+}
+
+function cancelAskRequest() {
+    if (!askController) return;
+    askController.abort();
+    askRequestId += 1;
+    setButtonLoading(document.getElementById('askBtn'), 'Processing...', 'Send', false);
+    setCancelVisible('cancelAskBtn', false);
+    askController = null;
+    if (activeStreamingAnswerShell?.answerDiv?.parentNode) {
+        activeStreamingAnswerShell.answerDiv.parentNode.removeChild(activeStreamingAnswerShell.answerDiv);
+    }
+    activeStreamingAnswerShell = null;
+    updateStatus('Question canceled', 'idle');
 }
 
 function focusAnalysisWorkspace({ scroll = true } = {}) {
@@ -197,6 +272,7 @@ async function searchPapers() {
     const requestId = paperSearchRequestId;
 
     setButtonLoading(searchBtn, 'Searching...', 'Search Papers', true);
+    setCancelVisible('cancelPaperSearchBtn', true);
     hideError();
     renderPaperList('paperSearchResults', [], 'Searching papers...', { elementId: 'paperSearchMeta', text: `Searching for: ${query}` });
 
@@ -246,6 +322,7 @@ async function searchPapers() {
     } finally {
         if (requestId === paperSearchRequestId) {
             setButtonLoading(searchBtn, 'Searching...', 'Search Papers', false);
+            setCancelVisible('cancelPaperSearchBtn', false);
             paperSearchController = null;
         }
     }
@@ -267,6 +344,7 @@ async function recommendPapers() {
     const requestId = recommendRequestId;
 
     setButtonLoading(recommendBtn, 'Recommending...', 'Recommend from current paper', true);
+    setCancelVisible('cancelRecommendBtn', true);
     hideError();
     renderPaperList('paperRecommendations', [], 'Generating recommendations...', { elementId: 'paperRecommendationMeta', text: 'Generating search topics from the current paper...' });
 
@@ -313,6 +391,7 @@ async function recommendPapers() {
         if (requestId === recommendRequestId) {
             setButtonLoading(recommendBtn, 'Recommending...', 'Recommend from current paper', false);
             setRecommendEnabled(Boolean(currentSessionId));
+            setCancelVisible('cancelRecommendBtn', false);
             recommendController = null;
         }
     }
@@ -1407,7 +1486,9 @@ async function analyze() {
     resetResultView();
     currentSessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
+    pendingAnalysisSnapshot = previousWorkspace;
     setButtonLoading(analyzeBtn, 'Analyzing...', 'Analyze Document', true);
+    setCancelVisible('cancelAnalyzeBtn', true);
     document.getElementById('loading').classList.add('active');
     updateAnalysisProgress('upload', 'Uploading and preparing your document...');
     hideError();
@@ -1475,7 +1556,9 @@ async function analyze() {
         if (requestId === analyzeRequestId) {
             document.getElementById('loading').classList.remove('active');
             setButtonLoading(analyzeBtn, 'Analyzing...', 'Analyze Document', false);
+            setCancelVisible('cancelAnalyzeBtn', false);
             analyzeController = null;
+            pendingAnalysisSnapshot = null;
         }
     }
 }
@@ -1614,8 +1697,10 @@ async function askQuestion() {
     appendChatText(`User · ${ANSWER_MODE_LABELS[currentAnswerMode]}`, question, 'chat-question');
     questionInput.value = '';
     setButtonLoading(askBtn, 'Processing...', 'Send', true);
+    setCancelVisible('cancelAskBtn', true);
     updateStatus('Answering based on current document...', 'idle');
     const streamingShell = appendStreamingAnswerShell();
+    activeStreamingAnswerShell = streamingShell;
     let accumulatedAnswer = '';
 
     try {
@@ -1646,6 +1731,7 @@ async function askQuestion() {
                     timestamp: new Date().toISOString()
                 });
                 renderExportPreview();
+                activeStreamingAnswerShell = null;
                 updateStatus('Answer ready', 'success');
             },
             error: payload => {
@@ -1664,7 +1750,9 @@ async function askQuestion() {
     } finally {
         if (requestId === askRequestId) {
             setButtonLoading(askBtn, 'Processing...', 'Send', false);
+            setCancelVisible('cancelAskBtn', false);
             askController = null;
+            activeStreamingAnswerShell = null;
             questionInput.focus();
             window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
         }
