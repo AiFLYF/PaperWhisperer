@@ -1339,10 +1339,7 @@ def load_session_payload(session_id):
         with open(session_file, "r", encoding="utf-8") as f:
             payload = json.load(f)
     except json.JSONDecodeError:
-        try:
-            os.remove(session_file)
-        except Exception:
-            pass
+        remove_file_safely(session_file, "corrupt session file")
         return None
     except OSError:
         return None
@@ -1352,10 +1349,7 @@ def load_session_payload(session_id):
 
     expires_at = parse_iso_datetime(payload.get("expires_at"))
     if expires_at and expires_at.timestamp() < time.time():
-        try:
-            os.remove(session_file)
-        except Exception:
-            pass
+        remove_file_safely(session_file, "expired session file")
         return None
 
     document_content = str(payload.get("document_content") or "")
