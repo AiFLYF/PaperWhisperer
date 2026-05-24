@@ -110,6 +110,8 @@ def test_static_frontend_assets_are_served():
     assert "Question needed" in js_response.text
     assert "initializeBackToTop" in js_response.text
     assert "scrollToTop" in js_response.text
+    assert "focusAnalysisWorkspace" in js_response.text
+    assert "preventScroll" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
