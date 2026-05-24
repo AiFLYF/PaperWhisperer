@@ -517,6 +517,11 @@ function normalizeSmartActions(values, maxItems = 5) {
     return actions.slice(0, maxItems);
 }
 
+function getReadingQueueKey(value) {
+    if (!value || typeof value !== 'object') return '';
+    return String(value.title || value.paper_id || value.url || value.pdf_url || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
 function normalizeReadingQueue(values, maxItems = 30) {
     if (!Array.isArray(values)) return [];
     const seen = new Set();
@@ -524,9 +529,8 @@ function normalizeReadingQueue(values, maxItems = 30) {
     values.forEach(value => {
         if (!value || typeof value !== 'object') return;
         const title = String(value.title || '').trim();
-        if (!title) return;
-        const key = title.toLowerCase().replace(/\s+/g, ' ');
-        if (seen.has(key)) return;
+        const key = getReadingQueueKey(value);
+        if (!title || !key || seen.has(key)) return;
         seen.add(key);
         items.push({
             source: String(value.source || '').trim(),
@@ -542,6 +546,11 @@ function normalizeReadingQueue(values, maxItems = 30) {
         });
     });
     return items.slice(0, maxItems);
+}
+
+function hasReadingQueueItem(item) {
+    const key = getReadingQueueKey(item);
+    return Boolean(key) && currentReadingQueue.some(savedItem => getReadingQueueKey(savedItem) === key);
 }
 
 function setAnswerMode(mode) {
@@ -598,18 +607,20 @@ function resetSmartSuggestions() {
     renderNextActions([]);
 }
 
-function renderReadingQueue() {
+function renderReadingQueue(message = '') {
     const container = document.getElementById('readingQueue');
     const meta = document.getElementById('readingQueueMeta');
+    const clearButton = document.getElementById('clearReadingQueueBtn');
     if (!container) return;
     currentReadingQueue = normalizeReadingQueue(currentReadingQueue);
+    if (clearButton) clearButton.disabled = !currentReadingQueue.length;
     if (meta) {
-        meta.textContent = currentReadingQueue.length
+        meta.textContent = message || (currentReadingQueue.length
             ? `${currentReadingQueue.length} saved paper(s) in this session reading queue.`
-            : 'Save papers from search or recommendations into this session reading queue.';
+            : 'Save papers from search or recommendations into this session reading queue.');
     }
     if (!currentReadingQueue.length) {
-        container.innerHTML = '<p class="empty-state">No saved papers yet.</p>';
+        container.innerHTML = '<p class="empty-state">No saved papers yet. Save strong search or recommendation results to build an export-ready reading trail.</p>';
         return;
     }
     container.innerHTML = currentReadingQueue.map((item, index) => {
@@ -633,8 +644,8 @@ function renderReadingQueue() {
     }).join('');
 }
 
-async function saveReadingQueue({ silent = true } = {}) {
-    renderReadingQueue();
+async function saveReadingQueue({ silent = true, message = '' } = {}) {
+    renderReadingQueue(message);
     renderExportPreview();
     if (!currentSessionId || !currentSessionToken) return;
     try {
@@ -650,15 +661,23 @@ async function saveReadingQueue({ silent = true } = {}) {
         const data = await parseJsonSafely(response);
         if (!response.ok) throw new Error(data.error || 'Reading queue save failed.');
         currentReadingQueue = normalizeReadingQueue(data.items || currentReadingQueue);
-        renderReadingQueue();
+        renderReadingQueue(message);
     } catch (error) {
         if (!silent) showError(error.message || 'Reading queue save failed.');
     }
 }
 
 function addPaperToQueue(item) {
+    if (hasReadingQueueItem(item)) {
+        renderReadingQueue('This paper is already in your reading queue.');
+        updateStatus('Paper already saved', 'idle');
+        return;
+    }
     currentReadingQueue = normalizeReadingQueue([...currentReadingQueue, item]);
-    saveReadingQueue({ silent: false });
+    const message = `Saved “${item.title || 'paper'}” to the reading queue.`;
+    renderReadingQueue(message);
+    updateStatus('Paper saved to queue', 'success');
+    saveReadingQueue({ silent: false, message });
 }
 
 function addPaperToQueueByIndex(elementId, index) {
@@ -672,14 +691,16 @@ function addPaperToQueueByIndex(elementId, index) {
 }
 
 function removePaperFromQueue(index) {
+    const removed = currentReadingQueue[index];
     currentReadingQueue.splice(index, 1);
     currentReadingQueue = normalizeReadingQueue(currentReadingQueue);
-    saveReadingQueue({ silent: false });
+    saveReadingQueue({ silent: false, message: removed ? `Removed “${removed.title}” from the reading queue.` : 'Removed paper from the reading queue.' });
 }
 
 function clearReadingQueue() {
+    if (!currentReadingQueue.length) return;
     currentReadingQueue = [];
-    saveReadingQueue({ silent: false });
+    saveReadingQueue({ silent: false, message: 'Reading queue cleared.' });
 }
 
 function applyAnalysisSection(sectionName, sectionPayload, generateEvaluation, generateMermaid, generateResearchBrief = true) {

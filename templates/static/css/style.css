@@ -890,6 +890,11 @@ button.paper-link:disabled {
     padding: 6px 10px;
 }
 .action-btn:hover { color: var(--text-primary); }
+.action-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.action-btn:disabled:hover { color: var(--text-secondary); }
 
 @keyframes spin { 100% { transform: rotate(360deg); } }
 @keyframes revealUp {
