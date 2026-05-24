@@ -1181,14 +1181,11 @@ def cleanup_expired_sessions(force=False):
                 payload = json.load(f)
             expires_at = parse_iso_datetime((payload or {}).get("expires_at"))
             if expires_at and expires_at.timestamp() < now_ts:
-                os.remove(file_path)
+                remove_file_safely(file_path, "expired session cleanup file")
                 logger.info("Removed expired session file: %s", file_path)
         except Exception as exc:
-            try:
-                os.remove(file_path)
-                logger.warning("Removed unreadable session file %s: %s", file_path, exc)
-            except Exception:
-                logger.exception("Failed to remove unreadable session file: %s", file_path)
+            remove_file_safely(file_path, "unreadable session cleanup file")
+            logger.warning("Removed unreadable session file %s: %s", file_path, exc)
             continue
 
 
