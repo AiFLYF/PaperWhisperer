@@ -80,8 +80,11 @@ def test_static_frontend_assets_are_served():
 
     assert js_response.status_code == 200
     assert "setAnswerMode" in js_response.text
+    assert "SUPPORTED_UPLOAD_EXTENSIONS" in js_response.text
+    assert "MAX_UPLOAD_BYTES" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
+    assert ".drop-zone.has-error" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():

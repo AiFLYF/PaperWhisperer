@@ -339,6 +339,11 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     border-style: solid;
     border-color: rgba(15, 118, 110, 0.48);
 }
+.drop-zone.has-error {
+    border-style: solid;
+    border-color: rgba(217, 72, 15, 0.52);
+    background: linear-gradient(135deg, rgba(217, 72, 15, 0.10), rgba(245, 158, 11, 0.08));
+}
 .drop-zone input[type="file"] {
     position: absolute;
     inset: 0;
