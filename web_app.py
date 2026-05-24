@@ -45,6 +45,7 @@ APP_NAME = "PaperWhisperer"
 APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.9.0").strip() or "0.9.0"
 APP_USER_AGENT = f"{APP_NAME}/{APP_VERSION}"
 APP_STARTED_AT = time.time()
+STATIC_ICON_CACHE_CONTROL = "public, max-age=86400, immutable"
 UPLOAD_FOLDER = "uploads"
 OUTPUT_FOLDER = "output"
 CONTEXT_FOLDER = "context"
@@ -2111,12 +2112,12 @@ async def index(request: Request):
 
 @app.get("/logo.ico")
 async def logo_ico():
-    return FileResponse("logo.ico", media_type="image/x-icon")
+    return FileResponse("logo.ico", media_type="image/x-icon", headers={"Cache-Control": STATIC_ICON_CACHE_CONTROL})
 
 
 @app.get("/favicon.ico")
 async def favicon():
-    return FileResponse("logo.ico", media_type="image/x-icon")
+    return FileResponse("logo.ico", media_type="image/x-icon", headers={"Cache-Control": STATIC_ICON_CACHE_CONTROL})
 
 
 @app.get("/api/health")
