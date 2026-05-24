@@ -29,6 +29,8 @@ let currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with 
 let currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
 
 const THEME_STORAGE_KEY = 'paperwhisperer-theme';
+const SUPPORTED_UPLOAD_EXTENSIONS = ['.txt', '.pdf', '.docx', '.pptx'];
+const MAX_UPLOAD_BYTES = 16 * 1024 * 1024;
 const SECTION_EMPTY_TEXT = {
     summary: 'Summary will appear here after analysis.',
     quotes: 'Key citations will appear here after analysis.',
@@ -88,7 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bindClick('downloadMermaidBtn', downloadMermaidSVG);
 
     initializeUploadDropZone();
-    document.getElementById('file')?.addEventListener('change', updateFileMeta);
+    document.getElementById('file')?.addEventListener('change', handleFileSelection);
     document.getElementById('paperSearchInput')?.addEventListener('keydown', handlePaperSearchKeyPress);
     document.getElementById('questionInput')?.addEventListener('keydown', handleKeyPress);
     document.querySelectorAll('.mode-chip').forEach(button => {
@@ -958,9 +960,30 @@ function initializeUploadDropZone() {
         const transfer = new DataTransfer();
         transfer.items.add(file);
         fileInput.files = transfer.files;
-        updateFileMeta();
-        hideError();
+        handleFileSelection();
     });
+}
+
+function getUploadValidationError(file) {
+    if (!file) return 'Please select a document first.';
+    const lowerName = file.name.toLowerCase();
+    const isSupported = SUPPORTED_UPLOAD_EXTENSIONS.some(extension => lowerName.endsWith(extension));
+    if (!isSupported) {
+        return `Unsupported file type. Please upload ${SUPPORTED_UPLOAD_EXTENSIONS.join(', ')}.`;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+        return `File is too large (${formatFileSize(file.size)}). Maximum supported size is ${formatFileSize(MAX_UPLOAD_BYTES)}.`;
+    }
+    return '';
+}
+
+function handleFileSelection() {
+    const fileInput = document.getElementById('file');
+    const file = fileInput?.files?.[0];
+    const error = getUploadValidationError(file);
+    updateFileMeta(error);
+    if (error && file) showError(error);
+    if (!error) hideError();
 }
 
 function formatFileSize(bytes) {
@@ -974,7 +997,7 @@ function formatFileSize(bytes) {
     return `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
-function updateFileMeta() {
+function updateFileMeta(validationError = '') {
     const fileInput = document.getElementById('file');
     const file = fileInput?.files?.[0];
     const fileMeta = document.getElementById('fileMeta');
@@ -982,12 +1005,14 @@ function updateFileMeta() {
     if (!fileMeta) return;
     if (!file) {
         fileMeta.textContent = 'No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.';
-        dropZone?.classList.remove('has-file');
+        dropZone?.classList.remove('has-file', 'has-error');
         return;
     }
 
-    dropZone?.classList.add('has-file');
-    fileMeta.textContent = `Selected: ${file.name} · ${formatFileSize(file.size)}`;
+    dropZone?.classList.toggle('has-file', !validationError);
+    dropZone?.classList.toggle('has-error', Boolean(validationError));
+    const status = validationError ? 'Cannot upload' : 'Selected';
+    fileMeta.textContent = `${status}: ${file.name} · ${formatFileSize(file.size)}${validationError ? ` · ${validationError}` : ''}`;
 }
 
 function setFileInfo(fileName, charCount) {
@@ -1191,8 +1216,11 @@ async function analyze() {
     const analyzeBtn = document.getElementById('analyzeBtn');
     const askBtn = document.getElementById('askBtn');
 
-    if (!file) {
-        showError('Please select a document first.');
+    const uploadError = getUploadValidationError(file);
+    if (uploadError) {
+        updateFileMeta(file ? uploadError : '');
+        showError(uploadError);
+        updateStatus('Upload needs attention', 'error');
         return;
     }
 
