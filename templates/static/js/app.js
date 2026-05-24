@@ -514,8 +514,14 @@ function updateAnalysisProgress(step, text) {
     const activeIndex = Math.max(order.indexOf(step), 0);
     document.querySelectorAll('.progress-step').forEach(element => {
         const index = order.indexOf(element.dataset.step);
+        const isActive = index === activeIndex;
         element.classList.toggle('done', index >= 0 && index < activeIndex);
-        element.classList.toggle('active', index === activeIndex);
+        element.classList.toggle('active', isActive);
+        if (isActive) {
+            element.setAttribute('aria-current', 'step');
+        } else {
+            element.removeAttribute('aria-current');
+        }
     });
 }
 
