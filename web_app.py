@@ -721,9 +721,13 @@ def build_sse_headers():
     }
 
 
+def build_error_payload(message, code="bad_request"):
+    return {"error": message, "code": code, "timestamp": now_iso()}
+
+
 def build_error_response(message, status_code=400, code="bad_request"):
     return JSONResponse(
-        content={"error": message, "code": code, "timestamp": now_iso()},
+        content=build_error_payload(message, code=code),
         status_code=status_code,
     )
 
@@ -2315,7 +2319,7 @@ async def analyze_stream(
             yield build_sse_event("done", final_payload)
         except Exception as exc:
             logger.exception("Streaming document analysis failed")
-            yield build_sse_event("error", {"error": str(exc)})
+            yield build_sse_event("error", build_error_payload(str(exc), code="streaming_analysis_failed"))
         finally:
             remove_file_safely(file_path, "streamed analyzed upload file")
 
@@ -2473,7 +2477,7 @@ async def ask_question_stream(request: Request):
             yield build_sse_event("done", {"answer": answer})
         except Exception as exc:
             logger.exception("Streaming question answering failed")
-            yield build_sse_event("error", {"error": str(exc)})
+            yield build_sse_event("error", build_error_payload(str(exc), code="streaming_question_failed"))
 
     return StreamingResponse(event_generator(), media_type="text/event-stream", headers=build_sse_headers())
 
