@@ -808,6 +808,7 @@ function setAnswerMode(mode) {
     document.querySelectorAll('.mode-chip').forEach(button => {
         const selected = button.dataset.mode === currentAnswerMode;
         button.classList.toggle('active', selected);
+        button.setAttribute('aria-checked', selected ? 'true' : 'false');
         button.setAttribute('aria-pressed', selected ? 'true' : 'false');
     });
     const hint = document.getElementById('answerModeHint');
