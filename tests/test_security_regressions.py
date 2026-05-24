@@ -108,6 +108,8 @@ def test_index_page_renders():
     assert 'Evidence check' in response.text
     assert 'rel="preconnect" href="https://cdn.jsdelivr.net"' in response.text
     assert 'rel="dns-prefetch" href="https://github.com"' in response.text
+    assert 'href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" referrerpolicy="strict-origin-when-cross-origin"' in response.text
+    assert 'src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer referrerpolicy="strict-origin-when-cross-origin"' in response.text
     assert 'fetchpriority="high"' in response.text
     assert 'class="github-link" href="https://github.com/AiFLYF/PaperWhisperer" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin"' in response.text
     assert 'src="https://github.com/favicon.ico" alt="GitHub" width="18" height="18" loading="lazy" decoding="async" referrerpolicy="strict-origin-when-cross-origin"' in response.text
