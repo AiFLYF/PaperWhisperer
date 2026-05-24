@@ -438,6 +438,10 @@ def build_ssl_context():
     return ssl.create_default_context()
 
 
+def get_retry_delay_seconds(attempt, max_delay=6):
+    return min(2 * (attempt + 1), max_delay)
+
+
 def http_get_json(url, timeout=20, headers=None, retries=1, ssl_context=None):
     request = urllib.request.Request(url, headers=headers or {})
     last_error = None
@@ -449,13 +453,13 @@ def http_get_json(url, timeout=20, headers=None, retries=1, ssl_context=None):
         except urllib.error.HTTPError as exc:
             last_error = exc
             if exc.code == 429 and attempt < retries - 1:
-                time.sleep(min(2 * (attempt + 1), 6))
+                time.sleep(get_retry_delay_seconds(attempt))
                 continue
             raise
         except Exception as exc:
             last_error = exc
             if attempt < retries - 1:
-                time.sleep(min(2 * (attempt + 1), 6))
+                time.sleep(get_retry_delay_seconds(attempt))
                 continue
             raise
     raise last_error
@@ -472,13 +476,13 @@ def http_get_text(url, timeout=20, headers=None, retries=1, ssl_context=None):
         except urllib.error.HTTPError as exc:
             last_error = exc
             if exc.code == 429 and attempt < retries - 1:
-                time.sleep(min(2 * (attempt + 1), 6))
+                time.sleep(get_retry_delay_seconds(attempt))
                 continue
             raise
         except Exception as exc:
             last_error = exc
             if attempt < retries - 1:
-                time.sleep(min(2 * (attempt + 1), 6))
+                time.sleep(get_retry_delay_seconds(attempt))
                 continue
             raise
     raise last_error
