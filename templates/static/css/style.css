@@ -300,8 +300,9 @@ body[data-theme="dark"] {
 
 input[type="text"], input[type="file"] {
     width: 100%; padding: 14px 16px; background-color: var(--input-bg);
-    border: 1px solid transparent; border-radius: var(--radius-md); font-size: 15px;
+    border: 1px solid transparent; border-radius: var(--radius-md); font-size: 16px;
     color: var(--text-primary); transition: var(--transition); font-family: inherit;
+    min-height: 48px;
 }
 input[type="file"] { padding: 10px; cursor: pointer; }
 input[type="file"]::file-selector-button {
@@ -342,8 +343,9 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
     background: rgba(255, 255, 255, 0.28);
+    min-height: 48px;
 }
-.checkbox-label input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--primary-color); cursor: pointer; }
+.checkbox-label input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--primary-color); cursor: pointer; flex: 0 0 auto; }
 
 .btn {
     background: linear-gradient(135deg, var(--primary-color), #1f9c88 58%, var(--accent-color));
@@ -449,6 +451,8 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
         repeating-linear-gradient(90deg, transparent, transparent 27px, rgba(125, 132, 144, 0.05) 28px),
         var(--canvas-bg);
     position: relative; cursor: grab;
+    touch-action: none;
+    overscroll-behavior: contain;
 }
 .mermaid-wrapper:active { cursor: grabbing; }
 .mermaid-container { width: 100%; height: 100%; }
@@ -559,7 +563,8 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 6px 12px;
+    padding: 10px 14px;
+    min-height: 44px;
     border-radius: 999px;
     border: 1px solid var(--border-color);
     color: var(--primary-color);
@@ -568,6 +573,7 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     font-weight: 500;
     background: transparent;
     cursor: pointer;
+    touch-action: manipulation;
 }
 .paper-link:hover {
     border-color: var(--primary-color);
@@ -603,8 +609,10 @@ button.paper-link:disabled {
     font-family: inherit;
     font-size: 13px;
     line-height: 1.35;
-    padding: 9px 13px;
+    padding: 10px 14px;
+    min-height: 44px;
     transition: var(--transition);
+    touch-action: manipulation;
 }
 .prompt-chip:hover,
 .next-action-btn:hover {
@@ -767,9 +775,39 @@ button.paper-link:disabled {
     .logo { font-size: 28px; }
     .hero-copy { font-size: 15px; }
     .card, .result-card { padding: 20px; }
+    .section-header { align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+    .paper-actions { flex-direction: column; }
+    .paper-actions input, .paper-actions .btn { width: 100%; min-width: 0; }
+    .paper-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .paper-link { width: 100%; }
     .export-preview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .ask-input-group { flex-direction: column; }
     .ask-input-group .btn { width: 100%; padding: 14px 0; }
     .chat-item { max-width: 95%; }
     .mermaid-wrapper { height: 350px; }
+}
+
+
+@media (max-width: 520px) {
+    body { padding: 14px 10px 28px; }
+    .nav-header { padding: 16px; border-radius: 22px; }
+    .brand { align-items: flex-start; }
+    .brand-mark { width: 42px; height: 42px; border-radius: 14px; }
+    .logo { font-size: 24px; }
+    .logo span { font-size: 11px; letter-spacing: 0.08em; }
+    .hero-copy { font-size: 14px; line-height: 1.6; }
+    .nav-actions { gap: 8px; }
+    .status-chip { width: 100%; justify-content: center; }
+    .theme-toggle, .github-link { width: 44px; height: 44px; }
+    .card, .result-card { padding: 16px; border-radius: 20px; }
+    .options-group { gap: 10px; margin-bottom: 22px; }
+    .checkbox-label { flex-basis: 100%; }
+    .canvas-toolbar { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); }
+    .tool-btn { width: 100%; }
+    .mermaid-wrapper { height: 300px; }
+    .export-preview-grid { grid-template-columns: 1fr; }
+    .paper-links { grid-template-columns: 1fr; }
+    .chat-item { max-width: 100%; padding: 14px 16px; }
+    .prompt-chip, .next-action-btn { width: 100%; justify-content: center; }
+    .site-footer { margin-top: 36px; }
 }
