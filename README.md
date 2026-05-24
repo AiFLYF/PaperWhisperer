@@ -284,6 +284,23 @@ data: {"answer":"完整答案"}
 }
 ```
 
+### `GET /api/health`
+
+返回轻量运行状态，便于本地检查、容器探活或部署平台健康检查。
+
+```json
+{
+  "status": "ok",
+  "app": "PaperWhisperer",
+  "timestamp": "2026-05-25T00:00:00Z",
+  "folders": {
+    "uploads": {"exists": true, "writable": true},
+    "output": {"exists": true, "writable": true},
+    "context": {"exists": true, "writable": true}
+  }
+}
+```
+
 ## Session 生命周期
 
 - 分析成功后服务端会写入 `context/<session_id>.json`。
