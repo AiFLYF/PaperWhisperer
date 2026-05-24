@@ -17,7 +17,7 @@ PaperWhisperer 是一个面向论文和技术文档阅读的 AI Research Workspa
 - 支持把搜索或推荐结果保存到带编号卡片和结构化元信息的 Reading Queue。
 - 支持从公开 PDF 直链导入论文并替换当前分析会话。
 - 支持导出 Markdown 会话报告和 Mermaid SVG，导出预览会用分组卡片展示分析、问答、论文线索和可视化资产；Mermaid 渲染器会在需要图谱时按需加载。
-- 内置上传校验、远程 URL 校验、会话 token、XSS 防护和 JSON 请求校验。
+- 内置上传校验、远程 URL 校验、会话 token、XSS 防护、JSON 请求校验和结构化错误响应。
 - 前端提供拖拽上传、结构化文件反馈、分析进度、结果状态卡、请求取消按钮、顶部快速导航、跳转链接、快捷键、返回顶部、语义化按钮反馈、键盘焦点流转、减少动效适配、移动端触控优化和资源加载预热。
 
 ## 使用场景
@@ -133,6 +133,8 @@ python -m pytest tests/test_security_regressions.py
 9. 点击 `Export Session` 导出分析、阅读队列、搜索轨迹、问答历史和 Mermaid 资源；复制和导出按钮会显示成功或缺失内容反馈。
 
 ## API 概览
+
+所有 JSON API 校验和异常响应都会包含 `error`、`code`、`timestamp` 字段；SSE 流式接口的 `error` 事件也使用相同结构，方便前端和脚本按错误码处理。
 
 ### `POST /api/analyze`
 
