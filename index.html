@@ -978,13 +978,13 @@ if (!coarsePointer && !reduceMotion) {
 
   window.addEventListener('mousemove', e => {
     cx = e.clientX; cy = e.clientY;
-    cur.style.left = cx + 'px';
-    cur.style.top = cy + 'px';
   }, { passive: true });
 
   (function animCursor() {
     rx += (cx - rx) * .12;
     ry += (cy - ry) * .12;
+    cur.style.left = cx + 'px';
+    cur.style.top = cy + 'px';
     curR.style.left = rx + 'px';
     curR.style.top = ry + 'px';
     requestAnimationFrame(animCursor);
