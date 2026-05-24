@@ -1089,7 +1089,7 @@ button.paper-link:disabled {
 .ask-input-group .btn { width: auto; padding: 0 24px; }
 .smart-prompts,
 .next-actions {
-    display: none;
+    display: flex;
     flex-wrap: wrap;
     gap: 10px;
     margin-bottom: 14px;

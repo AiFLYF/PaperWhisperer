@@ -784,7 +784,7 @@ function renderSmartPrompts(questions = currentSuggestedQuestions) {
     if (!container) return;
     currentSuggestedQuestions = normalizeSmartTextItems(questions);
     container.innerHTML = '';
-    container.style.display = currentSuggestedQuestions.length ? 'flex' : 'none';
+    container.classList.toggle('is-hidden', !currentSuggestedQuestions.length);
     currentSuggestedQuestions.forEach(question => {
         const button = document.createElement('button');
         button.className = 'prompt-chip';
@@ -800,7 +800,7 @@ function renderNextActions(actions = currentNextActions) {
     if (!container) return;
     currentNextActions = normalizeSmartActions(actions);
     container.innerHTML = '';
-    container.style.display = currentNextActions.length ? 'flex' : 'none';
+    container.classList.toggle('is-hidden', !currentNextActions.length);
     currentNextActions.forEach(action => {
         const button = document.createElement('button');
         button.className = 'next-action-btn';
