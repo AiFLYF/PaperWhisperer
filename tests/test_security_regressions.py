@@ -799,22 +799,26 @@ def test_parse_json_object_request_logs_body_read_failure(caplog):
     assert "Failed to read JSON request body: client disconnected" in caplog.text
 
 
-def test_load_session_payload_removes_corrupted_json(tmp_path, monkeypatch):
+def test_load_session_payload_removes_corrupted_json(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
     session_file = tmp_path / "broken.json"
     session_file.write_text("{not valid json", encoding="utf-8")
+    caplog.set_level("WARNING", logger=web_app.__name__)
 
     assert web_app.load_session_payload("broken") is None
     assert not session_file.exists()
+    assert f"Removed corrupt session file {session_file}" in caplog.text
 
 
-def test_load_session_payload_removes_non_object_json(tmp_path, monkeypatch):
+def test_load_session_payload_removes_non_object_json(tmp_path, monkeypatch, caplog):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
     session_file = tmp_path / "broken.json"
     session_file.write_text("[]", encoding="utf-8")
+    caplog.set_level("WARNING", logger=web_app.__name__)
 
     assert web_app.load_session_payload("broken") is None
     assert not session_file.exists()
+    assert f"Removed non-object session file {session_file}" in caplog.text
 
 
 def test_load_session_payload_logs_unreadable_file(tmp_path, monkeypatch, caplog):
