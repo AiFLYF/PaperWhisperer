@@ -706,16 +706,27 @@ function formatContent(content, fallbackText) {
     return sanitizeGeneratedHtml(htmlContent);
 }
 
-function renderSectionStateCard(title, detail, tone = 'empty') {
-    return `
-        <div class="section-state section-state-${tone}">
-            <span class="section-state-icon" aria-hidden="true">${tone === 'error' ? '!' : 'i'}</span>
-            <div>
-                <p class="section-state-title">${escapeHtml(title)}</p>
-                <p class="section-state-detail">${escapeHtml(detail)}</p>
-            </div>
-        </div>
-    `;
+function createSectionStateCard(title, detail, tone = 'empty') {
+    const card = document.createElement('div');
+    card.className = `section-state section-state-${tone}`;
+
+    const icon = document.createElement('span');
+    icon.className = 'section-state-icon';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = tone === 'error' ? '!' : 'i';
+
+    const body = document.createElement('div');
+    const titleElement = document.createElement('p');
+    titleElement.className = 'section-state-title';
+    titleElement.textContent = title;
+
+    const detailElement = document.createElement('p');
+    detailElement.className = 'section-state-detail';
+    detailElement.textContent = detail;
+
+    body.append(titleElement, detailElement);
+    card.append(icon, body);
+    return card;
 }
 
 function setSectionContent(id, value, errorMessage = '') {
@@ -723,11 +734,11 @@ function setSectionContent(id, value, errorMessage = '') {
     if (!element) return;
     element.dataset.rawContent = value || '';
     if (errorMessage) {
-        element.innerHTML = renderSectionStateCard('Section needs review', errorMessage, 'error');
+        element.replaceChildren(createSectionStateCard('Section needs review', errorMessage, 'error'));
         return;
     }
     if (!value) {
-        element.innerHTML = renderSectionStateCard('Waiting for content', SECTION_EMPTY_TEXT[id] || 'No content available.');
+        element.replaceChildren(createSectionStateCard('Waiting for content', SECTION_EMPTY_TEXT[id] || 'No content available.'));
         return;
     }
     element.innerHTML = formatContent(value, SECTION_EMPTY_TEXT[id]);
