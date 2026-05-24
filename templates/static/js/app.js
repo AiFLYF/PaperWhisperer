@@ -1051,7 +1051,7 @@ async function readSseStream(response, handlers = {}) {
 
 function setButtonLoading(button, loadingText, defaultText, isLoading) {
     button.disabled = isLoading;
-    button.innerText = isLoading ? loadingText : defaultText;
+    button.textContent = isLoading ? loadingText : defaultText;
 }
 
 function normalizeMermaidSource(source) {

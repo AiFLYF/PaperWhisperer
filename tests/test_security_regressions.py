@@ -63,6 +63,21 @@ def test_index_page_renders():
 
     assert response.status_code == 200
     assert "PaperWhisperer" in response.text
+    assert "aria-live=\"polite\"" in response.text
+    assert "Deep Research Brief" in response.text
+    assert "Reading Queue" in response.text
+
+
+def test_static_frontend_assets_are_served():
+    client = TestClient(web_app.app)
+
+    js_response = client.get("/static/js/app.js")
+    css_response = client.get("/static/css/style.css")
+
+    assert js_response.status_code == 200
+    assert "setAnswerMode" in js_response.text
+    assert css_response.status_code == 200
+    assert "prefers-reduced-motion" in css_response.text
 
 
 def test_save_upload_file_accepts_valid_pdf(tmp_path):
