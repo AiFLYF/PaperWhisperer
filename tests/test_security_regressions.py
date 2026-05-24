@@ -112,6 +112,8 @@ def test_index_page_renders():
     assert 'aria-labelledby="paperSearchTitle"' in response.text
     assert 'aria-labelledby="readingQueueTitle"' in response.text
     assert 'role="region" aria-label="Analysis results workspace" tabindex="-1"' in response.text
+    assert 'class="result-card is-hidden" id="mermaidCard"' in response.text
+    assert 'style="display: none;"' not in response.text
     assert 'aria-labelledby="askQuestionsTitle"' in response.text
 
 
@@ -169,6 +171,10 @@ def test_static_frontend_assets_are_served():
     assert "mermaidReadyPromise" in js_response.text
     assert "mermaid-svg-fit" in js_response.text
     assert "mermaid-error-message" in js_response.text
+    assert "setMermaidCardVisible" in js_response.text
+    assert "mermaidHidden" in js_response.text
+    assert "mermaidCard.style.display" not in js_response.text
+    assert "document.getElementById('mermaidCard').style.display" not in js_response.text
     assert "createInlineSpinner" in js_response.text
     assert "style=\"width:16px" not in js_response.text
     assert "style=\"color:#d9480f" not in js_response.text
@@ -209,6 +215,7 @@ def test_static_frontend_assets_are_served():
     assert ".mermaid-fallback-message" in css_response.text
     assert ".mermaid-error-message" in css_response.text
     assert ".mermaid-raw-fallback" in css_response.text
+    assert ".is-hidden" in css_response.text
     assert ".paper-state" in css_response.text
     assert ".workspace-guidance" in css_response.text
     assert ".btn.is-busy" in css_response.text

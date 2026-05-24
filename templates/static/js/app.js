@@ -1128,10 +1128,14 @@ function resetPanZoom() {
     }
 }
 
+function setMermaidCardVisible(visible) {
+    document.getElementById('mermaidCard')?.classList.toggle('is-hidden', !visible);
+}
+
 function resetMermaidCard() {
     resetPanZoom();
     currentMermaidSource = '';
-    document.getElementById('mermaidCard').style.display = 'none';
+    setMermaidCardVisible(false);
     document.getElementById('mermaidChart').innerHTML = '';
 }
 
@@ -1170,7 +1174,7 @@ function captureWorkspaceState() {
         ui: {
             resultActive: document.getElementById('result').classList.contains('active'),
             evaluationDisplay: document.getElementById('evaluationCard').style.display,
-            mermaidDisplay: document.getElementById('mermaidCard').style.display,
+            mermaidHidden: document.getElementById('mermaidCard').classList.contains('is-hidden'),
             askDisabled: document.getElementById('askBtn').disabled,
             exportDisabled: document.getElementById('exportBtn').disabled,
             recommendDisabled: document.getElementById('recommendBtn').disabled
@@ -1217,7 +1221,7 @@ function restoreWorkspaceState(snapshot) {
 
     document.getElementById('result').classList.toggle('active', snapshot.ui.resultActive);
     document.getElementById('evaluationCard').style.display = snapshot.ui.evaluationDisplay;
-    document.getElementById('mermaidCard').style.display = snapshot.ui.mermaidDisplay;
+    setMermaidCardVisible(!snapshot.ui.mermaidHidden);
     setControlDisabled(document.getElementById('askBtn'), snapshot.ui.askDisabled);
     setControlDisabled(document.getElementById('exportBtn'), snapshot.ui.exportDisabled);
     setControlDisabled(document.getElementById('recommendBtn'), snapshot.ui.recommendDisabled);
@@ -1524,7 +1528,6 @@ function normalizeMermaidSource(source) {
 }
 
 async function renderMermaidDiagram(source) {
-    const mermaidCard = document.getElementById('mermaidCard');
     const mermaidDiv = document.getElementById('mermaidChart');
     const cleanSource = normalizeMermaidSource(source);
 
@@ -1534,7 +1537,7 @@ async function renderMermaidDiagram(source) {
     }
 
     const instance = await loadMermaidRenderer();
-    mermaidCard.style.display = 'block';
+    setMermaidCardVisible(true);
     mermaidDiv.innerHTML = '';
     currentMermaidSource = cleanSource;
 
