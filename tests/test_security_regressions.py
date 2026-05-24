@@ -74,6 +74,7 @@ def test_index_page_renders():
     assert "Upload" in response.text
     assert 'id="answerModeHint"' in response.text
     assert 'aria-pressed="true"' in response.text
+    assert "Ask about evidence, methods, limitations, or reproducibility" in response.text
 
 
 def test_static_frontend_assets_are_served():
@@ -97,6 +98,8 @@ def test_static_frontend_assets_are_served():
     assert "Session report exported" in js_response.text
     assert "aria-busy" in js_response.text
     assert "is-busy" in js_response.text
+    assert "Search query needed" in js_response.text
+    assert "Question needed" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
