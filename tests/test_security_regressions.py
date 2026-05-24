@@ -303,7 +303,10 @@ def test_static_frontend_assets_are_served():
     assert "data-paper-action" in js_response.text
     assert "onclick=\"" not in js_response.text
     assert "exportPreviewItems" in js_response.text
-    assert "Export contents summary" in js_response.text
+    assert "grid.setAttribute('aria-label', 'Export contents summary')" in js_response.text
+    assert "preview.replaceChildren(grid, guidance, note)" in js_response.text
+    assert "note.textContent = 'Includes analysis, research brief, reading queue, suggested follow-ups, research trace, and local Q&A history.'" in js_response.text
+    assert "preview.innerHTML" not in js_response.text
     assert "Mermaid SVG can be exported" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text

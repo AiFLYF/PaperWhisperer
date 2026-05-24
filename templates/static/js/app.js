@@ -2378,7 +2378,10 @@ function renderExportPreview() {
     const preview = document.getElementById('exportPreview');
     if (!preview) return;
     if (!currentAnalysisResult) {
-        preview.innerHTML = '<p class="empty-state">Export the current analysis, Q&A history, research trace, and Mermaid assets after a successful run.</p>';
+        const empty = document.createElement('p');
+        empty.className = 'empty-state';
+        empty.textContent = 'Export the current analysis, Q&A history, research trace, and Mermaid assets after a successful run.';
+        preview.replaceChildren(empty);
         return;
     }
 
@@ -2393,27 +2396,43 @@ function renderExportPreview() {
         { label: 'Visuals', value: currentMermaidSource ? 'Map ready' : 'No map', detail: currentMermaidSource ? 'Mermaid SVG can be exported' : 'Enable structure diagram for visuals' }
     ];
     const guidanceItems = getWorkspaceGuidanceItems(status, completed);
-    preview.innerHTML = `
-        <div class="export-preview-grid" aria-label="Export contents summary">
-            ${exportPreviewItems.map(item => `
-                <div class="export-preview-card">
-                    <span>${escapeHtml(item.label)}</span>
-                    <strong>${escapeHtml(item.value)}</strong>
-                    <small>${escapeHtml(item.detail)}</small>
-                </div>
-            `).join('')}
-        </div>
-        <div class="workspace-guidance" aria-label="Workspace guidance">
-            ${guidanceItems.map(item => `
-                <div class="workspace-guidance-item">
-                    <span>${escapeHtml(item.label)}</span>
-                    <strong>${escapeHtml(item.value)}</strong>
-                    <small>${escapeHtml(item.detail)}</small>
-                </div>
-            `).join('')}
-        </div>
-        <p class="export-preview-note">Includes analysis, research brief, reading queue, suggested follow-ups, research trace, and local Q&A history.</p>
-    `;
+
+    const grid = document.createElement('div');
+    grid.className = 'export-preview-grid';
+    grid.setAttribute('aria-label', 'Export contents summary');
+    exportPreviewItems.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'export-preview-card';
+        const label = document.createElement('span');
+        label.textContent = item.label;
+        const value = document.createElement('strong');
+        value.textContent = item.value;
+        const detail = document.createElement('small');
+        detail.textContent = item.detail;
+        card.append(label, value, detail);
+        grid.appendChild(card);
+    });
+
+    const guidance = document.createElement('div');
+    guidance.className = 'workspace-guidance';
+    guidance.setAttribute('aria-label', 'Workspace guidance');
+    guidanceItems.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'workspace-guidance-item';
+        const label = document.createElement('span');
+        label.textContent = item.label;
+        const value = document.createElement('strong');
+        value.textContent = item.value;
+        const detail = document.createElement('small');
+        detail.textContent = item.detail;
+        card.append(label, value, detail);
+        guidance.appendChild(card);
+    });
+
+    const note = document.createElement('p');
+    note.className = 'export-preview-note';
+    note.textContent = 'Includes analysis, research brief, reading queue, suggested follow-ups, research trace, and local Q&A history.';
+    preview.replaceChildren(grid, guidance, note);
 }
 
 function buildSessionMarkdown() {
