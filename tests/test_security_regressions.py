@@ -503,6 +503,29 @@ def test_analyze_stream_emits_sections_and_done(tmp_path, monkeypatch):
     assert '"session_token"' in response.text
 
 
+def test_analyze_stream_error_event_is_structured(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "UPLOAD_FOLDER", str(tmp_path / "uploads"))
+    os.makedirs(web_app.UPLOAD_FOLDER, exist_ok=True)
+
+    def fail_analyze_stream(self, file_path, generate_mermaid=True, generate_evaluation=True, generate_research_brief=True):
+        raise RuntimeError("stream failed")
+        yield
+
+    monkeypatch.setattr(web_app.PaperWhisperer, "analyze_stream", fail_analyze_stream)
+
+    response = TestClient(web_app.app).post(
+        "/api/analyze/stream",
+        data={"api_key": "key"},
+        files={"file": ("paper.txt", b"plain text document", "text/plain")},
+    )
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert '"error": "stream failed"' in response.text
+    assert '"code": "streaming_analysis_failed"' in response.text
+    assert '"timestamp"' in response.text
+
+
 def test_remote_error_descriptions_are_consistent():
     assert web_app.describe_remote_http_error(404) == "The paper file could not be found at the remote source."
     assert web_app.describe_remote_http_error(403) == "The remote source denied access to the paper file."
@@ -894,6 +917,46 @@ def test_ask_stream_persists_answer_mode_and_sse_events(tmp_path, monkeypatch):
             "timestamp": payload["qa_history"][0]["timestamp"],
         }
     ]
+
+
+def test_ask_stream_error_event_is_structured(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    token = "token"
+    session_id = "session"
+    web_app.write_session_payload(
+        session_id,
+        {
+            "expires_at": web_app.build_session_expiry(),
+            "document_content": "document",
+            "qa_history": [],
+            "session_auth": {"token_hash": web_app.hash_session_token(token)},
+        },
+    )
+
+    def fail_stream_answer(self, question, history=None, answer_mode="evidence"):
+        raise RuntimeError("qa stream failed")
+        yield
+
+    monkeypatch.setattr(web_app.PaperWhisperer, "stream_answer_question", fail_stream_answer)
+
+    response = TestClient(web_app.app).post(
+        "/api/ask/stream",
+        content=json.dumps(
+            {
+                "session_id": session_id,
+                "session_token": token,
+                "api_key": "key",
+                "question": "What?",
+            }
+        ),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    assert "event: error" in response.text
+    assert '"error": "qa stream failed"' in response.text
+    assert '"code": "streaming_question_failed"' in response.text
+    assert '"timestamp"' in response.text
 
 
 def test_cleanup_expired_sessions_removes_malformed_json(tmp_path, monkeypatch, caplog):
