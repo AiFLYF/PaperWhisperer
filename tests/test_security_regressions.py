@@ -85,8 +85,8 @@ def test_index_page_renders():
     assert 'type="search" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="search"' in response.text
     assert 'id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint" autocomplete="off" autocapitalize="off" spellcheck="false"' in response.text
     assert 'id="answerModeGroup" role="radiogroup" aria-label="Answer mode" aria-describedby="answerModeHint"' in response.text
-    assert 'role="radio" data-mode="evidence" aria-checked="true" aria-pressed="true"' in response.text
-    assert 'role="radio" data-mode="reproduce" aria-checked="false" aria-pressed="false"' in response.text
+    assert 'role="radio" data-mode="evidence" aria-checked="true" aria-pressed="true" tabindex="0"' in response.text
+    assert 'role="radio" data-mode="reproduce" aria-checked="false" aria-pressed="false" tabindex="-1"' in response.text
     assert "Ask about evidence, methods, limitations, or reproducibility" in response.text
     assert 'id="backToTopBtn" aria-label="Back to top" aria-hidden="true" tabindex="-1"' in response.text
     assert 'class="skip-links"' in response.text
@@ -150,6 +150,7 @@ def test_static_frontend_assets_are_served():
     assert "updateAnalysisProgress" in js_response.text
     assert "btn.setAttribute('aria-pressed', String(isDark))" in js_response.text
     assert "button.setAttribute('aria-checked', selected ? 'true' : 'false')" in js_response.text
+    assert "button.tabIndex = selected ? 0 : -1" in js_response.text
     assert "button.addEventListener('keydown', handleAnswerModeKeydown)" in js_response.text
     assert "function handleAnswerModeKeydown(event)" in js_response.text
     assert "const navigationKeys = ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'Home', 'End']" in js_response.text
