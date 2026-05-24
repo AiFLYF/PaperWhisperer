@@ -2389,9 +2389,13 @@ function exportSessionReport() {
         const originalText = exportBtn.innerText;
         exportBtn.innerText = svgSource ? 'Exported Report + SVG' : 'Exported Report';
         exportBtn.classList.add('action-success');
+        exportBtn.setAttribute('aria-busy', 'true');
+        setControlDisabled(exportBtn, true);
         setTimeout(() => {
             exportBtn.innerText = originalText;
             exportBtn.classList.remove('action-success');
+            exportBtn.removeAttribute('aria-busy');
+            setControlDisabled(exportBtn, false);
         }, 1800);
     }
     updateStatus(svgSource ? 'Session report and SVG exported' : 'Session report exported', 'success');
