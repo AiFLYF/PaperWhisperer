@@ -231,6 +231,9 @@ def test_static_frontend_assets_are_served():
     assert "clipboard-fallback-field" in js_response.text
     assert "textarea.remove()" in js_response.text
     assert "document.body.removeChild(textarea)" not in js_response.text
+    assert "function triggerTextDownload(fileName, content, mimeType = 'text/plain;charset=utf-8')" in js_response.text
+    assert "a.remove()" in js_response.text
+    assert "document.body.removeChild(a)" not in js_response.text
     assert "textarea.style.position" not in js_response.text
     assert "textarea.style.opacity" not in js_response.text
     assert "errorEl.focus({ preventScroll: true })" in js_response.text
