@@ -73,6 +73,7 @@ def test_index_page_renders():
     assert "PaperWhisperer" in response.text
     assert "aria-live=\"polite\"" in response.text
     assert 'id="themeBtn" aria-label="Switch to dark theme" aria-pressed="false"' in response.text
+    assert 'stroke-width="2" aria-hidden="true" focusable="false"' in response.text
     assert "Deep Research Brief" in response.text
     assert "Reading Queue" in response.text
     assert 'id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" aria-invalid="false"' in response.text
