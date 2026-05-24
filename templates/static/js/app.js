@@ -492,7 +492,8 @@ function toggleAIList() {
     const list = document.getElementById('aiList');
     const button = document.getElementById('aiToggleBtn');
     if (!list || !button) return;
-    const shouldShow = !list.classList.contains('show');
+    const shouldShow = list.hidden;
+    list.hidden = !shouldShow;
     list.classList.toggle('show', shouldShow);
     button.setAttribute('aria-expanded', String(shouldShow));
 }
