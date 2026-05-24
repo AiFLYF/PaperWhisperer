@@ -861,6 +861,7 @@ def test_load_session_payload_normalizes_nested_schema(tmp_path, monkeypatch):
                 "qa_history": "invalid",
                 "analysis": {"sections": "invalid"},
                 "paper_search": {
+                    "last_query": "  " + "query " * 80,
                     "last_results": [
                         {"title": "Valid Result", "abstract": "A" * 1400, "authors": ["A", "B", "C", "D", "E", "F", "G", "H", "I"]},
                         {"title": "Valid Result", "url": "https://example.com/duplicate"},
@@ -868,6 +869,11 @@ def test_load_session_payload_normalizes_nested_schema(tmp_path, monkeypatch):
                         "invalid",
                     ],
                     "last_recommendation": {
+                        "original_query": "  " + "original " * 80,
+                        "query": "  " + "recommended " * 80,
+                        "reason": "  " + "reason " * 120,
+                        "rewrite_model": "  " + "model " * 40,
+                        "generated_at": "  " + "date " * 20,
                         "items": [
                             {"title": "Recommended", "year": "2024", "venue": "Venue"},
                             {"title": "Recommended", "year": "2023"},
@@ -887,14 +893,27 @@ def test_load_session_payload_normalizes_nested_schema(tmp_path, monkeypatch):
 
     assert payload["qa_history"] == []
     assert payload["analysis"]["sections"] == {}
+    assert len(payload["paper_search"]["last_query"]) <= 243
+    assert payload["paper_search"]["last_query"].endswith("...")
     assert len(payload["paper_search"]["last_results"]) == 1
     assert payload["paper_search"]["last_results"][0]["title"] == "Valid Result"
     assert len(payload["paper_search"]["last_results"][0]["abstract"]) == 1203
     assert payload["paper_search"]["last_results"][0]["abstract"].endswith("...")
     assert len(payload["paper_search"]["last_results"][0]["authors"]) == 8
-    assert len(payload["paper_search"]["last_recommendation"]["items"]) == 1
-    assert payload["paper_search"]["last_recommendation"]["items"][0]["title"] == "Recommended"
-    assert payload["paper_search"]["last_recommendation"]["topics"] == ["topic", "42"]
+    recommendation = payload["paper_search"]["last_recommendation"]
+    assert len(recommendation["original_query"]) <= 243
+    assert recommendation["original_query"].endswith("...")
+    assert len(recommendation["query"]) <= 243
+    assert recommendation["query"].endswith("...")
+    assert len(recommendation["reason"]) <= 503
+    assert recommendation["reason"].endswith("...")
+    assert len(recommendation["rewrite_model"]) <= 123
+    assert recommendation["rewrite_model"].endswith("...")
+    assert len(recommendation["generated_at"]) <= 43
+    assert recommendation["generated_at"].endswith("...")
+    assert len(recommendation["items"]) == 1
+    assert recommendation["items"][0]["title"] == "Recommended"
+    assert recommendation["topics"] == ["topic", "42"]
     assert payload["paper_search"]["last_recommendation"]["errors"] == ["error"]
     assert payload["paper_search"]["reading_queue"] == []
     assert payload["session_auth"] == {"token_hash": ""}
