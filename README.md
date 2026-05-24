@@ -105,8 +105,14 @@ python -m pytest tests/test_security_regressions.py
 | `PAPERWHISPERER_VERSION` | `0.9.0` | 可选部署版本标识，会出现在 `/api/health`。 |
 | `PAPER_SEARCH_ENABLE_REWRITE` | `true` | 搜索前是否用 AI 改写检索词。 |
 | `PAPER_SEARCH_REWRITE_MODEL` | `OPENAI_MODEL` | 搜索改写模型。 |
+| `PAPER_SEARCH_RESULT_LIMIT` | `8` | Paper Search 默认返回数量。 |
+| `RECOMMENDATION_RESULT_LIMIT` | `6` | Auto Recommendations 默认返回数量。 |
 | `SEMANTIC_SCHOLAR_API_KEY` | 空 | 可选，用于提升 Semantic Scholar 限额。 |
+| `SEMANTIC_SCHOLAR_TIMEOUT_SECONDS` | `20` | Semantic Scholar / arXiv 检索请求超时。 |
 | `SEMANTIC_SCHOLAR_MAX_RETRIES` | `3` | Semantic Scholar 限流重试次数。 |
+| `REMOTE_IMPORT_TIMEOUT_SECONDS` | `30` | 公开论文导入下载超时。 |
+| `SESSION_TTL_SECONDS` | `86400` | session JSON 默认有效期。 |
+| `SESSION_CLEANUP_INTERVAL_SECONDS` | `600` | 过期 session 清理间隔。 |
 | `SESSION_PERSIST_FULL_DOCUMENT` | `false` | 是否把完整文档内容持久化到 session JSON。 |
 | `FASTAPI_HOST` | `0.0.0.0` | Web 服务监听地址。 |
 | `FASTAPI_PORT` | `5000` | Web 服务端口。 |
