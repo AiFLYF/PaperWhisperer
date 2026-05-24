@@ -99,6 +99,28 @@ def test_save_upload_file_rejects_disguised_html_and_cleans_up(tmp_path):
     assert not destination.exists()
 
 
+def test_public_hostname_validation_uses_short_cache(monkeypatch):
+    web_app.PUBLIC_HOSTNAME_CACHE.clear()
+    calls = []
+
+    def fake_getaddrinfo(hostname, *args, **kwargs):
+        calls.append(hostname)
+        return [(None, None, None, None, ("93.184.216.34", 443))]
+
+    monkeypatch.setattr(web_app.socket, "getaddrinfo", fake_getaddrinfo)
+
+    assert web_app.resolve_public_hostname("example.com") is True
+    assert web_app.resolve_public_hostname("example.com") is True
+    assert calls == ["example.com"]
+
+
+def test_public_hostname_validation_does_not_cache_private_ip_literals():
+    web_app.PUBLIC_HOSTNAME_CACHE.clear()
+
+    assert web_app.resolve_public_hostname("127.0.0.1") is False
+    assert web_app.PUBLIC_HOSTNAME_CACHE == {}
+
+
 def test_remote_pdf_validation_preserves_initial_chunk(monkeypatch, public_example_urls):
     body = b"%PDF-1.7\n" + (b"x" * 5000)
     patch_remote_response(monkeypatch, FakeResponse(body))

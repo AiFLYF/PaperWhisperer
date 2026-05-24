@@ -904,12 +904,37 @@ def validate_saved_file_signature(file_path):
     validate_document_file_signature(os.path.basename(file_path), sample, "uploaded file")
 
 
+PUBLIC_HOSTNAME_CACHE_TTL_SECONDS = 300
+PUBLIC_HOSTNAME_CACHE_MAX_SIZE = 512
+PUBLIC_HOSTNAME_CACHE = {}
+PUBLIC_HOSTNAME_CACHE_LOCK = threading.Lock()
+
+
 def is_public_ip_address(value):
     try:
         ip = ipaddress.ip_address(str(value or "").strip())
     except ValueError:
         return False
     return ip.is_global and not (ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_private or ip.is_reserved or ip.is_unspecified)
+
+
+def get_cached_public_hostname_result(normalized):
+    now = time.time()
+    with PUBLIC_HOSTNAME_CACHE_LOCK:
+        cached = PUBLIC_HOSTNAME_CACHE.get(normalized)
+        if cached and cached[0] > now:
+            return cached[1]
+        if cached:
+            PUBLIC_HOSTNAME_CACHE.pop(normalized, None)
+    return None
+
+
+def set_cached_public_hostname_result(normalized, result):
+    with PUBLIC_HOSTNAME_CACHE_LOCK:
+        if len(PUBLIC_HOSTNAME_CACHE) >= PUBLIC_HOSTNAME_CACHE_MAX_SIZE:
+            oldest_key = min(PUBLIC_HOSTNAME_CACHE, key=lambda key: PUBLIC_HOSTNAME_CACHE[key][0])
+            PUBLIC_HOSTNAME_CACHE.pop(oldest_key, None)
+        PUBLIC_HOSTNAME_CACHE[normalized] = (time.time() + PUBLIC_HOSTNAME_CACHE_TTL_SECONDS, bool(result))
 
 
 def resolve_public_hostname(hostname):
@@ -925,13 +950,20 @@ def resolve_public_hostname(hostname):
     except ValueError:
         pass
 
+    cached_result = get_cached_public_hostname_result(normalized)
+    if cached_result is not None:
+        return cached_result
+
     try:
         infos = socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM)
     except socket.gaierror:
+        set_cached_public_hostname_result(normalized, False)
         return False
 
     resolved_ips = {info[4][0] for info in infos if info and info[4]}
-    return bool(resolved_ips) and all(is_public_ip_address(ip) for ip in resolved_ips)
+    result = bool(resolved_ips) and all(is_public_ip_address(ip) for ip in resolved_ips)
+    set_cached_public_hostname_result(normalized, result)
+    return result
 
 
 def is_public_http_url(raw_url):
