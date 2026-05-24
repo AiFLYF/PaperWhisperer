@@ -62,7 +62,9 @@ const mermaidReady = import('https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/me
         return null;
     });
 
-marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
+if (window.marked) {
+    marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     initializeTheme();
@@ -359,6 +361,7 @@ function transformPromptTags(content) {
 }
 
 function renderMath(element) {
+    if (!window.renderMathInElement) return;
     try {
         renderMathInElement(element, {
             delimiters: [
@@ -402,7 +405,7 @@ function formatContent(content, fallbackText) {
         return token;
     });
 
-    let htmlContent = marked.parse(processedContent);
+    let htmlContent = window.marked ? marked.parse(processedContent) : `<p>${escapeHtml(processedContent).replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>')}</p>`;
     Object.entries(mathTokens).forEach(([token, mathStr]) => {
         const blockPattern = new RegExp(`<p>${token}</p>`, 'g');
         if (blockPattern.test(htmlContent)) {
@@ -1118,6 +1121,7 @@ async function renderMermaidDiagram(source) {
         svgElement.style.height = '100%';
 
         resetPanZoom();
+        if (!window.svgPanZoom) return;
         panZoomInstance = svgPanZoom(svgElement, {
             zoomEnabled: true,
             controlIconsEnabled: false,
