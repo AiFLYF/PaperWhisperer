@@ -71,6 +71,7 @@ def test_index_page_renders():
     assert float(response.headers["x-process-time-ms"]) >= 0
     assert "PaperWhisperer" in response.text
     assert "aria-live=\"polite\"" in response.text
+    assert 'id="themeBtn" aria-label="Switch to dark theme" aria-pressed="false"' in response.text
     assert "Deep Research Brief" in response.text
     assert "Reading Queue" in response.text
     assert 'id="dropZone"' in response.text
@@ -126,6 +127,9 @@ def test_static_frontend_assets_are_served():
     assert "Review needed" in js_response.text
     assert "Supported document type and size." in js_response.text
     assert "updateAnalysisProgress" in js_response.text
+    assert "btn.setAttribute('aria-pressed', String(isDark))" in js_response.text
+    assert "Switch to light theme" in js_response.text
+    assert "Switch to dark theme" in js_response.text
     assert "getPaperStateDetails" in js_response.text
     assert "getWorkspaceGuidanceItems" in js_response.text
     assert "getReadingQueueKey" in js_response.text

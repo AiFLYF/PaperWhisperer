@@ -428,13 +428,16 @@ function initializeTheme() {
 function applyTheme(theme) {
     const body = document.body;
     const btn = document.getElementById('themeBtn');
-    if (theme === 'dark') {
+    const isDark = theme === 'dark';
+    if (isDark) {
         body.setAttribute('data-theme', 'dark');
         btn.innerHTML = sunIcon;
     } else {
         body.removeAttribute('data-theme');
         btn.innerHTML = moonIcon;
     }
+    btn.setAttribute('aria-pressed', String(isDark));
+    btn.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
 }
 
 function toggleTheme() {
