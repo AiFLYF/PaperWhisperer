@@ -240,6 +240,9 @@ def test_static_frontend_assets_are_served():
     assert "scheduleButtonFeedbackReset(btnElement, () => { btnElement.textContent = originalText; })" in js_response.text
     assert "exportBtn.textContent = svgSource ? 'Exported Report + SVG' : 'Exported Report'" in js_response.text
     assert "exportBtn.innerText" not in js_response.text
+    assert "function scheduleObjectUrlRevoke(url, delay = 1000)" in js_response.text
+    assert "setTimeout(() => URL.revokeObjectURL(url), delay)" in js_response.text
+    assert "scheduleObjectUrlRevoke(url)" in js_response.text
     assert "exportBtn.setAttribute('aria-busy', 'true')" in js_response.text
     assert "exportBtn.removeAttribute('aria-busy')" in js_response.text
     assert "setControlDisabled(exportBtn, true)" in js_response.text
