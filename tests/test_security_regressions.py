@@ -85,10 +85,12 @@ def test_static_frontend_assets_are_served():
     assert "SUPPORTED_UPLOAD_EXTENSIONS" in js_response.text
     assert "MAX_UPLOAD_BYTES" in js_response.text
     assert "updateAnalysisProgress" in js_response.text
+    assert "getPaperStateDetails" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
     assert ".progress-step.active" in css_response.text
+    assert ".paper-state" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():

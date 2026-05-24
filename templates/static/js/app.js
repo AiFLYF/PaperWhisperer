@@ -754,13 +754,50 @@ function buildPaperActionKey(item) {
     return String(item.paper_id || item.pdf_url || item.url || item.title || '').trim();
 }
 
+function getPaperStateDetails(elementId, emptyText) {
+    const text = emptyText || 'No papers found.';
+    const loading = /searching|generating/i.test(text);
+    if (loading) {
+        return {
+            tone: 'loading',
+            title: text,
+            body: elementId === 'paperRecommendations'
+                ? 'Building topics from the current paper and checking external sources.'
+                : 'Checking Semantic Scholar and arXiv for relevant papers.'
+        };
+    }
+    if (elementId === 'paperRecommendations') {
+        return {
+            tone: 'empty',
+            title: text,
+            body: 'Try analyzing a richer paper, then run recommendations again, or search manually by method, task, or dataset.'
+        };
+    }
+    return {
+        tone: 'empty',
+        title: text,
+        body: text.includes('No matching')
+            ? 'Try broader keywords, include a dataset or method name, or search by the problem statement instead.'
+            : 'Enter a topic, method, task, or dataset above to start building your reading trail.'
+    };
+}
+
 function renderPaperList(elementId, items, emptyText, meta) {
     const container = document.getElementById(elementId);
     if (!container) return;
     const normalizedItems = Array.isArray(items) ? items : [];
     const allowImport = elementId === 'paperSearchResults';
     if (!normalizedItems.length) {
-        container.innerHTML = `<p class="empty-state">${escapeHtml(emptyText || 'No papers found.')}</p>`;
+        const state = getPaperStateDetails(elementId, emptyText);
+        container.innerHTML = `
+            <div class="paper-state ${state.tone === 'loading' ? 'loading-state' : ''}">
+                <span class="paper-state-icon" aria-hidden="true">${state.tone === 'loading' ? '…' : '⌕'}</span>
+                <div>
+                    <p class="paper-state-title">${escapeHtml(state.title)}</p>
+                    <p class="paper-state-body">${escapeHtml(state.body)}</p>
+                </div>
+            </div>
+        `;
     } else {
         container.innerHTML = normalizedItems.map((item, index) => {
             const title = escapeHtml(item.title || 'Untitled paper');
