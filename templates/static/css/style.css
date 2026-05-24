@@ -687,6 +687,7 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
 
 .result-section { display: none; opacity: 0; transition: opacity 0.5s ease; }
 .result-section.active { display: block; opacity: 1; animation: revealUp 0.45s ease both; }
+.is-hidden { display: none !important; }
 
 .result-card {
     background:
