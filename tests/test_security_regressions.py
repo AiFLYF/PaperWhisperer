@@ -218,6 +218,20 @@ def test_remote_pdf_validation_preserves_initial_chunk(monkeypatch, public_examp
     assert b"".join(web_app.iter_remote_file_chunks(response, web_app.MAX_CONTENT_LENGTH, initial_chunk)) == body
 
 
+def test_remote_pdf_import_uses_app_user_agent(monkeypatch, public_example_urls):
+    captured = {}
+
+    def fake_urlopen(request, *args, **kwargs):
+        captured["user_agent"] = request.get_header("User-agent")
+        return FakeResponse(b"%PDF-1.7\nproxied body")
+
+    monkeypatch.setattr(web_app.urllib.request, "urlopen", fake_urlopen)
+
+    web_app.stream_remote_paper(title="Valid PDF", pdf_url="https://example.com/paper.pdf", url="")
+
+    assert captured["user_agent"] == web_app.APP_USER_AGENT
+
+
 @pytest.mark.parametrize(
     ("body", "content_type"),
     [
