@@ -1710,15 +1710,22 @@ function addPaperToAnalysisByIndex(index) {
 
 async function copyText(elementId, btnElement) {
     const content = document.getElementById(elementId);
-    if (!content) return;
+    if (!content || !btnElement) return;
 
     const rawText = (content.dataset && typeof content.dataset.rawContent === 'string')
         ? content.dataset.rawContent
         : '';
     const text = (rawText || content.innerText || content.textContent || '').trim();
-    if (!text) return;
-
     const originalText = btnElement.innerText;
+    if (!text) {
+        btnElement.innerText = 'No content';
+        updateStatus('Nothing to copy yet', 'idle');
+        setTimeout(() => { btnElement.innerText = originalText; }, 1600);
+        return;
+    }
+
+    btnElement.disabled = true;
+    btnElement.setAttribute('aria-busy', 'true');
     try {
         if (navigator.clipboard && window.isSecureContext) {
             await navigator.clipboard.writeText(text);
@@ -1735,11 +1742,19 @@ async function copyText(elementId, btnElement) {
             document.body.removeChild(textarea);
         }
         btnElement.innerText = 'Copied';
+        btnElement.classList.add('action-success');
+        updateStatus('Content copied', 'success');
     } catch (error) {
         console.warn('Copy failed:', error);
         btnElement.innerText = 'Copy failed';
+        updateStatus('Copy failed', 'error');
     }
-    setTimeout(() => { btnElement.innerText = originalText; }, 1600);
+    setTimeout(() => {
+        btnElement.innerText = originalText;
+        btnElement.disabled = false;
+        btnElement.removeAttribute('aria-busy');
+        btnElement.classList.remove('action-success');
+    }, 1600);
 }
 
 function zoomIn() { if (panZoomInstance) panZoomInstance.zoomIn(); }
@@ -1996,11 +2011,18 @@ function buildSessionMarkdown() {
 }
 
 function exportSessionReport() {
-    if (!currentAnalysisResult) return;
+    const exportBtn = document.getElementById('exportBtn');
+    if (!currentAnalysisResult) {
+        updateStatus('Analyze a document before exporting', 'idle');
+        return;
+    }
 
     const fileStem = sanitizeFileStem(currentSourceFileName || currentAnalysisResult.session_id || 'paperwhisperer_session');
     const markdown = buildSessionMarkdown();
-    if (!markdown) return;
+    if (!markdown) {
+        updateStatus('Export content is not ready', 'error');
+        return;
+    }
 
     triggerTextDownload(`${fileStem}_session_report.md`, markdown, 'text/markdown;charset=utf-8');
 
@@ -2008,6 +2030,17 @@ function exportSessionReport() {
     if (svgSource) {
         triggerTextDownload(`${fileStem}_visual_map.svg`, svgSource, 'image/svg+xml;charset=utf-8');
     }
+
+    if (exportBtn) {
+        const originalText = exportBtn.innerText;
+        exportBtn.innerText = svgSource ? 'Exported Report + SVG' : 'Exported Report';
+        exportBtn.classList.add('action-success');
+        setTimeout(() => {
+            exportBtn.innerText = originalText;
+            exportBtn.classList.remove('action-success');
+        }, 1800);
+    }
+    updateStatus(svgSource ? 'Session report and SVG exported' : 'Session report exported', 'success');
 }
 
 function downloadMermaidSVG() {

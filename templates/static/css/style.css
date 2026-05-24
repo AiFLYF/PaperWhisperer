@@ -933,6 +933,11 @@ button.paper-link:disabled {
     padding: 6px 10px;
 }
 .action-btn:hover { color: var(--text-primary); }
+.action-btn.action-success {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(15, 118, 110, 0.08);
+}
 .action-btn:disabled {
     opacity: 0.45;
     cursor: not-allowed;
