@@ -227,6 +227,12 @@
                     <button class="mode-chip" type="button" data-mode="reproduce" aria-pressed="false">Reproduce</button>
                 </div>
                 <p class="answer-mode-hint" id="answerModeHint">Evidence mode answers first, then cites document support and uncertainty.</p>
+                <div class="question-starter-chips" aria-label="Starter questions">
+                    <button type="button" data-starter-question="What is the central research question and main contribution?">Main contribution</button>
+                    <button type="button" data-starter-question="What evidence supports the paper's strongest claim?">Evidence check</button>
+                    <button type="button" data-starter-question="What are the key limitations and threats to validity?">Limitations</button>
+                    <button type="button" data-starter-question="What steps would I need to reproduce the core result?">Reproduce</button>
+                </div>
                 <div class="ask-input-group">
                     <label class="sr-only" for="questionInput">Question about the current document</label>
                     <input type="text" id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint">

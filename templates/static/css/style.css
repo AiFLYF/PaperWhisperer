@@ -952,6 +952,31 @@ button.paper-link:disabled {
     font-size: 13px;
     line-height: 1.55;
 }
+.question-starter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 16px;
+}
+.question-starter-chips button {
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--surface-highlight);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    min-height: 36px;
+    padding: 7px 12px;
+    transition: var(--transition);
+}
+.question-starter-chips button:hover,
+.question-starter-chips button:focus-visible {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(15, 118, 110, 0.10);
+}
 .ask-input-group { display: flex; gap: 12px; margin-bottom: 16px; }
 .ask-input-group input { flex: 1; }
 .ask-input-group .btn { width: auto; padding: 0 24px; }

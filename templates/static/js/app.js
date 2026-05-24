@@ -123,6 +123,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-example-query]').forEach(button => {
         button.addEventListener('click', () => useExampleQuery(button.dataset.exampleQuery));
     });
+    document.querySelectorAll('[data-starter-question]').forEach(button => {
+        button.addEventListener('click', () => useStarterQuestion(button.dataset.starterQuestion));
+    });
     document.querySelectorAll('[data-copy-target]').forEach(button => {
         button.addEventListener('click', () => copyText(button.dataset.copyTarget, button));
     });
@@ -749,6 +752,12 @@ function fillQuestionInput(prompt) {
     if (!questionInput) return;
     questionInput.value = prompt;
     questionInput.focus();
+}
+
+function useStarterQuestion(question) {
+    if (!question) return;
+    fillQuestionInput(question);
+    updateStatus('Starter question loaded', 'idle');
 }
 
 function renderSmartPrompts(questions = currentSuggestedQuestions) {
