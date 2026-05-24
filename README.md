@@ -14,7 +14,7 @@ PaperWhisperer 是一个面向论文和技术文档阅读的 AI Research Workspa
 - 支持 Evidence / Explain / Critique / Reproduce 四种追问模式。
 - 支持 Semantic Scholar + arXiv 论文搜索。
 - 支持基于当前论文自动推荐延伸阅读。
-- 支持把搜索或推荐结果保存到 Reading Queue。
+- 支持把搜索或推荐结果保存到带编号卡片和结构化元信息的 Reading Queue。
 - 支持从公开 PDF 直链导入论文并替换当前分析会话。
 - 支持导出 Markdown 会话报告和 Mermaid SVG，并在复制/导出时给出即时反馈；Mermaid 渲染器会在需要图谱时按需加载。
 - 内置上传校验、远程 URL 校验、会话 token、XSS 防护和 JSON 请求校验。
