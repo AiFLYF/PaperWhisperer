@@ -120,7 +120,12 @@ async function searchPapers() {
     const query = queryInput.value.trim();
 
     if (!query) {
-        showError('Please enter a paper search query.');
+        queryInput.focus();
+        updateStatus('Search query needed', 'idle');
+        renderPaperList('paperSearchResults', [], 'Enter a topic, method, task, or dataset to search papers.', {
+            elementId: 'paperSearchMeta',
+            text: 'Search needs a topic, method, task, dataset, or problem statement.'
+        });
         return;
     }
 
@@ -1524,8 +1529,14 @@ async function askQuestion() {
     const apiKey = document.getElementById('apiKey').value.trim();
     const askBtn = document.getElementById('askBtn');
 
-    if (!question) return;
+    if (!question) {
+        questionInput.focus();
+        updateStatus('Question needed', 'idle');
+        return;
+    }
     if (!currentSessionId) {
+        questionInput.focus();
+        updateStatus('Analyze a document before asking', 'idle');
         showError('Requires document analysis first.');
         return;
     }
