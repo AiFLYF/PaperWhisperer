@@ -70,6 +70,8 @@ def test_index_page_renders():
     assert "Reading Queue" in response.text
     assert 'id="dropZone"' in response.text
     assert "Drop a paper here or browse" in response.text
+    assert 'id="analysisProgressSteps"' in response.text
+    assert "Upload" in response.text
 
 
 def test_static_frontend_assets_are_served():
@@ -82,9 +84,11 @@ def test_static_frontend_assets_are_served():
     assert "setAnswerMode" in js_response.text
     assert "SUPPORTED_UPLOAD_EXTENSIONS" in js_response.text
     assert "MAX_UPLOAD_BYTES" in js_response.text
+    assert "updateAnalysisProgress" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
+    assert ".progress-step.active" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():

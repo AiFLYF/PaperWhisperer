@@ -79,7 +79,13 @@
         
         <div class="loading" id="loading" role="status" aria-live="polite">
             <div class="spinner"></div>
-            <div class="loading-text">Processing document structure...</div>
+            <div class="loading-text" id="loadingText">Preparing document analysis...</div>
+            <div class="progress-steps" id="analysisProgressSteps" aria-label="Analysis progress">
+                <span class="progress-step active" data-step="upload">Upload</span>
+                <span class="progress-step" data-step="analyze">Analyze</span>
+                <span class="progress-step" data-step="render">Render</span>
+                <span class="progress-step" data-step="ready">Ready</span>
+            </div>
         </div>
         <div class="error" id="error" role="alert" aria-live="assertive"></div>
 

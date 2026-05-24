@@ -283,6 +283,19 @@ function updateStatus(text, tone = 'idle') {
     chip.dataset.tone = tone;
 }
 
+function updateAnalysisProgress(step, text) {
+    const loadingText = document.getElementById('loadingText');
+    if (loadingText && text) loadingText.textContent = text;
+
+    const order = ['upload', 'analyze', 'render', 'ready'];
+    const activeIndex = Math.max(order.indexOf(step), 0);
+    document.querySelectorAll('.progress-step').forEach(element => {
+        const index = order.indexOf(element.dataset.step);
+        element.classList.toggle('done', index >= 0 && index < activeIndex);
+        element.classList.toggle('active', index === activeIndex);
+    });
+}
+
 function toggleAIList() {
     const list = document.getElementById('aiList');
     const button = document.getElementById('aiToggleBtn');
@@ -1238,6 +1251,7 @@ async function analyze() {
 
     setButtonLoading(analyzeBtn, 'Analyzing...', 'Analyze Document', true);
     document.getElementById('loading').classList.add('active');
+    updateAnalysisProgress('upload', 'Uploading and preparing your document...');
     hideError();
     askBtn.disabled = true;
     updateStatus('Analyzing document...', 'idle');
@@ -1262,6 +1276,7 @@ async function analyze() {
                 currentSessionId = payload.session_id || currentSessionId;
                 document.getElementById('result').classList.add('active');
                 setFileInfo(file.name, '...');
+                updateAnalysisProgress('analyze', 'AI is analyzing structure, citations, and research signals...');
                 updateStatus('Analysis started. Streaming sections...', 'idle');
             },
             section: payload => {
@@ -1270,11 +1285,13 @@ async function analyze() {
                 const section = payload.section || {};
                 currentSections = { ...currentSections, [sectionName]: section };
                 applyAnalysisSection(sectionName, section, generateEvaluation, generateMermaid, generateResearchBrief);
+                updateAnalysisProgress('render', `Rendering ${sectionName.replace('_', ' ')} results...`);
                 updateStatus(`Streaming ${sectionName}...`, 'idle');
             },
             done: async payload => {
                 if (requestId !== analyzeRequestId) return;
                 await applyAnalysisResult(payload, file.name, generateEvaluation, generateMermaid, generateResearchBrief);
+                updateAnalysisProgress('ready', 'Workspace ready. You can ask questions or export the session.');
                 updateStatus('Analysis ready for follow-up questions', 'success');
             },
             error: payload => {
