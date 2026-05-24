@@ -836,6 +836,21 @@ def test_load_session_payload_normalizes_nested_schema(tmp_path, monkeypatch):
     assert payload["document_excerpt"]
 
 
+def test_load_session_payload_normalizes_malformed_expiry(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    session_file = tmp_path / "session.json"
+    session_file.write_text(
+        json.dumps({"expires_at": "not-a-date", "document_content": "full text"}),
+        encoding="utf-8",
+    )
+
+    payload = web_app.load_session_payload("session")
+
+    assert payload is not None
+    assert web_app.parse_iso_datetime(payload["expires_at"])
+    assert payload["expires_at"] != "not-a-date"
+
+
 def test_load_session_payload_normalizes_analysis_metadata(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
     session_file = tmp_path / "session.json"
