@@ -81,6 +81,16 @@ def test_static_frontend_assets_are_served():
     assert "prefers-reduced-motion" in css_response.text
 
 
+def test_health_endpoint_reports_runtime_status():
+    response = TestClient(web_app.app).get("/api/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["app"] == "PaperWhisperer"
+    assert set(payload["folders"]) == {"uploads", "output", "context"}
+
+
 def test_save_upload_file_accepts_valid_pdf(tmp_path):
     destination = tmp_path / "paper.pdf"
     body = b"%PDF-1.7\nlocal upload"

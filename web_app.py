@@ -2108,6 +2108,27 @@ async def favicon():
     return FileResponse("logo.ico", media_type="image/x-icon")
 
 
+@app.get("/api/health")
+async def health_check():
+    runtime_folders = {
+        "uploads": UPLOAD_FOLDER,
+        "output": OUTPUT_FOLDER,
+        "context": CONTEXT_FOLDER,
+    }
+    return JSONResponse(content={
+        "status": "ok",
+        "app": "PaperWhisperer",
+        "timestamp": now_iso(),
+        "folders": {
+            name: {
+                "exists": os.path.isdir(path),
+                "writable": os.path.isdir(path) and os.access(path, os.W_OK),
+            }
+            for name, path in runtime_folders.items()
+        },
+    })
+
+
 @app.post("/api/analyze")
 async def analyze(
     file: UploadFile | None = File(None),
