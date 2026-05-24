@@ -173,6 +173,11 @@ def test_static_frontend_assets_are_served():
     assert "Switch to dark theme" in js_response.text
     assert "getPaperStateDetails" in js_response.text
     assert "getWorkspaceGuidanceItems" in js_response.text
+    assert "document.getElementById('chatHistory').replaceChildren()" in js_response.text
+    assert "container.replaceChildren()" in js_response.text
+    assert "document.getElementById('mermaidChart').replaceChildren()" in js_response.text
+    assert "document.getElementById('fileInfo').replaceChildren()" in js_response.text
+    assert "fileInfo.replaceChildren()" in js_response.text
     assert "getReadingQueueKey" in js_response.text
     assert "hasReadingQueueItem" in js_response.text
     assert "ANSWER_MODE_DETAILS" in js_response.text
