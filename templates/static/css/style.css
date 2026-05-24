@@ -1070,19 +1070,24 @@ button.paper-link:disabled {
     gap: 10px;
     margin-bottom: 12px;
 }
-.export-preview-grid span {
+.export-preview-card {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
     padding: 12px;
     background: var(--input-bg);
-    color: var(--text-secondary);
-    font-size: 13px;
 }
-.export-preview-grid strong {
+.export-preview-card span,
+.export-preview-card small {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.45;
+}
+.export-preview-card strong {
     display: block;
     color: var(--text-primary);
     font-size: 16px;
-    margin-bottom: 2px;
+    margin: 4px 0;
 }
 .workspace-guidance {
     display: grid;

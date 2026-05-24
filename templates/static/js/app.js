@@ -2067,13 +2067,24 @@ function renderExportPreview() {
 
     const status = currentAnalysisResult.analysis_status || {};
     const completed = Array.isArray(status.completed_sections) ? status.completed_sections.length : Object.keys(currentSections || {}).length;
+    const failed = Array.isArray(status.failed_sections) ? status.failed_sections.length : 0;
+    const paperLeadCount = currentPaperSearchResults.length + currentPaperRecommendations.length;
+    const exportPreviewItems = [
+        { label: 'Analysis', value: `${completed} ready`, detail: failed ? `${failed} section(s) need review` : 'Core sections are ready' },
+        { label: 'Q&A', value: `${currentChatTurns.length} turns`, detail: currentChatTurns.length ? 'Local conversation will be included' : 'Ask follow-ups to enrich the report' },
+        { label: 'Papers', value: `${paperLeadCount} leads`, detail: currentReadingQueue.length ? `${currentReadingQueue.length} saved to queue` : 'Save strong leads before export' },
+        { label: 'Visuals', value: currentMermaidSource ? 'Map ready' : 'No map', detail: currentMermaidSource ? 'Mermaid SVG can be exported' : 'Enable structure diagram for visuals' }
+    ];
     const guidanceItems = getWorkspaceGuidanceItems(status, completed);
     preview.innerHTML = `
-        <div class="export-preview-grid">
-            <span><strong>${completed}</strong> sections</span>
-            <span><strong>${currentChatTurns.length}</strong> Q&A turns</span>
-            <span><strong>${currentPaperSearchResults.length + currentPaperRecommendations.length}</strong> paper leads</span>
-            <span><strong>${currentReadingQueue.length}</strong> saved papers</span>
+        <div class="export-preview-grid" aria-label="Export contents summary">
+            ${exportPreviewItems.map(item => `
+                <div class="export-preview-card">
+                    <span>${escapeHtml(item.label)}</span>
+                    <strong>${escapeHtml(item.value)}</strong>
+                    <small>${escapeHtml(item.detail)}</small>
+                </div>
+            `).join('')}
         </div>
         <div class="workspace-guidance" aria-label="Workspace guidance">
             ${guidanceItems.map(item => `
