@@ -18,7 +18,7 @@ PaperWhisperer 是一个面向论文和技术文档阅读的 AI Research Workspa
 - 支持从公开 PDF 直链导入论文并替换当前分析会话。
 - 支持导出 Markdown 会话报告和 Mermaid SVG，导出预览会用分组卡片展示分析、问答、论文线索和可视化资产；Mermaid 渲染器会在需要图谱时按需加载。
 - 内置上传校验、远程 URL 校验、会话 token、XSS 防护和 JSON 请求校验。
-- 前端提供拖拽上传、分析进度、结果状态卡、请求取消按钮、顶部快速导航、跳转链接、快捷键、返回顶部、键盘焦点流转、移动端触控优化和资源加载预热。
+- 前端提供拖拽上传、结构化文件反馈、分析进度、结果状态卡、请求取消按钮、顶部快速导航、跳转链接、快捷键、返回顶部、键盘焦点流转、减少动效适配、移动端触控优化和资源加载预热。
 
 ## 使用场景
 
@@ -123,7 +123,7 @@ python -m pytest tests/test_security_regressions.py
 ## Web 使用流程
 
 1. 打开页面，输入 API Key 或使用服务端 `.env`。
-2. 上传 PDF / TXT / DOCX / PPTX。
+2. 上传 PDF / TXT / DOCX / PPTX；选择文件后会显示名称、大小、类型、上限和是否可分析。
 3. 按需开启结构图、批判性评价、深度阅读简报。
 4. 点击 `Analyze Document`，等待流式 section 完成；页面会显示上传、分析、渲染、就绪进度，并在完成后聚焦到分析工作区。长耗时分析、检索、推荐和追问都可以用页面上的 Cancel 按钮中止；也可用 `Alt+U`、`Alt+S`、`Alt+Q` 快速跳到上传、论文搜索和追问输入。
 5. 在 `Paper Search` 搜索相关论文，也可以点击示例查询快速开始；空搜索、加载中、无结果和部分失败都会显示可操作提示。
@@ -370,7 +370,7 @@ data: {"answer":"完整答案"}
 - 新增 Reading Queue 阅读队列和 `/api/reading-queue`。
 - 新增 Evidence / Explain / Critique / Reproduce 追问模式。
 - 增强 Session Export，包含分析、阅读队列、搜索轨迹、推荐结果、Q&A 模式和 Mermaid 资源。
-- 强化前端可访问性：状态 live region、错误 alert、减少动效模式。
+- 强化前端可访问性：状态 live region、错误 alert 聚焦、主题切换状态、禁用控件语义和减少动效滚动。
 - 强化安全回归测试：上传、远程下载、JSON、session、阅读队列和问答模式。
 
 ## License
