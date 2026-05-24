@@ -102,6 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('file')?.addEventListener('change', handleFileSelection);
     document.getElementById('paperSearchInput')?.addEventListener('keydown', handlePaperSearchKeyPress);
     document.getElementById('questionInput')?.addEventListener('keydown', handleKeyPress);
+    document.addEventListener('keydown', handleWorkspaceShortcut);
     document.querySelectorAll('.mode-chip').forEach(button => {
         button.addEventListener('click', () => setAnswerMode(button.dataset.mode));
     });
@@ -120,6 +121,33 @@ function focusAnalysisWorkspace({ scroll = true } = {}) {
     if (!result || !result.classList.contains('active')) return;
     if (scroll) result.scrollIntoView({ behavior: 'smooth', block: 'start' });
     result.focus({ preventScroll: true });
+}
+
+function focusWorkspaceTarget(targetId, focusSelector) {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const focusTarget = focusSelector ? target.querySelector(focusSelector) : target;
+    if (focusTarget) focusTarget.focus({ preventScroll: true });
+}
+
+function handleWorkspaceShortcut(event) {
+    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const key = event.key.toLowerCase();
+    if (!['u', 's', 'q'].includes(key)) return;
+    event.preventDefault();
+    if (key === 'u') {
+        focusWorkspaceTarget('uploadWorkspace', '#dropZone');
+        updateStatus('Upload shortcut focused document source', 'idle');
+    } else if (key === 's') {
+        focusWorkspaceTarget('paperSearchTitle', null);
+        document.getElementById('paperSearchInput')?.focus({ preventScroll: true });
+        updateStatus('Search shortcut focused paper search', 'idle');
+    } else {
+        focusWorkspaceTarget('askQuestionsTitle', null);
+        document.getElementById('questionInput')?.focus({ preventScroll: true });
+        updateStatus('Ask shortcut focused question input', 'idle');
+    }
 }
 
 function updateBackToTopVisibility() {

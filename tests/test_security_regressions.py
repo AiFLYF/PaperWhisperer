@@ -80,6 +80,8 @@ def test_index_page_renders():
     assert 'href="#uploadWorkspace"' in response.text
     assert 'id="uploadWorkspace"' in response.text
     assert 'aria-labelledby="uploadWorkspaceTitle"' in response.text
+    assert 'class="shortcut-hints"' in response.text
+    assert '<kbd>Alt</kbd> + <kbd>S</kbd> Search' in response.text
     assert 'rel="preconnect" href="https://cdn.jsdelivr.net"' in response.text
     assert 'rel="dns-prefetch" href="https://github.com"' in response.text
     assert 'fetchpriority="high"' in response.text
@@ -118,6 +120,9 @@ def test_static_frontend_assets_are_served():
     assert "preventScroll" in js_response.text
     assert "formatWorkspaceGuidanceMarkdown" in js_response.text
     assert "formatSectionStatusTable" in js_response.text
+    assert "handleWorkspaceShortcut" in js_response.text
+    assert "focusWorkspaceTarget" in js_response.text
+    assert "Upload shortcut focused document source" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
@@ -134,6 +139,8 @@ def test_static_frontend_assets_are_served():
     assert ".back-to-top.show" in css_response.text
     assert ".skip-links" in css_response.text
     assert ".skip-links a:focus-visible" in css_response.text
+    assert ".shortcut-hints" in css_response.text
+    assert ".shortcut-hints kbd" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():

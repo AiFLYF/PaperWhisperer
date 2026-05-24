@@ -415,6 +415,38 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     line-height: 1.7;
 }
 
+.shortcut-hints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: -8px 0 22px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.shortcut-hints span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--surface-highlight);
+}
+
+.shortcut-hints kbd {
+    min-width: 20px;
+    padding: 2px 5px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--primary-color);
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: 800;
+    text-align: center;
+}
+
 .file-meta {
     font-size: 13px;
     color: var(--text-secondary);
