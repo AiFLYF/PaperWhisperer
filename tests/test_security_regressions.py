@@ -334,6 +334,22 @@ def test_save_upload_file_rejects_disguised_html_and_cleans_up(tmp_path):
     assert not destination.exists()
 
 
+def test_remove_file_safely_logs_cleanup_failures(tmp_path, monkeypatch, caplog):
+    destination = tmp_path / "stale.tmp"
+    destination.write_text("stale", encoding="utf-8")
+
+    def fail_remove(path):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(web_app.os, "remove", fail_remove)
+    caplog.set_level("ERROR", logger=web_app.__name__)
+
+    web_app.remove_file_safely(str(destination), "test temp file")
+
+    assert "Failed to remove test temp file" in caplog.text
+    assert str(destination) in caplog.text
+
+
 def test_public_hostname_validation_uses_short_cache(monkeypatch):
     web_app.PUBLIC_HOSTNAME_CACHE.clear()
     calls = []
