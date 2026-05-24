@@ -87,12 +87,15 @@ def test_static_frontend_assets_are_served():
     assert "updateAnalysisProgress" in js_response.text
     assert "getPaperStateDetails" in js_response.text
     assert "getWorkspaceGuidanceItems" in js_response.text
+    assert "getReadingQueueKey" in js_response.text
+    assert "hasReadingQueueItem" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
     assert ".progress-step.active" in css_response.text
     assert ".paper-state" in css_response.text
     assert ".workspace-guidance" in css_response.text
+    assert ".action-btn:disabled" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():
