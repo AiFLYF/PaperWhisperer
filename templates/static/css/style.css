@@ -445,6 +445,33 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px;
 }
 .loading-text { font-size: 14px; color: var(--text-secondary); }
+.progress-steps {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 16px;
+}
+.progress-step {
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+.progress-step.active {
+    border-color: rgba(15, 118, 110, 0.45);
+    color: var(--primary-color);
+    background: rgba(15, 118, 110, 0.10);
+}
+.progress-step.done {
+    border-color: rgba(22, 163, 74, 0.35);
+    color: var(--success-color);
+    background: rgba(22, 163, 74, 0.10);
+}
 
 .error {
     background: rgba(217, 72, 15, 0.08);
