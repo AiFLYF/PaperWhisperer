@@ -824,13 +824,18 @@ function renderReadingQueue(message = '') {
         const pdfLink = item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer">PDF</a>` : '';
         return `
             <article class="queue-item">
-                <div class="queue-title"><a href="${titleUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a></div>
-                ${bits ? `<div class="queue-meta">${bits}</div>` : ''}
-                <div class="queue-authors">${authors}</div>
-                <div class="paper-links">
-                    ${openLink}
-                    ${pdfLink}
-                    <button class="paper-link" type="button" onclick="removePaperFromQueue(${index})">Remove</button>
+                <div class="queue-rank" aria-label="Reading queue item ${index + 1}">${index + 1}</div>
+                <div class="queue-body">
+                    <div class="queue-title"><a href="${titleUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a></div>
+                    <div class="queue-details">
+                        ${bits ? `<span>${bits}</span>` : '<span>Metadata pending</span>'}
+                        <span>${authors}</span>
+                    </div>
+                    <div class="queue-actions">
+                        ${openLink}
+                        ${pdfLink}
+                        <button class="paper-link" type="button" onclick="removePaperFromQueue(${index})">Remove</button>
+                    </div>
                 </div>
             </article>
         `;

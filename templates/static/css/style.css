@@ -869,27 +869,51 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     gap: 12px;
 }
 .queue-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 14px;
+    align-items: flex-start;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    padding: 14px 16px;
+    padding: 16px;
     background: var(--surface-highlight);
+}
+.queue-rank {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: rgba(15, 118, 110, 0.10);
+    color: var(--primary-color);
+    font-size: 13px;
+    font-weight: 800;
+}
+.queue-body {
+    min-width: 0;
 }
 .queue-title {
     font-size: 15px;
-    font-weight: 600;
+    font-weight: 700;
     line-height: 1.45;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
 }
 .queue-title a {
     color: var(--text-primary);
     text-decoration: none;
 }
 .queue-title a:hover { color: var(--primary-color); }
-.queue-meta,
-.queue-authors {
+.queue-details {
+    display: grid;
+    gap: 4px;
     color: var(--text-secondary);
     font-size: 13px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
+}
+.queue-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
 }
 .paper-link {
     display: inline-flex;
