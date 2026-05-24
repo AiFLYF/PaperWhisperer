@@ -1370,7 +1370,8 @@ def load_session_payload(session_id):
     except json.JSONDecodeError:
         remove_file_safely(session_file, "corrupt session file")
         return None
-    except OSError:
+    except OSError as exc:
+        logger.warning("Unable to read session file %s: %s", session_file, exc)
         return None
 
     if not isinstance(payload, dict):

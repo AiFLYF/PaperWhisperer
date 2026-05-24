@@ -817,6 +817,21 @@ def test_load_session_payload_removes_non_object_json(tmp_path, monkeypatch):
     assert not session_file.exists()
 
 
+def test_load_session_payload_logs_unreadable_file(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    session_file = tmp_path / "broken.json"
+    session_file.write_text("{}", encoding="utf-8")
+
+    def fail_json_load(_file):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(web_app.json, "load", fail_json_load)
+    caplog.set_level("WARNING", logger=web_app.__name__)
+
+    assert web_app.load_session_payload("broken") is None
+    assert f"Unable to read session file {session_file}: permission denied" in caplog.text
+
+
 def test_load_session_payload_normalizes_nested_schema(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
     session_file = tmp_path / "session.json"
