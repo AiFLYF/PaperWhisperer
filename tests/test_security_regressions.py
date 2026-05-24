@@ -808,6 +808,15 @@ def test_load_session_payload_removes_corrupted_json(tmp_path, monkeypatch):
     assert not session_file.exists()
 
 
+def test_load_session_payload_removes_non_object_json(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    session_file = tmp_path / "broken.json"
+    session_file.write_text("[]", encoding="utf-8")
+
+    assert web_app.load_session_payload("broken") is None
+    assert not session_file.exists()
+
+
 def test_load_session_payload_normalizes_nested_schema(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
     session_file = tmp_path / "session.json"
