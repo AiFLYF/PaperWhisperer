@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from email.message import Message
 
 import pytest
@@ -119,6 +120,60 @@ def test_public_hostname_validation_does_not_cache_private_ip_literals():
 
     assert web_app.resolve_public_hostname("127.0.0.1") is False
     assert web_app.PUBLIC_HOSTNAME_CACHE == {}
+
+
+def test_analyze_stream_emits_sections_and_done(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path / "context"))
+    monkeypatch.setattr(web_app, "OUTPUT_FOLDER", str(tmp_path / "output"))
+    monkeypatch.setattr(web_app, "UPLOAD_FOLDER", str(tmp_path / "uploads"))
+    os.makedirs(web_app.CONTEXT_FOLDER, exist_ok=True)
+    os.makedirs(web_app.OUTPUT_FOLDER, exist_ok=True)
+    os.makedirs(web_app.UPLOAD_FOLDER, exist_ok=True)
+
+    def fake_analyze_stream(self, file_path, generate_mermaid=True, generate_evaluation=True, generate_research_brief=True):
+        self.document_content = "streamed document"
+        sections = {
+            "summary": web_app.build_section_result("success", "summary"),
+            "quotes": web_app.build_section_result("success", "quotes"),
+            "mindmap": web_app.build_section_result("success", "mindmap"),
+            "mermaid": web_app.build_section_result("disabled"),
+            "evaluation": web_app.build_section_result("disabled"),
+            "research_brief": web_app.build_section_result("success", "brief"),
+        }
+        assert generate_research_brief is True
+        yield {"type": "section", "name": "research_brief", "section": sections["research_brief"]}
+        yield {
+            "type": "done",
+            "result": {
+                "summary": "summary",
+                "quotes": "quotes",
+                "mindmap": "mindmap",
+                "mermaid": "",
+                "evaluation": "",
+                "research_brief": "brief",
+                "sections": sections,
+                "char_count": len(self.document_content),
+                "elapsed_seconds": 0.1,
+                "suggested_questions": [],
+                "next_actions": [],
+                "analysis_status": {},
+            },
+        }
+
+    monkeypatch.setattr(web_app.PaperWhisperer, "analyze_stream", fake_analyze_stream)
+
+    response = TestClient(web_app.app).post(
+        "/api/analyze/stream",
+        data={"api_key": "key", "generate_research_brief": "true"},
+        files={"file": ("paper.txt", b"plain text document", "text/plain")},
+    )
+
+    assert response.status_code == 200
+    assert "event: start" in response.text
+    assert "event: section" in response.text
+    assert '"name": "research_brief"' in response.text
+    assert "event: done" in response.text
+    assert '"session_token"' in response.text
 
 
 def test_remote_pdf_validation_preserves_initial_chunk(monkeypatch, public_example_urls):
