@@ -126,7 +126,7 @@ python -m pytest tests/test_security_regressions.py
 2. 上传 PDF / TXT / DOCX / PPTX。
 3. 按需开启结构图、批判性评价、深度阅读简报。
 4. 点击 `Analyze Document`，等待流式 section 完成；页面会显示上传、分析、渲染、就绪进度，并在完成后聚焦到分析工作区。长耗时分析、检索、推荐和追问都可以用页面上的 Cancel 按钮中止；也可用 `Alt+U`、`Alt+S`、`Alt+Q` 快速跳到上传、论文搜索和追问输入。
-5. 在 `Paper Search` 搜索相关论文；空搜索、加载中、无结果和部分失败都会显示可操作提示。
+5. 在 `Paper Search` 搜索相关论文，也可以点击示例查询快速开始；空搜索、加载中、无结果和部分失败都会显示可操作提示。
 6. 对结果点击 `Save` 加入 Reading Queue，点击 `Add` 可导入公开 PDF 原文继续分析。
 7. 在 `Auto Recommendations` 基于当前论文生成延伸阅读。
 8. 在 Ask Questions 中选择追问模式并继续提问，模式说明会提示答案结构差异。
