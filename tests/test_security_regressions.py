@@ -149,6 +149,9 @@ def test_static_frontend_assets_are_served():
     assert "function sanitizeImageUrl(rawUrl)" in js_response.text
     assert "const safeSrc = sanitizeImageUrl(image.getAttribute('src'))" in js_response.text
     assert "Unsafe image url ignored" in js_response.text
+    assert "anchor.referrerPolicy = 'strict-origin-when-cross-origin'" in js_response.text
+    assert "image.decoding = 'async'" in js_response.text
+    assert "image.referrerPolicy = 'strict-origin-when-cross-origin'" in js_response.text
     assert "Nothing to copy yet" in js_response.text
     assert "Session report exported" in js_response.text
     assert "Exported Report + SVG" in js_response.text
