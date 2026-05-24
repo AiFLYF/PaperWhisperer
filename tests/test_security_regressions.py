@@ -142,6 +142,16 @@ def test_standalone_landing_page_accessibility_regressions():
     assert 'target="_blank" rel="noopener"' not in html
 
 
+def test_icon_routes_use_static_cache_headers():
+    client = TestClient(web_app.app)
+
+    for path in ("/logo.ico", "/favicon.ico"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == web_app.STATIC_ICON_CACHE_CONTROL
+        assert response.headers["content-type"] == "image/x-icon"
+
+
 def test_health_endpoint_reports_runtime_status():
     response = TestClient(web_app.app).get("/api/health")
 
