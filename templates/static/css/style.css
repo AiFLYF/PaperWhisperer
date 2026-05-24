@@ -518,6 +518,44 @@ button.paper-link:disabled {
 .chat-text { white-space: pre-wrap; word-break: break-word; }
 .answer-content { overflow-wrap: anywhere; }
 .answer-content > *:last-child { margin-bottom: 0; }
+.answer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 14px;
+}
+.mini-action-btn {
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--primary-color);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    padding: 6px 10px;
+}
+.mini-action-btn:hover { border-color: var(--primary-color); background: rgba(15, 118, 110, 0.08); }
+.export-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+}
+.export-preview-grid span {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 12px;
+    background: var(--input-bg);
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+.export-preview-grid strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 16px;
+    margin-bottom: 2px;
+}
+.export-preview-note { color: var(--text-secondary); font-size: 13px; margin-bottom: 0; }
 
 .action-btn {
     background: transparent;
@@ -616,6 +654,7 @@ button.paper-link:disabled {
     .logo { font-size: 28px; }
     .hero-copy { font-size: 15px; }
     .card, .result-card { padding: 20px; }
+    .export-preview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .ask-input-group { flex-direction: column; }
     .ask-input-group .btn { width: 100%; padding: 14px 0; }
     .chat-item { max-width: 95%; }
