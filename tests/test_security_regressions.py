@@ -157,6 +157,11 @@ def test_static_frontend_assets_are_served():
     assert "Search query needed" in js_response.text
     assert "Question needed" in js_response.text
     assert "initializeBackToTop" in js_response.text
+    assert "scheduleBackToTopVisibilityUpdate" in js_response.text
+    assert "backToTopFramePending" in js_response.text
+    assert "requestAnimationFrame(() =>" in js_response.text
+    assert "window.addEventListener('scroll', scheduleBackToTopVisibilityUpdate, { passive: true })" in js_response.text
+    assert "window.addEventListener('scroll', updateBackToTopVisibility" not in js_response.text
     assert "scrollToTop" in js_response.text
     assert "getMotionSafeScrollBehavior" in js_response.text
     assert "prefers-reduced-motion: reduce" in js_response.text
