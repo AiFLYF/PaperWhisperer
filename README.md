@@ -311,7 +311,7 @@ data: {"answer":"完整答案"}
 }
 ```
 
-该接口响应包含 `Cache-Control: no-store`，探活和部署检查会读取实时运行状态。`uptime_seconds` 可用于确认进程是否刚重启。
+该接口响应包含 `Cache-Control: no-store`，探活和部署检查会读取实时运行状态。`uptime_seconds` 可用于确认进程是否刚重启。所有响应都会附带 `X-Process-Time-Ms`，便于本地调试或部署排查慢请求。
 
 ## Session 生命周期
 
