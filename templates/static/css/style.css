@@ -22,7 +22,7 @@
     --radius-sm: 10px;
     --shadow: 0 18px 45px rgba(31, 36, 48, 0.10);
     --font-stack: "IBM Plex Sans", "Noto Sans SC", "Segoe UI", sans-serif;
-    --transition: all 0.25s ease;
+    --transition: color 0.25s ease, background-color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease, opacity 0.25s ease;
 }
 
 [data-theme="dark"] {
@@ -817,6 +817,27 @@ button.paper-link:disabled {
 @keyframes heartbeat {
     0%, 100% { transform: scale(1); }
     50% { transform: scale(1.15); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    .btn:hover,
+    .paper-card:hover,
+    .result-card:hover,
+    .tool-btn:hover,
+    .prompt-chip:hover,
+    .next-action-btn:hover,
+    .site-footer .ai-toggle:hover {
+        transform: none;
+    }
 }
 
 @media (max-width: 768px) {
