@@ -116,6 +116,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('file')?.addEventListener('change', handleFileSelection);
     document.getElementById('paperSearchInput')?.addEventListener('keydown', handlePaperSearchKeyPress);
     document.getElementById('questionInput')?.addEventListener('keydown', handleKeyPress);
+    document.getElementById('paperSearchResults')?.addEventListener('click', handlePaperResultClick);
+    document.getElementById('paperRecommendations')?.addEventListener('click', handlePaperResultClick);
     document.getElementById('readingQueue')?.addEventListener('click', handleReadingQueueClick);
     document.addEventListener('keydown', handleWorkspaceShortcut);
     document.querySelectorAll('.mode-chip').forEach(button => {
@@ -889,6 +891,21 @@ function addPaperToQueueByIndex(elementId, index) {
     addPaperToQueue(item);
 }
 
+function handlePaperResultClick(event) {
+    const actionButton = event.target.closest('[data-paper-action]');
+    if (!actionButton) return;
+    const elementId = actionButton.dataset.paperList || '';
+    const index = Number(actionButton.dataset.paperIndex);
+    if (!elementId || !Number.isInteger(index)) return;
+    if (actionButton.dataset.paperAction === 'download') {
+        downloadPaperByIndex(elementId, index);
+    } else if (actionButton.dataset.paperAction === 'add') {
+        addPaperToAnalysisByIndex(index);
+    } else if (actionButton.dataset.paperAction === 'save') {
+        addPaperToQueueByIndex(elementId, index);
+    }
+}
+
 function handleReadingQueueClick(event) {
     const removeButton = event.target.closest('[data-queue-remove-index]');
     if (!removeButton) return;
@@ -1036,12 +1053,12 @@ function renderPaperList(elementId, items, emptyText, meta) {
             const tags = [item.source, item.year, item.venue].filter(Boolean).map(tag => `<span class="paper-tag">${escapeHtml(String(tag))}</span>`).join('');
             const actionKey = buildPaperActionKey(item) || String(index);
             const downloadButton = (item.pdf_url || item.url)
-                ? `<button class="paper-link" type="button" onclick="downloadPaperByIndex('${escapeHtml(elementId)}', ${index})">Download</button>`
+                ? `<button class="paper-link" type="button" data-paper-action="download" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}">Download</button>`
                 : '';
             const addButton = allowImport
-                ? `<button class="paper-link" type="button" onclick="addPaperToAnalysisByIndex(${index})" ${currentImportPaperKey === actionKey ? 'disabled' : ''}>${currentImportPaperKey === actionKey ? 'Adding...' : 'Add'}</button>`
+                ? `<button class="paper-link" type="button" data-paper-action="add" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}" ${currentImportPaperKey === actionKey ? 'disabled' : ''}>${currentImportPaperKey === actionKey ? 'Adding...' : 'Add'}</button>`
                 : '';
-            const saveButton = `<button class="paper-link" type="button" onclick="addPaperToQueueByIndex('${escapeHtml(elementId)}', ${index})">Save</button>`;
+            const saveButton = `<button class="paper-link" type="button" data-paper-action="save" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}">Save</button>`;
             const links = [
                 item.url ? `<a class="paper-link" href="${sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>` : '',
                 item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer">PDF</a>` : '',
