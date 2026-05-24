@@ -1429,7 +1429,7 @@ function updateFileMeta(validationError = '') {
     if (!fileMeta) return;
 
     fileMeta.classList.remove('file-meta-ready', 'file-meta-error');
-    fileMeta.innerHTML = '';
+    fileMeta.replaceChildren();
 
     if (!file) {
         fileMeta.textContent = 'No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.';
