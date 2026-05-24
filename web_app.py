@@ -2140,7 +2140,9 @@ class PaperWhisperer:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse(request, "index.html")
+    response = templates.TemplateResponse(request, "index.html")
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/logo.ico")
