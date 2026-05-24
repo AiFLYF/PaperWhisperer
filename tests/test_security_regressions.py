@@ -143,6 +143,12 @@ def test_static_frontend_assets_are_served():
     assert "Supported document type and size." in js_response.text
     assert "updateAnalysisProgress" in js_response.text
     assert "btn.setAttribute('aria-pressed', String(isDark))" in js_response.text
+    assert "function readLocalStorageValue(key)" in js_response.text
+    assert "function writeLocalStorageValue(key, value)" in js_response.text
+    assert "Local storage read failed" in js_response.text
+    assert "Local storage write failed" in js_response.text
+    assert "localStorage.getItem(THEME_STORAGE_KEY)" not in js_response.text
+    assert "localStorage.setItem(THEME_STORAGE_KEY, nextTheme)" not in js_response.text
     assert "Switch to light theme" in js_response.text
     assert "Switch to dark theme" in js_response.text
     assert "getPaperStateDetails" in js_response.text

@@ -451,8 +451,25 @@ function getCurrentTheme() {
     return document.body.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
 }
 
+function readLocalStorageValue(key) {
+    try {
+        return localStorage.getItem(key);
+    } catch (error) {
+        console.warn('Local storage read failed:', error);
+        return '';
+    }
+}
+
+function writeLocalStorageValue(key, value) {
+    try {
+        localStorage.setItem(key, value);
+    } catch (error) {
+        console.warn('Local storage write failed:', error);
+    }
+}
+
 function initializeTheme() {
-    const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
+    const savedTheme = readLocalStorageValue(THEME_STORAGE_KEY);
     const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
     applyTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
 }
@@ -475,7 +492,7 @@ function applyTheme(theme) {
 function toggleTheme() {
     const nextTheme = getCurrentTheme() === 'dark' ? 'light' : 'dark';
     applyTheme(nextTheme);
-    localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+    writeLocalStorageValue(THEME_STORAGE_KEY, nextTheme);
     if (currentMermaidSource) {
         renderMermaidDiagram(currentMermaidSource);
     }
