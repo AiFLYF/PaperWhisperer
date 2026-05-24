@@ -1521,7 +1521,7 @@ async function renderMermaidDiagram(source) {
     currentMermaidSource = cleanSource;
 
     if (!instance) {
-        mermaidDiv.innerHTML = '<p class="empty-state" style="padding:20px;">Mermaid failed to load.</p>';
+        mermaidDiv.innerHTML = '<p class="empty-state mermaid-fallback-message">Mermaid failed to load.</p>';
         return;
     }
 
@@ -1533,9 +1533,7 @@ async function renderMermaidDiagram(source) {
 
         const svgElement = mermaidDiv.querySelector('svg');
         if (!svgElement) return;
-        svgElement.style.maxWidth = 'none';
-        svgElement.style.width = '100%';
-        svgElement.style.height = '100%';
+        svgElement.classList.add('mermaid-svg-fit');
 
         resetPanZoom();
         if (!window.svgPanZoom) return;
@@ -1549,7 +1547,7 @@ async function renderMermaidDiagram(source) {
         });
     } catch (error) {
         console.error('Mermaid render failed:', error);
-        mermaidDiv.innerHTML = `<p style="color:#d9480f; font-size:14px; padding:20px;">Structure too complex to render. Raw data fallback:</p><pre style="text-align:left; margin:20px; white-space:pre-wrap;">${escapeHtml(cleanSource)}</pre>`;
+        mermaidDiv.innerHTML = `<p class="mermaid-error-message">Structure too complex to render. Raw data fallback:</p><pre class="mermaid-raw-fallback">${escapeHtml(cleanSource)}</pre>`;
     }
 }
 
@@ -1685,11 +1683,22 @@ function appendChatText(role, message, className) {
     return item;
 }
 
+function createInlineSpinner() {
+    const spinner = document.createElement('div');
+    spinner.className = 'spinner inline-spinner';
+    return spinner;
+}
+
 function appendLoadingAnswer() {
     const chatHistory = document.getElementById('chatHistory');
     const loadingDiv = document.createElement('div');
     loadingDiv.className = 'chat-item chat-answer';
-    loadingDiv.innerHTML = '<div class="chat-header">Assistant</div><div class="spinner" style="width:16px;height:16px;border-width:2px;margin:8px 0 0 0;"></div>';
+
+    const header = document.createElement('div');
+    header.className = 'chat-header';
+    header.textContent = 'Assistant';
+
+    loadingDiv.append(header, createInlineSpinner());
     chatHistory.appendChild(loadingDiv);
     return loadingDiv;
 }
@@ -1716,7 +1725,7 @@ function appendStreamingAnswerShell() {
     content.id = answerId;
     content.className = 'answer-content content';
     content.dataset.rawContent = '';
-    content.innerHTML = '<div class="spinner" style="width:16px;height:16px;border-width:2px;margin:8px 0 0 0;"></div>';
+    content.appendChild(createInlineSpinner());
 
     header.appendChild(title);
     header.appendChild(button);

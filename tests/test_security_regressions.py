@@ -148,6 +148,12 @@ def test_static_frontend_assets_are_served():
     assert "Upload shortcut focused document source" in js_response.text
     assert "loadMermaidRenderer" in js_response.text
     assert "mermaidReadyPromise" in js_response.text
+    assert "mermaid-svg-fit" in js_response.text
+    assert "mermaid-error-message" in js_response.text
+    assert "createInlineSpinner" in js_response.text
+    assert "style=\"width:16px" not in js_response.text
+    assert "style=\"color:#d9480f" not in js_response.text
+    assert "svgElement.style" not in js_response.text
     assert "const mermaidReady = import" not in js_response.text
     assert "cancelAnalyzeRequest" in js_response.text
     assert "cancelPaperSearchRequest" in js_response.text
@@ -176,6 +182,13 @@ def test_static_frontend_assets_are_served():
     assert ".file-meta-details" in css_response.text
     assert ".file-meta-status" in css_response.text
     assert ".progress-step.active" in css_response.text
+    assert "--success-color" in css_response.text
+    assert "--error-color" in css_response.text
+    assert ".inline-spinner" in css_response.text
+    assert ".mermaid-svg-fit" in css_response.text
+    assert ".mermaid-fallback-message" in css_response.text
+    assert ".mermaid-error-message" in css_response.text
+    assert ".mermaid-raw-fallback" in css_response.text
     assert ".paper-state" in css_response.text
     assert ".workspace-guidance" in css_response.text
     assert ".btn.is-busy" in css_response.text
