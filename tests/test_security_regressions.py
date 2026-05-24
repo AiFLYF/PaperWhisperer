@@ -68,6 +68,8 @@ def test_index_page_renders():
     assert "aria-live=\"polite\"" in response.text
     assert "Deep Research Brief" in response.text
     assert "Reading Queue" in response.text
+    assert 'id="dropZone"' in response.text
+    assert "Drop a paper here or browse" in response.text
 
 
 def test_static_frontend_assets_are_served():

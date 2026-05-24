@@ -87,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
     bindClick('zoomResetBtn', zoomReset);
     bindClick('downloadMermaidBtn', downloadMermaidSVG);
 
+    initializeUploadDropZone();
     document.getElementById('file')?.addEventListener('change', updateFileMeta);
     document.getElementById('paperSearchInput')?.addEventListener('keydown', handlePaperSearchKeyPress);
     document.getElementById('questionInput')?.addEventListener('keydown', handleKeyPress);
@@ -925,24 +926,68 @@ function resetResultView() {
     resetPaperPanels();
 }
 
-function updateFileMeta() {
-    const file = document.getElementById('file').files[0];
-    const fileMeta = document.getElementById('fileMeta');
-    if (!fileMeta) return;
-    if (!file) {
-        fileMeta.textContent = 'No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.';
-        return;
-    }
+function initializeUploadDropZone() {
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('file');
+    if (!dropZone || !fileInput) return;
 
+    dropZone.addEventListener('click', event => {
+        if (event.target !== fileInput) fileInput.click();
+    });
+    dropZone.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            fileInput.click();
+        }
+    });
+    ['dragenter', 'dragover'].forEach(type => {
+        dropZone.addEventListener(type, event => {
+            event.preventDefault();
+            dropZone.classList.add('drag-over');
+        });
+    });
+    ['dragleave', 'drop'].forEach(type => {
+        dropZone.addEventListener(type, event => {
+            event.preventDefault();
+            dropZone.classList.remove('drag-over');
+        });
+    });
+    dropZone.addEventListener('drop', event => {
+        const file = event.dataTransfer?.files?.[0];
+        if (!file) return;
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        fileInput.files = transfer.files;
+        updateFileMeta();
+        hideError();
+    });
+}
+
+function formatFileSize(bytes) {
     const units = ['B', 'KB', 'MB', 'GB'];
-    let size = file.size;
+    let size = bytes;
     let index = 0;
     while (size >= 1024 && index < units.length - 1) {
         size /= 1024;
         index += 1;
     }
-    const formattedSize = `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
-    fileMeta.textContent = `Selected: ${file.name} · ${formattedSize}`;
+    return `${size.toFixed(size >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function updateFileMeta() {
+    const fileInput = document.getElementById('file');
+    const file = fileInput?.files?.[0];
+    const fileMeta = document.getElementById('fileMeta');
+    const dropZone = document.getElementById('dropZone');
+    if (!fileMeta) return;
+    if (!file) {
+        fileMeta.textContent = 'No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.';
+        dropZone?.classList.remove('has-file');
+        return;
+    }
+
+    dropZone?.classList.add('has-file');
+    fileMeta.textContent = `Selected: ${file.name} · ${formatFileSize(file.size)}`;
 }
 
 function setFileInfo(fileName, charCount) {
