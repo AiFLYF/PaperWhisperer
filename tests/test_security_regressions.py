@@ -92,10 +92,14 @@ def test_index_page_renders():
     assert 'aria-labelledby="uploadWorkspaceTitle"' in response.text
     assert 'class="shortcut-hints"' in response.text
     assert '<kbd>Alt</kbd> + <kbd>S</kbd> Search' in response.text
-    assert 'id="cancelAnalyzeBtn"' in response.text
-    assert 'id="cancelPaperSearchBtn"' in response.text
-    assert 'id="cancelRecommendBtn"' in response.text
-    assert 'id="cancelAskBtn"' in response.text
+    assert 'id="cancelAnalyzeBtn" hidden disabled aria-disabled="true"' in response.text
+    assert 'id="cancelPaperSearchBtn" hidden disabled aria-disabled="true"' in response.text
+    assert 'id="clearReadingQueueBtn" disabled aria-disabled="true"' in response.text
+    assert 'id="exportBtn" disabled aria-disabled="true"' in response.text
+    assert 'id="recommendBtn" disabled aria-disabled="true"' in response.text
+    assert 'id="cancelRecommendBtn" hidden disabled aria-disabled="true"' in response.text
+    assert 'id="askBtn" type="button" disabled aria-disabled="true"' in response.text
+    assert 'id="cancelAskBtn" hidden disabled aria-disabled="true"' in response.text
     assert 'class="example-query-chips"' in response.text
     assert 'data-example-query="retrieval augmented generation evaluation"' in response.text
     assert 'RAG evaluation' in response.text
@@ -139,6 +143,10 @@ def test_static_frontend_assets_are_served():
     assert "Nothing to copy yet" in js_response.text
     assert "Session report exported" in js_response.text
     assert "aria-busy" in js_response.text
+    assert "aria-disabled" in js_response.text
+    assert "setControlDisabled" in js_response.text
+    assert "element.setAttribute('aria-disabled', String(disabled))" in js_response.text
+    assert "aria-disabled=\"${String(addButtonDisabled)}\"" in js_response.text
     assert "is-busy" in js_response.text
     assert "Search query needed" in js_response.text
     assert "Question needed" in js_response.text

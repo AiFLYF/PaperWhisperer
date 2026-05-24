@@ -96,7 +96,7 @@
             </div>
             <div class="request-actions">
                 <button class="btn" id="analyzeBtn" type="button">Analyze Document</button>
-                <button class="action-btn request-cancel" type="button" id="cancelAnalyzeBtn" hidden>Cancel analysis</button>
+                <button class="action-btn request-cancel" type="button" id="cancelAnalyzeBtn" hidden disabled aria-disabled="true">Cancel analysis</button>
             </div>
         </section>
 
@@ -120,7 +120,7 @@
                 <label class="sr-only" for="paperSearchInput">Paper search query</label>
                 <input type="text" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta">
                 <button class="btn" type="button" id="paperSearchBtn">Search Papers</button>
-                <button class="action-btn request-cancel" type="button" id="cancelPaperSearchBtn" hidden>Cancel search</button>
+                <button class="action-btn request-cancel" type="button" id="cancelPaperSearchBtn" hidden disabled aria-disabled="true">Cancel search</button>
             </div>
             <div class="paper-meta" id="paperSearchMeta">Search across Semantic Scholar and arXiv with a single query.</div>
             <div class="example-query-chips" aria-label="Example paper search queries">
@@ -134,7 +134,7 @@
         <section class="result-card reading-queue-card" aria-labelledby="readingQueueTitle">
             <div class="section-header">
                 <h3 class="section-title" id="readingQueueTitle">Reading Queue</h3>
-                <button class="action-btn" type="button" id="clearReadingQueueBtn">Clear</button>
+                <button class="action-btn" type="button" id="clearReadingQueueBtn" disabled aria-disabled="true">Clear</button>
             </div>
             <div class="paper-meta" id="readingQueueMeta">Save papers from search or recommendations into this session reading queue.</div>
             <div class="reading-queue" id="readingQueue"></div>
@@ -146,7 +146,7 @@
             <section class="result-card" aria-labelledby="sessionExportTitle">
                 <div class="section-header">
                     <h3 class="section-title" id="sessionExportTitle">Session Export</h3>
-                    <button class="action-btn" type="button" id="exportBtn" disabled>Export Session</button>
+                    <button class="action-btn" type="button" id="exportBtn" disabled aria-disabled="true">Export Session</button>
                 </div>
                 <div class="content" id="exportPreview"><p class="empty-state">Export the current analysis, Q&A history, research trace, and Mermaid assets after a successful run.</p></div>
             </section>
@@ -210,8 +210,8 @@
                 <div class="section-header">
                     <h3 class="section-title" id="recommendationsTitle">Auto Recommendations</h3>
                     <div class="section-actions">
-                        <button class="action-btn" type="button" id="recommendBtn" disabled>Recommend from current paper</button>
-                        <button class="action-btn request-cancel" type="button" id="cancelRecommendBtn" hidden>Cancel</button>
+                        <button class="action-btn" type="button" id="recommendBtn" disabled aria-disabled="true">Recommend from current paper</button>
+                        <button class="action-btn request-cancel" type="button" id="cancelRecommendBtn" hidden disabled aria-disabled="true">Cancel</button>
                     </div>
                 </div>
                 <div class="paper-meta" id="paperRecommendationMeta">Analyze a paper first, then generate follow-up reading suggestions from the current session.</div>
@@ -236,8 +236,8 @@
                 <div class="ask-input-group">
                     <label class="sr-only" for="questionInput">Question about the current document</label>
                     <input type="text" id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint">
-                    <button class="btn" id="askBtn" type="button">Send</button>
-                    <button class="action-btn request-cancel" type="button" id="cancelAskBtn" hidden>Cancel</button>
+                    <button class="btn" id="askBtn" type="button" disabled aria-disabled="true">Send</button>
+                    <button class="action-btn request-cancel" type="button" id="cancelAskBtn" hidden disabled aria-disabled="true">Cancel</button>
                 </div>
                 <div class="smart-prompts" id="smartPrompts" aria-label="Suggested follow-up questions"></div>
                 <div class="next-actions" id="nextActions" aria-label="Recommended next actions"></div>
