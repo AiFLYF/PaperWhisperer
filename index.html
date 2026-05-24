@@ -928,22 +928,30 @@ const nav = document.getElementById('nav');
 const nebulas = document.querySelectorAll('[data-p]');
 const heroLayer = document.getElementById('hero-layer');
 
-window.addEventListener('scroll', () => {
+let scrollTicking = false;
+function updateScrollEffects() {
   sc = window.scrollY;
   const max = Math.max(document.body.scrollHeight - window.innerHeight, 1);
   progBar.style.width = Math.min(sc / max * 100, 100) + '%';
   nav.classList.toggle('scrolled', sc > 40);
 
-  if (reduceMotion) return;
+  if (!reduceMotion) {
+    nebulas.forEach(n => {
+      const spd = parseFloat(n.dataset.p);
+      n.style.transform = `translateY(${sc * spd}px)`;
+    });
 
-  nebulas.forEach(n => {
-    const spd = parseFloat(n.dataset.p);
-    n.style.transform = `translateY(${sc * spd}px)`;
-  });
-
-  if (sc < window.innerHeight) {
-    heroLayer.style.transform = `translateY(${sc * .08}px)`;
+    if (sc < window.innerHeight) {
+      heroLayer.style.transform = `translateY(${sc * .08}px)`;
+    }
   }
+  scrollTicking = false;
+}
+
+window.addEventListener('scroll', () => {
+  if (scrollTicking) return;
+  scrollTicking = true;
+  requestAnimationFrame(updateScrollEffects);
 }, { passive: true });
 
 // ══════════════════════════════════════════════════════════
