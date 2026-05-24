@@ -1174,50 +1174,113 @@ function renderPaperList(elementId, items, emptyText, meta) {
     const allowImport = elementId === 'paperSearchResults';
     if (!normalizedItems.length) {
         const state = getPaperStateDetails(elementId, emptyText);
-        container.innerHTML = `
-            <div class="paper-state ${state.tone === 'loading' ? 'loading-state' : ''}">
-                <span class="paper-state-icon" aria-hidden="true">${state.tone === 'loading' ? '…' : '⌕'}</span>
-                <div>
-                    <p class="paper-state-title">${escapeHtml(state.title)}</p>
-                    <p class="paper-state-body">${escapeHtml(state.body)}</p>
-                </div>
-            </div>
-        `;
+        const stateElement = document.createElement('div');
+        stateElement.className = `paper-state ${state.tone === 'loading' ? 'loading-state' : ''}`.trim();
+        const icon = document.createElement('span');
+        icon.className = 'paper-state-icon';
+        icon.setAttribute('aria-hidden', 'true');
+        icon.textContent = state.tone === 'loading' ? '…' : '⌕';
+        const body = document.createElement('div');
+        const title = document.createElement('p');
+        title.className = 'paper-state-title';
+        title.textContent = state.title;
+        const description = document.createElement('p');
+        description.className = 'paper-state-body';
+        description.textContent = state.body;
+        body.append(title, description);
+        stateElement.append(icon, body);
+        container.replaceChildren(stateElement);
     } else {
-        container.innerHTML = normalizedItems.map((item, index) => {
-            const title = escapeHtml(item.title || 'Untitled paper');
-            const titleUrl = sanitizeUrl(item.url || item.pdf_url || '#');
-            const authors = Array.isArray(item.authors) && item.authors.length ? escapeHtml(item.authors.join(', ')) : 'Unknown authors';
-            const abstractText = escapeHtml(item.abstract || 'No abstract available.');
-            const reasonText = item.reason ? `<div class="paper-reason"><strong>Why:</strong> ${escapeHtml(item.reason)}</div>` : '';
-            const tags = [item.source, item.year, item.venue].filter(Boolean).map(tag => `<span class="paper-tag">${escapeHtml(String(tag))}</span>`).join('');
-            const actionKey = buildPaperActionKey(item) || String(index);
-            const downloadButton = (item.pdf_url || item.url)
-                ? `<button class="paper-link" type="button" data-paper-action="download" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}">Download</button>`
-                : '';
-            const addButtonDisabled = currentImportPaperKey === actionKey;
-            const addButton = allowImport
-                ? `<button class="paper-link" type="button" data-paper-action="add" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}" aria-disabled="${String(addButtonDisabled)}" ${addButtonDisabled ? 'disabled' : ''}>${addButtonDisabled ? 'Adding...' : 'Add'}</button>`
-                : '';
-            const saveButton = `<button class="paper-link" type="button" data-paper-action="save" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}">Save</button>`;
-            const links = [
-                item.url ? `<a class="paper-link" href="${sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">Open</a>` : '',
-                item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">PDF</a>` : '',
-                downloadButton,
-                saveButton,
-                addButton
-            ].join('');
-            return `
-                <article class="paper-card">
-                    <div class="paper-card-title"><a href="${titleUrl}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">${title}</a></div>
-                    <div class="paper-card-tags">${tags}</div>
-                    <div class="paper-authors">${authors}</div>
-                    <div class="paper-abstract">${abstractText}</div>
-                    ${reasonText}
-                    <div class="paper-links">${links}</div>
-                </article>
-            `;
-        }).join('');
+        const cards = normalizedItems.map((item, index) => {
+            const article = document.createElement('article');
+            article.className = 'paper-card';
+
+            const titleWrap = document.createElement('div');
+            titleWrap.className = 'paper-card-title';
+            const titleLink = document.createElement('a');
+            titleLink.href = sanitizeUrl(item.url || item.pdf_url || '#');
+            titleLink.target = '_blank';
+            titleLink.rel = 'noopener noreferrer';
+            titleLink.referrerPolicy = 'strict-origin-when-cross-origin';
+            titleLink.textContent = item.title || 'Untitled paper';
+            titleWrap.appendChild(titleLink);
+
+            const tags = document.createElement('div');
+            tags.className = 'paper-card-tags';
+            [item.source, item.year, item.venue].filter(Boolean).forEach(tag => {
+                const tagElement = document.createElement('span');
+                tagElement.className = 'paper-tag';
+                tagElement.textContent = String(tag);
+                tags.appendChild(tagElement);
+            });
+
+            const authors = document.createElement('div');
+            authors.className = 'paper-authors';
+            authors.textContent = Array.isArray(item.authors) && item.authors.length ? item.authors.join(', ') : 'Unknown authors';
+
+            const abstract = document.createElement('div');
+            abstract.className = 'paper-abstract';
+            abstract.textContent = item.abstract || 'No abstract available.';
+
+            article.append(titleWrap, tags, authors, abstract);
+            if (item.reason) {
+                const reason = document.createElement('div');
+                reason.className = 'paper-reason';
+                const label = document.createElement('strong');
+                label.textContent = 'Why:';
+                reason.append(label, ` ${item.reason}`);
+                article.appendChild(reason);
+            }
+
+            const links = document.createElement('div');
+            links.className = 'paper-links';
+            [
+                ['Open', item.url, 'link'],
+                ['PDF', item.pdf_url, 'link'],
+                ['Download', item.pdf_url || item.url, 'download'],
+                ['Save', true, 'save']
+            ].forEach(([label, value, action]) => {
+                if (!value) return;
+                if (action === 'link') {
+                    const link = document.createElement('a');
+                    link.className = 'paper-link';
+                    link.href = sanitizeUrl(value);
+                    link.target = '_blank';
+                    link.rel = 'noopener noreferrer';
+                    link.referrerPolicy = 'strict-origin-when-cross-origin';
+                    link.textContent = label;
+                    links.appendChild(link);
+                    return;
+                }
+                const button = document.createElement('button');
+                button.className = 'paper-link';
+                button.type = 'button';
+                button.dataset.paperAction = action;
+                button.dataset.paperList = elementId;
+                button.dataset.paperIndex = String(index);
+                button.textContent = label;
+                links.appendChild(button);
+            });
+
+            if (allowImport) {
+                const actionKey = buildPaperActionKey(item) || String(index);
+                const addButtonDisabled = currentImportPaperKey === actionKey;
+                const addButton = document.createElement('button');
+                addButton.className = 'paper-link';
+                addButton.type = 'button';
+                addButton.dataset.paperAction = 'add';
+                addButton.dataset.paperList = elementId;
+                addButton.dataset.paperIndex = String(index);
+                addButton.setAttribute('aria-disabled', String(addButtonDisabled));
+                addButton.disabled = addButtonDisabled;
+                addButton.textContent = addButtonDisabled ? 'Adding...' : 'Add';
+                links.appendChild(addButton);
+            }
+
+            article.appendChild(links);
+            return article;
+        });
+        container.replaceChildren(...cards);
     }
 
     if (meta) {
