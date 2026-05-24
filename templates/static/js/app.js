@@ -23,6 +23,8 @@ let currentPaperSearchResults = [];
 let currentPaperRecommendations = [];
 let currentSuggestedQuestions = [];
 let currentNextActions = [];
+let currentReadingQueue = [];
+let currentAnswerMode = 'evidence';
 let currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with a single query.';
 let currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
 
@@ -31,7 +33,15 @@ const SECTION_EMPTY_TEXT = {
     summary: 'Summary will appear here after analysis.',
     quotes: 'Key citations will appear here after analysis.',
     mindmap: 'Text structure will appear here after analysis.',
-    evaluation: 'Critical evaluation will appear here when enabled.'
+    evaluation: 'Critical evaluation will appear here when enabled.',
+    research_brief: 'Deep research brief will appear here when enabled.'
+};
+
+const ANSWER_MODE_LABELS = {
+    evidence: 'Evidence',
+    explain: 'Explain',
+    critique: 'Critique',
+    reproduce: 'Reproduce'
 };
 
 const sunIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
@@ -58,6 +68,8 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeTheme();
     updateFileMeta();
     resetResultView();
+    renderReadingQueue();
+    setAnswerMode(currentAnswerMode);
     updateStatus('Waiting for document', 'idle');
     document.getElementById('file').addEventListener('change', updateFileMeta);
 });
@@ -459,6 +471,40 @@ function normalizeSmartActions(values, maxItems = 5) {
     return actions.slice(0, maxItems);
 }
 
+function normalizeReadingQueue(values, maxItems = 30) {
+    if (!Array.isArray(values)) return [];
+    const seen = new Set();
+    const items = [];
+    values.forEach(value => {
+        if (!value || typeof value !== 'object') return;
+        const title = String(value.title || '').trim();
+        if (!title) return;
+        const key = title.toLowerCase().replace(/\s+/g, ' ');
+        if (seen.has(key)) return;
+        seen.add(key);
+        items.push({
+            source: String(value.source || '').trim(),
+            paper_id: String(value.paper_id || '').trim(),
+            title,
+            abstract: String(value.abstract || '').trim(),
+            authors: Array.isArray(value.authors) ? value.authors.map(author => String(author || '').trim()).filter(Boolean).slice(0, 8) : [],
+            year: String(value.year || '').trim(),
+            venue: String(value.venue || '').trim(),
+            url: String(value.url || '').trim(),
+            pdf_url: String(value.pdf_url || '').trim(),
+            saved_at: value.saved_at || new Date().toISOString()
+        });
+    });
+    return items.slice(0, maxItems);
+}
+
+function setAnswerMode(mode) {
+    currentAnswerMode = ANSWER_MODE_LABELS[mode] ? mode : 'evidence';
+    document.querySelectorAll('.mode-chip').forEach(button => {
+        button.classList.toggle('active', button.dataset.mode === currentAnswerMode);
+    });
+}
+
 function fillQuestionInput(prompt) {
     const questionInput = document.getElementById('questionInput');
     if (!questionInput) return;
@@ -506,13 +552,100 @@ function resetSmartSuggestions() {
     renderNextActions([]);
 }
 
-function applyAnalysisSection(sectionName, sectionPayload, generateEvaluation, generateMermaid) {
+function renderReadingQueue() {
+    const container = document.getElementById('readingQueue');
+    const meta = document.getElementById('readingQueueMeta');
+    if (!container) return;
+    currentReadingQueue = normalizeReadingQueue(currentReadingQueue);
+    if (meta) {
+        meta.textContent = currentReadingQueue.length
+            ? `${currentReadingQueue.length} saved paper(s) in this session reading queue.`
+            : 'Save papers from search or recommendations into this session reading queue.';
+    }
+    if (!currentReadingQueue.length) {
+        container.innerHTML = '<p class="empty-state">No saved papers yet.</p>';
+        return;
+    }
+    container.innerHTML = currentReadingQueue.map((item, index) => {
+        const bits = [item.source, item.year, item.venue].filter(Boolean).map(value => escapeHtml(value)).join(' · ');
+        const authors = item.authors.length ? escapeHtml(item.authors.join(', ')) : 'Unknown authors';
+        const titleUrl = sanitizeUrl(item.url || item.pdf_url || '#');
+        const openLink = item.url ? `<a class="paper-link" href="${sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>` : '';
+        const pdfLink = item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer">PDF</a>` : '';
+        return `
+            <article class="queue-item">
+                <div class="queue-title"><a href="${titleUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a></div>
+                ${bits ? `<div class="queue-meta">${bits}</div>` : ''}
+                <div class="queue-authors">${authors}</div>
+                <div class="paper-links">
+                    ${openLink}
+                    ${pdfLink}
+                    <button class="paper-link" type="button" onclick="removePaperFromQueue(${index})">Remove</button>
+                </div>
+            </article>
+        `;
+    }).join('');
+}
+
+async function saveReadingQueue({ silent = true } = {}) {
+    renderReadingQueue();
+    renderExportPreview();
+    if (!currentSessionId || !currentSessionToken) return;
+    try {
+        const response = await fetch('/api/reading-queue', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                session_id: currentSessionId,
+                session_token: currentSessionToken,
+                items: currentReadingQueue
+            })
+        });
+        const data = await parseJsonSafely(response);
+        if (!response.ok) throw new Error(data.error || 'Reading queue save failed.');
+        currentReadingQueue = normalizeReadingQueue(data.items || currentReadingQueue);
+        renderReadingQueue();
+    } catch (error) {
+        if (!silent) showError(error.message || 'Reading queue save failed.');
+    }
+}
+
+function addPaperToQueue(item) {
+    currentReadingQueue = normalizeReadingQueue([...currentReadingQueue, item]);
+    saveReadingQueue({ silent: false });
+}
+
+function addPaperToQueueByIndex(elementId, index) {
+    const items = getPaperListByElementId(elementId);
+    const item = items[index];
+    if (!item) {
+        showError('Paper result not found. Please search again.');
+        return;
+    }
+    addPaperToQueue(item);
+}
+
+function removePaperFromQueue(index) {
+    currentReadingQueue.splice(index, 1);
+    currentReadingQueue = normalizeReadingQueue(currentReadingQueue);
+    saveReadingQueue({ silent: false });
+}
+
+function clearReadingQueue() {
+    currentReadingQueue = [];
+    saveReadingQueue({ silent: false });
+}
+
+function applyAnalysisSection(sectionName, sectionPayload, generateEvaluation, generateMermaid, generateResearchBrief = true) {
     document.getElementById('result').classList.add('active');
     const section = sectionPayload || { status: 'empty', content: '', error: '', retryable: false };
     const errorMessage = section.status === 'failed' ? (section.error || `${sectionName} generation failed.`) : '';
 
     if (sectionName === 'evaluation') {
         document.getElementById('evaluationCard').style.display = generateEvaluation ? 'block' : 'none';
+    }
+    if (sectionName === 'research_brief') {
+        document.getElementById('researchBriefCard').style.display = generateResearchBrief ? 'block' : 'none';
     }
 
     if (sectionName === 'mermaid') {
@@ -544,11 +677,12 @@ function finalizeAnalysisResultState(data, fileName) {
     renderNextActions(currentNextActions);
     renderExportPreview();
     resetPaperPanels();
+    saveReadingQueue();
     setExportEnabled(true);
     document.getElementById('askBtn').disabled = false;
 }
 
-function applyAnalysisResult(data, fileName, generateEvaluation, generateMermaid) {
+function applyAnalysisResult(data, fileName, generateEvaluation, generateMermaid, generateResearchBrief = true) {
     document.getElementById('result').classList.add('active');
     setFileInfo(fileName, data.char_count);
 
@@ -556,13 +690,15 @@ function applyAnalysisResult(data, fileName, generateEvaluation, generateMermaid
     const quotesSection = getSectionPayload(data, 'quotes');
     const mindmapSection = getSectionPayload(data, 'mindmap');
     const evaluationSection = getSectionPayload(data, 'evaluation');
+    const researchBriefSection = getSectionPayload(data, 'research_brief');
     const mermaidSection = getSectionPayload(data, 'mermaid');
 
-    applyAnalysisSection('summary', summarySection, generateEvaluation, generateMermaid);
-    applyAnalysisSection('quotes', quotesSection, generateEvaluation, generateMermaid);
-    applyAnalysisSection('mindmap', mindmapSection, generateEvaluation, generateMermaid);
-    applyAnalysisSection('evaluation', evaluationSection, generateEvaluation, generateMermaid);
-    applyAnalysisSection('mermaid', mermaidSection, generateEvaluation, generateMermaid);
+    applyAnalysisSection('summary', summarySection, generateEvaluation, generateMermaid, generateResearchBrief);
+    applyAnalysisSection('quotes', quotesSection, generateEvaluation, generateMermaid, generateResearchBrief);
+    applyAnalysisSection('mindmap', mindmapSection, generateEvaluation, generateMermaid, generateResearchBrief);
+    applyAnalysisSection('evaluation', evaluationSection, generateEvaluation, generateMermaid, generateResearchBrief);
+    applyAnalysisSection('research_brief', researchBriefSection, generateEvaluation, generateMermaid, generateResearchBrief);
+    applyAnalysisSection('mermaid', mermaidSection, generateEvaluation, generateMermaid, generateResearchBrief);
 
     finalizeAnalysisResultState(data, fileName);
     return Promise.resolve();
@@ -594,10 +730,12 @@ function renderPaperList(elementId, items, emptyText, meta) {
             const addButton = allowImport
                 ? `<button class="paper-link" type="button" onclick="addPaperToAnalysisByIndex(${index})" ${currentImportPaperKey === actionKey ? 'disabled' : ''}>${currentImportPaperKey === actionKey ? 'Adding...' : 'Add'}</button>`
                 : '';
+            const saveButton = `<button class="paper-link" type="button" onclick="addPaperToQueueByIndex('${escapeHtml(elementId)}', ${index})">Save</button>`;
             const links = [
                 item.url ? `<a class="paper-link" href="${sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>` : '',
                 item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer">PDF</a>` : '',
                 downloadButton,
+                saveButton,
                 addButton
             ].join('');
             return `
@@ -667,6 +805,8 @@ function captureWorkspaceState() {
         currentPaperRecommendations: [...currentPaperRecommendations],
         currentSuggestedQuestions: [...currentSuggestedQuestions],
         currentNextActions: currentNextActions.map(action => ({ ...action })),
+        currentReadingQueue: currentReadingQueue.map(item => ({ ...item, authors: [...(item.authors || [])] })),
+        currentAnswerMode,
         currentPaperSearchMetaText,
         currentPaperRecommendationMetaText,
         html: {
@@ -674,6 +814,7 @@ function captureWorkspaceState() {
             quotes: document.getElementById('quotes').innerHTML,
             mindmap: document.getElementById('mindmap').innerHTML,
             evaluation: document.getElementById('evaluation').innerHTML,
+            researchBrief: document.getElementById('research_brief').innerHTML,
             exportPreview: document.getElementById('exportPreview').innerHTML,
             fileInfo: document.getElementById('fileInfo').innerHTML,
             chatHistory: document.getElementById('chatHistory').innerHTML,
@@ -707,6 +848,8 @@ function restoreWorkspaceState(snapshot) {
     currentPaperRecommendations = [...snapshot.currentPaperRecommendations];
     currentSuggestedQuestions = normalizeSmartTextItems(snapshot.currentSuggestedQuestions || []);
     currentNextActions = normalizeSmartActions(snapshot.currentNextActions || []);
+    currentReadingQueue = normalizeReadingQueue(snapshot.currentReadingQueue || []);
+    setAnswerMode(snapshot.currentAnswerMode || 'evidence');
     currentPaperSearchMetaText = snapshot.currentPaperSearchMetaText;
     currentPaperRecommendationMetaText = snapshot.currentPaperRecommendationMetaText;
 
@@ -714,6 +857,7 @@ function restoreWorkspaceState(snapshot) {
     document.getElementById('quotes').innerHTML = snapshot.html.quotes;
     document.getElementById('mindmap').innerHTML = snapshot.html.mindmap;
     document.getElementById('evaluation').innerHTML = snapshot.html.evaluation;
+    document.getElementById('research_brief').innerHTML = snapshot.html.researchBrief || '';
     document.getElementById('exportPreview').innerHTML = snapshot.html.exportPreview;
     document.getElementById('fileInfo').innerHTML = snapshot.html.fileInfo;
     document.getElementById('chatHistory').innerHTML = snapshot.html.chatHistory;
@@ -723,6 +867,7 @@ function restoreWorkspaceState(snapshot) {
     document.getElementById('paperRecommendationMeta').textContent = currentPaperRecommendationMetaText;
     renderSmartPrompts(currentSuggestedQuestions);
     renderNextActions(currentNextActions);
+    renderReadingQueue();
     document.getElementById('mermaidChart').innerHTML = snapshot.html.mermaidChart;
 
     document.getElementById('result').classList.toggle('active', snapshot.ui.resultActive);
@@ -738,11 +883,12 @@ function restoreWorkspaceState(snapshot) {
 }
 
 function resetResultView() {
-    ['summary', 'quotes', 'mindmap', 'evaluation'].forEach(id => setSectionContent(id, ''));
+    ['summary', 'quotes', 'mindmap', 'evaluation', 'research_brief'].forEach(id => setSectionContent(id, ''));
     document.getElementById('fileInfo').innerHTML = '';
     document.getElementById('result').classList.remove('active');
     document.getElementById('askBtn').disabled = true;
     document.getElementById('evaluationCard').style.display = '';
+    document.getElementById('researchBriefCard').style.display = '';
     clearChatHistory();
     resetMermaidCard();
     resetExportState();
@@ -965,6 +1111,7 @@ async function analyze() {
     const file = fileInput.files[0];
     const generateMermaid = document.getElementById('generateMermaid').checked;
     const generateEvaluation = document.getElementById('generateEvaluation').checked;
+    const generateResearchBrief = document.getElementById('generateResearchBrief').checked;
     const analyzeBtn = document.getElementById('analyzeBtn');
     const askBtn = document.getElementById('askBtn');
 
@@ -996,6 +1143,7 @@ async function analyze() {
     formData.append('session_id', currentSessionId);
     formData.append('generate_mermaid', String(generateMermaid));
     formData.append('generate_evaluation', String(generateEvaluation));
+    formData.append('generate_research_brief', String(generateResearchBrief));
     if (apiKey) formData.append('api_key', apiKey);
 
     try {
@@ -1017,12 +1165,12 @@ async function analyze() {
                 const sectionName = payload.name;
                 const section = payload.section || {};
                 currentSections = { ...currentSections, [sectionName]: section };
-                applyAnalysisSection(sectionName, section, generateEvaluation, generateMermaid);
+                applyAnalysisSection(sectionName, section, generateEvaluation, generateMermaid, generateResearchBrief);
                 updateStatus(`Streaming ${sectionName}...`, 'idle');
             },
             done: async payload => {
                 if (requestId !== analyzeRequestId) return;
-                await applyAnalysisResult(payload, file.name, generateEvaluation, generateMermaid);
+                await applyAnalysisResult(payload, file.name, generateEvaluation, generateMermaid, generateResearchBrief);
                 updateStatus('Analysis ready for follow-up questions', 'success');
             },
             error: payload => {
@@ -1176,7 +1324,7 @@ async function askQuestion() {
     const requestId = askRequestId;
 
     hideError();
-    appendChatText('User', question, 'chat-question');
+    appendChatText(`User · ${ANSWER_MODE_LABELS[currentAnswerMode]}`, question, 'chat-question');
     questionInput.value = '';
     setButtonLoading(askBtn, 'Processing...', 'Send', true);
     updateStatus('Answering based on current document...', 'idle');
@@ -1187,7 +1335,7 @@ async function askQuestion() {
         const response = await fetch('/api/ask/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question, session_id: currentSessionId, session_token: currentSessionToken, api_key: apiKey }),
+            body: JSON.stringify({ question, session_id: currentSessionId, session_token: currentSessionToken, api_key: apiKey, answer_mode: currentAnswerMode }),
             signal: askController.signal
         });
 
@@ -1207,6 +1355,7 @@ async function askQuestion() {
                 currentChatTurns.push({
                     question,
                     answer: accumulatedAnswer,
+                    answer_mode: currentAnswerMode,
                     timestamp: new Date().toISOString()
                 });
                 renderExportPreview();
@@ -1282,6 +1431,7 @@ async function addPaperToAnalysis(item) {
     const apiKey = document.getElementById('apiKey').value.trim();
     const generateMermaid = document.getElementById('generateMermaid').checked;
     const generateEvaluation = document.getElementById('generateEvaluation').checked;
+    const generateResearchBrief = document.getElementById('generateResearchBrief').checked;
     const paperKey = buildPaperActionKey(item);
 
     if (importPaperController) {
@@ -1311,7 +1461,8 @@ async function addPaperToAnalysis(item) {
                 session_token: currentSessionToken,
                 api_key: apiKey,
                 generate_mermaid: generateMermaid,
-                generate_evaluation: generateEvaluation
+                generate_evaluation: generateEvaluation,
+                generate_research_brief: generateResearchBrief
             }),
             signal: importPaperController.signal
         });
@@ -1321,7 +1472,7 @@ async function addPaperToAnalysis(item) {
         }
 
         currentPaperSearchMetaText = 'Imported selected paper into PaperWhisperer.';
-        await applyAnalysisResult(data, data.source_filename || item.title || 'Imported paper', generateEvaluation, generateMermaid);
+        await applyAnalysisResult(data, data.source_filename || item.title || 'Imported paper', generateEvaluation, generateMermaid, generateResearchBrief);
         updateStatus('Imported paper ready for follow-up questions', 'success');
     } catch (error) {
         if (error.name === 'AbortError') {
@@ -1463,9 +1614,9 @@ function renderExportPreview() {
             <span><strong>${completed}</strong> sections</span>
             <span><strong>${currentChatTurns.length}</strong> Q&A turns</span>
             <span><strong>${currentPaperSearchResults.length + currentPaperRecommendations.length}</strong> paper leads</span>
-            <span><strong>${currentMermaidSource ? 'SVG' : 'No SVG'}</strong> visual asset</span>
+            <span><strong>${currentReadingQueue.length}</strong> saved papers</span>
         </div>
-        <p class="export-preview-note">Includes analysis, suggested follow-ups, research trace, and local Q&A history.</p>
+        <p class="export-preview-note">Includes analysis, research brief, reading queue, suggested follow-ups, research trace, and local Q&A history.</p>
     `;
 }
 
@@ -1517,6 +1668,10 @@ function buildSessionMarkdown() {
         lines.push('', '---', '', '## Evaluation', '', currentAnalysisResult.evaluation);
     }
 
+    if (currentAnalysisResult.research_brief) {
+        lines.push('', '---', '', '## Deep Research Brief', '', currentAnalysisResult.research_brief);
+    }
+
     if (currentSuggestedQuestions.length || currentNextActions.length) {
         lines.push(
             '',
@@ -1534,12 +1689,16 @@ function buildSessionMarkdown() {
         );
     }
 
-    if (currentPaperSearchResults.length || currentPaperRecommendations.length) {
+    if (currentPaperSearchResults.length || currentPaperRecommendations.length || currentReadingQueue.length) {
         lines.push(
             '',
             '---',
             '',
             '## Research Trace',
+            '',
+            '### Reading Queue',
+            '',
+            formatPaperTrace(currentReadingQueue),
             '',
             '### Paper Search Results',
             '',
@@ -1576,8 +1735,11 @@ function buildSessionMarkdown() {
     if (currentChatTurns.length) {
         lines.push('', '---', '', '## Ask Questions', '');
         currentChatTurns.forEach((turn, index) => {
+            const modeLabel = ANSWER_MODE_LABELS[turn.answer_mode] || ANSWER_MODE_LABELS.evidence;
             lines.push(
                 `### Q${index + 1}`,
+                '',
+                `Mode: ${modeLabel}`,
                 '',
                 turn.question || '_No question text._',
                 '',

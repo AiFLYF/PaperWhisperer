@@ -58,6 +58,13 @@ class FakeUploadFile:
         return self.body[start:end]
 
 
+def test_index_page_renders():
+    response = TestClient(web_app.app).get("/")
+
+    assert response.status_code == 200
+    assert "PaperWhisperer" in response.text
+
+
 def test_save_upload_file_accepts_valid_pdf(tmp_path):
     destination = tmp_path / "paper.pdf"
     body = b"%PDF-1.7\nlocal upload"
@@ -210,6 +217,7 @@ def test_load_session_payload_normalizes_nested_schema(tmp_path, monkeypatch):
     assert payload["analysis"]["sections"] == {}
     assert payload["paper_search"]["last_results"] == []
     assert payload["paper_search"]["last_recommendation"] == {}
+    assert payload["paper_search"]["reading_queue"] == []
     assert payload["session_auth"] == {"token_hash": ""}
     assert payload["document_excerpt"]
 
@@ -251,6 +259,7 @@ def test_finalize_analysis_sections_adds_smart_metadata():
         "mindmap": web_app.build_section_result("success", "mindmap"),
         "mermaid": web_app.build_section_result("disabled"),
         "evaluation": web_app.build_section_result("disabled"),
+        "research_brief": web_app.build_section_result("success", "brief"),
     }
 
     result = whisperer._finalize_analysis_sections("document content", sections)
@@ -259,6 +268,127 @@ def test_finalize_analysis_sections_adds_smart_metadata():
     assert result["next_actions"]
     assert result["analysis_status"]["quality"] == "complete"
     assert "视觉图谱" in result["analysis_status"]["disabled_sections"]
+
+
+def test_load_session_payload_normalizes_reading_queue(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    session_file = tmp_path / "session.json"
+    session_file.write_text(
+        json.dumps(
+            {
+                "expires_at": web_app.build_session_expiry(),
+                "paper_search": {
+                    "reading_queue": [
+                        {"title": "  Paper One  ", "authors": [{"name": "Alice"}], "year": "2024", "url": "https://example.com/1"},
+                        {"title": "Paper One", "authors": ["Duplicate"]},
+                        {"title": ""},
+                    ]
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = web_app.load_session_payload("session")
+
+    assert payload["paper_search"]["reading_queue"] == [
+        {
+            "source": "",
+            "paper_id": "",
+            "title": "Paper One",
+            "abstract": "",
+            "authors": ["Alice"],
+            "year": "2024",
+            "venue": "",
+            "url": "https://example.com/1",
+            "pdf_url": "",
+            "saved_at": payload["paper_search"]["reading_queue"][0]["saved_at"],
+        }
+    ]
+
+
+def test_reading_queue_endpoint_requires_valid_session(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+
+    response = TestClient(web_app.app).post(
+        "/api/reading-queue",
+        content=json.dumps({"session_id": "missing", "items": []}),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_reading_queue_endpoint_saves_normalized_items(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    session_id = "session"
+    token = "token"
+    payload = {
+        "expires_at": web_app.build_session_expiry(),
+        "paper_search": {},
+        "session_auth": {"token_hash": web_app.hash_session_token(token)},
+    }
+    web_app.write_session_payload(session_id, payload)
+
+    response = TestClient(web_app.app).post(
+        "/api/reading-queue",
+        content=json.dumps(
+            {
+                "session_id": session_id,
+                "session_token": token,
+                "items": [
+                    {"title": "Saved Paper", "authors": ["Alice"], "url": "https://example.com/paper"},
+                    {"title": "Saved Paper", "authors": ["Duplicate"]},
+                ],
+            }
+        ),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["count"] == 1
+    assert web_app.load_session_payload(session_id)["paper_search"]["reading_queue"][0]["title"] == "Saved Paper"
+
+
+def test_normalize_answer_mode_defaults_invalid_values():
+    assert web_app.normalize_answer_mode("critique") == "critique"
+    assert web_app.normalize_answer_mode("invalid") == "evidence"
+    assert web_app.normalize_answer_mode(None) == "evidence"
+
+
+def test_ask_api_persists_answer_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    token = "token"
+    session_id = "session"
+    web_app.write_session_payload(
+        session_id,
+        {
+            "expires_at": web_app.build_session_expiry(),
+            "document_content": "document",
+            "qa_history": [],
+            "session_auth": {"token_hash": web_app.hash_session_token(token)},
+        },
+    )
+    monkeypatch.setattr(web_app.PaperWhisperer, "answer_question", lambda self, question, history=None, answer_mode="evidence": f"{answer_mode}: answer")
+
+    response = TestClient(web_app.app).post(
+        "/api/ask",
+        content=json.dumps(
+            {
+                "session_id": session_id,
+                "session_token": token,
+                "api_key": "key",
+                "question": "What?",
+                "answer_mode": "reproduce",
+            }
+        ),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    payload = web_app.load_session_payload(session_id)
+    assert payload["qa_history"][0]["answer_mode"] == "reproduce"
+    assert response.json()["answer"] == "reproduce: answer"
 
 
 def test_cleanup_expired_sessions_removes_malformed_json(tmp_path, monkeypatch):

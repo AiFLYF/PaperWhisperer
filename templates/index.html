@@ -62,6 +62,10 @@
                     <input type="checkbox" id="generateEvaluation" checked>
                     <span>Enable critical evaluation</span>
                 </label>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="generateResearchBrief" checked>
+                    <span>Enable research brief</span>
+                </label>
             </div>
             <button class="btn" id="analyzeBtn" onclick="analyze()">Analyze Document</button>
         </div>
@@ -83,6 +87,15 @@
             </div>
             <div class="paper-meta" id="paperSearchMeta">Search across Semantic Scholar and arXiv with a single query.</div>
             <div class="paper-list" id="paperSearchResults"></div>
+        </div>
+
+        <div class="result-card reading-queue-card">
+            <div class="section-header">
+                <h3 class="section-title">Reading Queue</h3>
+                <button class="action-btn" type="button" onclick="clearReadingQueue()">Clear</button>
+            </div>
+            <div class="paper-meta" id="readingQueueMeta">Save papers from search or recommendations into this session reading queue.</div>
+            <div class="reading-queue" id="readingQueue"></div>
         </div>
 
         <div class="result-section" id="result">
@@ -143,6 +156,14 @@
                 <div class="content" id="evaluation"></div>
             </div>
 
+            <div class="result-card" id="researchBriefCard">
+                <div class="section-header">
+                    <h3 class="section-title">Deep Research Brief</h3>
+                    <button class="action-btn" type="button" onclick="copyText('research_brief', this)">Copy</button>
+                </div>
+                <div class="content" id="research_brief"></div>
+            </div>
+
             <div class="result-card">
                 <div class="section-header">
                     <h3 class="section-title">Auto Recommendations</h3>
@@ -154,6 +175,12 @@
 
             <div class="ask-section">
                 <h3 class="section-title">Ask Questions</h3>
+                <div class="answer-mode-group" id="answerModeGroup" aria-label="Answer mode">
+                    <button class="mode-chip active" type="button" data-mode="evidence" onclick="setAnswerMode('evidence')">Evidence</button>
+                    <button class="mode-chip" type="button" data-mode="explain" onclick="setAnswerMode('explain')">Explain</button>
+                    <button class="mode-chip" type="button" data-mode="critique" onclick="setAnswerMode('critique')">Critique</button>
+                    <button class="mode-chip" type="button" data-mode="reproduce" onclick="setAnswerMode('reproduce')">Reproduce</button>
+                </div>
                 <div class="ask-input-group">
                     <label class="sr-only" for="questionInput">Question about the current document</label>
                     <input type="text" id="questionInput" placeholder="Query data, methods, or specific formulas..." onkeypress="handleKeyPress(event)">

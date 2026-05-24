@@ -233,9 +233,19 @@ PROMPT_TASK_CONTRACTS = {
     "mindmap": """任务契约：识别论文的研究问题、方法、实验、结论与局限，输出文本层级结构。""",
     "mermaid": """任务契约：输出可渲染的 Mermaid 结构图代码，只输出 Mermaid，不解释。""",
     "evaluation": """任务契约：以审稿和读者复盘视角评价论文贡献、优点、局限、历史地位与学习价值。""",
+    "research_brief": """任务契约：生成面向研究决策的深度阅读简报，连接贡献、证据、复现风险和后续检索方向。""",
     "qa": """任务契约：基于当前文档和最近问答历史回答用户追问；文档优先级高于历史。""",
     "search_rewrite": """Task contract: rewrite paper-search intent into concise English retrieval queries and return JSON only.""",
 }
+
+ANSWER_MODES = {
+    "evidence": "证据模式：先给直接结论，再列出文档依据、可推断内容和不确定处。",
+    "explain": "讲解模式：用教学方式分步骤解释概念、方法和公式，必要时补充类比。",
+    "critique": "评审模式：从贡献、假设、局限、威胁效度和可改进点进行批判性分析。",
+    "reproduce": "复现模式：输出复现步骤、关键变量、数据/实验依赖、风险点和检查清单。",
+}
+
+READING_QUEUE_LIMIT = 30
 
 
 def build_stable_system_prompt(task_key):
@@ -295,6 +305,45 @@ def normalize_next_actions(values, max_items=5):
     return actions
 
 
+def normalize_answer_mode(value):
+    mode = str(value or "").strip().lower()
+    return mode if mode in ANSWER_MODES else "evidence"
+
+
+def normalize_paper_collection(values, max_items=READING_QUEUE_LIMIT):
+    if not isinstance(values, list):
+        return []
+    items = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        title = compact_text(value.get("title"), limit=300)
+        if not title:
+            continue
+        url = str(value.get("url") or "").strip()[:1000]
+        pdf_url = str(value.get("pdf_url") or "").strip()[:1000]
+        key = re.sub(r"\s+", " ", title).strip().lower() or url or pdf_url
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({
+            "source": compact_text(value.get("source"), limit=80),
+            "paper_id": compact_text(value.get("paper_id"), limit=160),
+            "title": title,
+            "abstract": compact_text(value.get("abstract"), limit=1200),
+            "authors": normalize_author_list(value.get("authors") or [], limit=8),
+            "year": parse_year(value.get("year")),
+            "venue": compact_text(value.get("venue"), limit=120),
+            "url": url,
+            "pdf_url": pdf_url,
+            "saved_at": compact_text(value.get("saved_at") or now_iso(), limit=40),
+        })
+        if len(items) >= max_items:
+            break
+    return items
+
+
 def build_analysis_metadata(sections):
     section_labels = {
         "summary": "概览",
@@ -302,6 +351,7 @@ def build_analysis_metadata(sections):
         "mindmap": "文本结构",
         "mermaid": "视觉图谱",
         "evaluation": "批判评价",
+        "research_brief": "深度简报",
     }
     section_statuses = {
         name: str((section or {}).get("status") or "empty")
@@ -321,12 +371,19 @@ def build_analysis_metadata(sections):
         suggested_questions.append("哪些原文片段最适合在综述或笔记中引用？")
     if section_statuses.get("evaluation") == "success":
         suggested_questions.append("如果我要复现或扩展这篇论文，应该优先关注什么？")
+    if section_statuses.get("research_brief") == "success":
+        suggested_questions.append("这篇论文最适合放进哪条研究脉络或综述段落？")
 
     next_actions = [
         {"label": "追问方法细节", "prompt": "请解释这篇论文的方法流程，并指出每一步解决了什么问题。"},
         {"label": "整理局限性", "prompt": "请基于文档总结这篇论文的局限性，并给出可能的改进方向。"},
         {"label": "生成阅读路线", "prompt": "请把这篇论文拆成适合精读的阅读路线和检查清单。"},
     ]
+    if section_statuses.get("research_brief") == "success":
+        next_actions.extend([
+            {"label": "复现路线", "prompt": "请基于深度简报生成一份复现路线，包括数据、实验变量、依赖和风险点。"},
+            {"label": "找后续工作", "prompt": "请提炼 5 个英文检索关键词，用于寻找这篇论文的后续工作或相邻研究。"},
+        ])
     if section_statuses.get("evaluation") == "disabled":
         next_actions.append({"label": "手动评价", "prompt": "请基于当前文档补充一份批判性评价。"})
     if failed:
@@ -591,6 +648,7 @@ def build_session_payload(session_id, source_filename, document_content, analysi
             "last_query": "",
             "last_results": [],
             "last_recommendation": {},
+            "reading_queue": [],
         },
         "session_auth": {
             "token_hash": hash_session_token(session_token),
@@ -601,6 +659,7 @@ def build_session_payload(session_id, source_filename, document_content, analysi
             "mindmap": analysis.get("mindmap", ""),
             "mermaid": analysis.get("mermaid", ""),
             "evaluation": analysis.get("evaluation", ""),
+            "research_brief": analysis.get("research_brief", ""),
             "sections": analysis.get("sections", {}),
             "char_count": analysis.get("char_count", 0),
             "elapsed_seconds": analysis.get("elapsed_seconds"),
@@ -1133,7 +1192,7 @@ def download_remote_paper(title, pdf_url, url):
                 pass
 
 
-def finalize_analysis_result(result, whisperer, original_filename, generate_evaluation_bool, session_id):
+def finalize_analysis_result(result, whisperer, original_filename, generate_evaluation_bool, session_id, generate_research_brief_bool=True):
     safe_session_id = build_session_id(session_id)
     session_token = generate_session_token()
     base_name = os.path.splitext(original_filename)[0]
@@ -1171,6 +1230,9 @@ def finalize_analysis_result(result, whisperer, original_filename, generate_eval
     if generate_evaluation_bool:
         md_content += f"## 论文评价\n\n{result.get('evaluation', '')}\n\n---\n"
 
+    if generate_research_brief_bool:
+        md_content += f"## 深度阅读简报\n\n{result.get('research_brief', '')}\n\n---\n"
+
     md_content += f"## 元信息\n\n- 版本: {whisperer.version}\n- 字符数: {result['char_count']}\n"
 
     with open(output_file, "w", encoding="utf-8") as f:
@@ -1192,20 +1254,21 @@ def finalize_analysis_result(result, whisperer, original_filename, generate_eval
     return result
 
 
-def analyze_saved_file(file_path, original_filename, api_key, generate_mermaid_bool, generate_evaluation_bool, session_id):
+def analyze_saved_file(file_path, original_filename, api_key, generate_mermaid_bool, generate_evaluation_bool, session_id, generate_research_brief_bool=True):
     cleanup_expired_sessions()
     resolved_api_key = resolve_api_key(api_key)
     if not resolved_api_key:
         raise ValueError("API key is required. Provide api_key or set OPENAI_API_KEY.")
 
     whisperer = PaperWhisperer(resolved_api_key)
-    result = whisperer.analyze(file_path, generate_mermaid_bool, generate_evaluation_bool)
+    result = whisperer.analyze(file_path, generate_mermaid_bool, generate_evaluation_bool, generate_research_brief_bool)
     return finalize_analysis_result(
         result=result,
         whisperer=whisperer,
         original_filename=original_filename,
         generate_evaluation_bool=generate_evaluation_bool,
         session_id=session_id,
+        generate_research_brief_bool=generate_research_brief_bool,
     )
 
 
@@ -1260,6 +1323,10 @@ def load_session_payload(session_id):
         payload["paper_search"]["last_results"] = []
     if not isinstance(payload["paper_search"].get("last_recommendation"), dict):
         payload["paper_search"]["last_recommendation"] = {}
+    payload["paper_search"]["reading_queue"] = normalize_paper_collection(
+        payload["paper_search"].get("reading_queue"),
+        max_items=READING_QUEUE_LIMIT,
+    )
     payload["session_auth"].setdefault("token_hash", "")
     if not isinstance(payload["analysis"].get("sections"), dict):
         payload["analysis"]["sections"] = {}
@@ -1710,7 +1777,44 @@ class PaperWhisperer:
         )
         return self._call_llm(system_prompt, user_prompt)
 
-    def _build_answer_prompts(self, question, history=None):
+    def generate_research_brief(self, content):
+        system_prompt = build_stable_system_prompt("research_brief")
+        user_prompt = build_task_user_prompt(
+            task="生成一份可直接用于组会、文献综述和后续检索决策的深度阅读简报。",
+            constraints="所有结论必须能从文档内容推出；证据不足时标注不确定；推荐检索词用英文短语；避免泛泛背景介绍。",
+            output_format="""## 深度阅读简报
+
+### 一句话定位
+[这篇论文解决什么问题、适合放在哪条研究脉络]
+
+### 核心贡献与适用场景
+- 贡献1：对应证据或章节线索
+- 贡献2：对应证据或章节线索
+
+### 证据-结论链
+| 结论 | 文档依据 | 可信度 |
+| --- | --- | --- |
+| [结论] | [依据] | 高/中/低 |
+
+### 复现检查清单
+- 数据与输入要求
+- 方法/模型关键变量
+- 实验或评估指标
+- 潜在失败点
+
+### 局限与后续问题
+- 局限1
+- 后续问题1
+
+### 推荐检索关键词
+- keyword phrase 1
+- keyword phrase 2
+- keyword phrase 3""",
+            input_blocks=[("document_excerpt", build_document_excerpt(content, limit=18000))],
+        )
+        return self._call_llm(system_prompt, user_prompt)
+
+    def _build_answer_prompts(self, question, history=None, answer_mode="evidence"):
         if not self.document_content:
             raise ValueError("没有文档内容，请先上传文档进行分析。")
 
@@ -1743,10 +1847,12 @@ class PaperWhisperer:
         history_sections.reverse()
         history_block = "\n\n---\n\n".join(history_sections)
 
+        answer_mode = normalize_answer_mode(answer_mode)
         system_prompt = build_stable_system_prompt("qa")
         constraints = (
             "优先依据 document_excerpt；history 只用于理解追问上下文；"
             "如果文档没有答案，明确说明缺少依据；回答要简洁但保留关键证据。"
+            f"\n{ANSWER_MODES[answer_mode]}"
         )
         input_blocks = [("document_excerpt", document_window)]
         if history_block:
@@ -1760,12 +1866,12 @@ class PaperWhisperer:
         )
         return system_prompt, user_prompt
 
-    def answer_question(self, question, history=None):
-        system_prompt, user_prompt = self._build_answer_prompts(question, history=history)
+    def answer_question(self, question, history=None, answer_mode="evidence"):
+        system_prompt, user_prompt = self._build_answer_prompts(question, history=history, answer_mode=answer_mode)
         return self._call_llm(system_prompt, user_prompt)
 
-    def stream_answer_question(self, question, history=None):
-        system_prompt, user_prompt = self._build_answer_prompts(question, history=history)
+    def stream_answer_question(self, question, history=None, answer_mode="evidence"):
+        system_prompt, user_prompt = self._build_answer_prompts(question, history=history, answer_mode=answer_mode)
         full_answer = []
         for chunk in self._stream_llm(system_prompt, user_prompt):
             full_answer.append(chunk)
@@ -1861,6 +1967,7 @@ class PaperWhisperer:
         result["mindmap"] = sections["mindmap"]["content"]
         result["mermaid"] = sections["mermaid"]["content"]
         result["evaluation"] = sections["evaluation"]["content"]
+        result["research_brief"] = sections["research_brief"]["content"]
 
         result.update(build_analysis_metadata(sections))
 
@@ -1869,13 +1976,13 @@ class PaperWhisperer:
             raise RuntimeError(required_sections[0]["error"] or "核心分析项全部失败")
         return result
 
-    def analyze(self, file_path, generate_mermaid=True, generate_evaluation=True):
+    def analyze(self, file_path, generate_mermaid=True, generate_evaluation=True, generate_research_brief=True):
         """核心分析流程（已优化为并发执行）"""
         content = DocumentLoader.load(file_path)
         self.document_content = content
 
         sections = {}
-        task_count = 3 + int(generate_mermaid) + int(generate_evaluation)
+        task_count = 3 + int(generate_mermaid) + int(generate_evaluation) + int(generate_research_brief)
         worker_count = self._get_worker_count(task_count, self.analysis_workers)
 
         t_start = time.time()
@@ -1886,12 +1993,14 @@ class PaperWhisperer:
             future_mindmap = executor.submit(self.generate_mindmap, content)
             future_mermaid = executor.submit(self.generate_mermaid_mindmap, content) if generate_mermaid else None
             future_eval = executor.submit(self.generate_evaluation, content) if generate_evaluation else None
+            future_research_brief = executor.submit(self.generate_research_brief, content) if generate_research_brief else None
 
             sections["summary"] = self._resolve_section_future(future_summary)
             sections["quotes"] = self._resolve_section_future(future_quotes)
             sections["mindmap"] = self._resolve_section_future(future_mindmap)
             sections["mermaid"] = self._resolve_section_future(future_mermaid, enabled=generate_mermaid)
             sections["evaluation"] = self._resolve_section_future(future_eval, enabled=generate_evaluation)
+            sections["research_brief"] = self._resolve_section_future(future_research_brief, enabled=generate_research_brief)
 
         elapsed = time.time() - t_start
         result = self._finalize_analysis_sections(content, sections)
@@ -1900,7 +2009,7 @@ class PaperWhisperer:
         logger.info(f"Analysis completed in {elapsed:.1f}s for {os.path.basename(file_path)} ({len(content)} chars)")
         return result
 
-    def analyze_stream(self, file_path, generate_mermaid=True, generate_evaluation=True):
+    def analyze_stream(self, file_path, generate_mermaid=True, generate_evaluation=True, generate_research_brief=True):
         content = DocumentLoader.load(file_path)
         self.document_content = content
 
@@ -1910,8 +2019,9 @@ class PaperWhisperer:
             "mindmap": build_section_result("pending"),
             "mermaid": build_section_result("disabled") if not generate_mermaid else build_section_result("pending"),
             "evaluation": build_section_result("disabled") if not generate_evaluation else build_section_result("pending"),
+            "research_brief": build_section_result("disabled") if not generate_research_brief else build_section_result("pending"),
         }
-        task_count = 3 + int(generate_mermaid) + int(generate_evaluation)
+        task_count = 3 + int(generate_mermaid) + int(generate_evaluation) + int(generate_research_brief)
         worker_count = self._get_worker_count(task_count, self.analysis_workers)
         t_start = time.time()
 
@@ -1925,6 +2035,8 @@ class PaperWhisperer:
                 future_map[executor.submit(self.generate_mermaid_mindmap, content)] = ("mermaid", True)
             if generate_evaluation:
                 future_map[executor.submit(self.generate_evaluation, content)] = ("evaluation", True)
+            if generate_research_brief:
+                future_map[executor.submit(self.generate_research_brief, content)] = ("research_brief", True)
 
             for future in concurrent.futures.as_completed(future_map):
                 section_name, enabled = future_map[future]
@@ -1949,7 +2061,7 @@ class PaperWhisperer:
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 @app.get("/logo.ico")
@@ -1968,6 +2080,7 @@ async def analyze(
     api_key: str = Form(""),
     generate_mermaid: str | None = Form(None),
     generate_evaluation: str | None = Form(None),
+    generate_research_brief: str | None = Form(None),
     session_id: str = Form(""),
 ):
     file_path = None
@@ -1992,6 +2105,7 @@ async def analyze(
 
         generate_mermaid_bool = parse_bool_value(generate_mermaid, default=True)
         generate_evaluation_bool = parse_bool_value(generate_evaluation, default=True)
+        generate_research_brief_bool = parse_bool_value(generate_research_brief, default=True)
         result = analyze_saved_file(
             file_path=file_path,
             original_filename=original_filename,
@@ -1999,6 +2113,7 @@ async def analyze(
             generate_mermaid_bool=generate_mermaid_bool,
             generate_evaluation_bool=generate_evaluation_bool,
             session_id=session_id,
+            generate_research_brief_bool=generate_research_brief_bool,
         )
         return JSONResponse(content=result)
 
@@ -2060,6 +2175,7 @@ async def analyze_stream(
     api_key: str = Form(""),
     generate_mermaid: str | None = Form(None),
     generate_evaluation: str | None = Form(None),
+    generate_research_brief: str | None = Form(None),
     session_id: str = Form(""),
 ):
     file_path = None
@@ -2083,6 +2199,7 @@ async def analyze_stream(
     file_path = build_unique_storage_path(UPLOAD_FOLDER, original_filename)
     generate_mermaid_bool = parse_bool_value(generate_mermaid, default=True)
     generate_evaluation_bool = parse_bool_value(generate_evaluation, default=True)
+    generate_research_brief_bool = parse_bool_value(generate_research_brief, default=True)
 
     try:
         await save_upload_file(file, file_path, MAX_CONTENT_LENGTH)
@@ -2102,7 +2219,7 @@ async def analyze_stream(
             yield build_sse_event("start", {"session_id": safe_session_id, "source_filename": original_filename})
 
             final_result = None
-            for event in whisperer.analyze_stream(file_path, generate_mermaid_bool, generate_evaluation_bool):
+            for event in whisperer.analyze_stream(file_path, generate_mermaid_bool, generate_evaluation_bool, generate_research_brief_bool):
                 if event["type"] == "section":
                     yield build_sse_event("section", {"name": event["name"], "section": event["section"]})
                 elif event["type"] == "done":
@@ -2117,6 +2234,7 @@ async def analyze_stream(
                 original_filename=original_filename,
                 generate_evaluation_bool=generate_evaluation_bool,
                 session_id=safe_session_id,
+                generate_research_brief_bool=generate_research_brief_bool,
             )
             yield build_sse_event("done", final_payload)
         except Exception as exc:
@@ -2149,6 +2267,7 @@ async def import_paper(request: Request):
 
         generate_mermaid_bool = parse_bool_value(data.get("generate_mermaid"), default=True)
         generate_evaluation_bool = parse_bool_value(data.get("generate_evaluation"), default=True)
+        generate_research_brief_bool = parse_bool_value(data.get("generate_research_brief"), default=True)
         file_path, original_filename = download_remote_paper(title=title, pdf_url=pdf_url, url=url)
         result = analyze_saved_file(
             file_path=file_path,
@@ -2157,6 +2276,7 @@ async def import_paper(request: Request):
             generate_mermaid_bool=generate_mermaid_bool,
             generate_evaluation_bool=generate_evaluation_bool,
             session_id=str(data.get("session_id") or ""),
+            generate_research_brief_bool=generate_research_brief_bool,
         )
         return JSONResponse(content=result)
     except ValueError as exc:
@@ -2201,6 +2321,7 @@ async def ask_question(request: Request):
     question = str(data.get("question") or "").strip()
     raw_session_id = str(data.get("session_id") or "")
     session_token = str(data.get("session_token") or "")
+    answer_mode = normalize_answer_mode(data.get("answer_mode"))
 
     if not question:
         return JSONResponse(content={"error": "Please enter a question."}, status_code=400)
@@ -2219,13 +2340,14 @@ async def ask_question(request: Request):
         whisperer.document_content = get_session_document_content(session_payload)
 
         t_start = time.time()
-        answer = whisperer.answer_question(question, history=session_payload.get("qa_history", []))
+        answer = whisperer.answer_question(question, history=session_payload.get("qa_history", []), answer_mode=answer_mode)
         elapsed = time.time() - t_start
 
         qa_history = session_payload.get("qa_history", [])
         qa_history.append({
             "question": question,
             "answer": answer,
+            "answer_mode": answer_mode,
             "timestamp": now_iso(),
         })
         session_payload["qa_history"] = qa_history
@@ -2253,6 +2375,7 @@ async def ask_question_stream(request: Request):
     question = str(data.get("question") or "").strip()
     raw_session_id = str(data.get("session_id") or "")
     session_token = str(data.get("session_token") or "")
+    answer_mode = normalize_answer_mode(data.get("answer_mode"))
 
     if not question:
         return JSONResponse(content={"error": "Please enter a question."}, status_code=400)
@@ -2279,7 +2402,7 @@ async def ask_question_stream(request: Request):
 
             full_answer_parts = []
             t_start = time.time()
-            for chunk in whisperer.stream_answer_question(question, history=session_payload.get("qa_history", [])):
+            for chunk in whisperer.stream_answer_question(question, history=session_payload.get("qa_history", []), answer_mode=answer_mode):
                 full_answer_parts.append(chunk)
                 yield build_sse_event("delta", {"text": chunk})
 
@@ -2290,6 +2413,7 @@ async def ask_question_stream(request: Request):
             qa_history.append({
                 "question": question,
                 "answer": answer,
+                "answer_mode": answer_mode,
                 "timestamp": now_iso(),
             })
             session_payload["qa_history"] = qa_history
@@ -2364,6 +2488,32 @@ async def search_papers_api(request: Request):
         return JSONResponse(content={"error": str(exc)}, status_code=400)
     except Exception as exc:
         logger.exception("Paper search failed")
+        return JSONResponse(content={"error": str(exc)}, status_code=500)
+
+
+@app.post("/api/reading-queue")
+async def save_reading_queue(request: Request):
+    data, error_response = await parse_json_object_request(request)
+    if error_response is not None:
+        return error_response
+
+    cleanup_expired_sessions()
+    raw_session_id = str(data.get("session_id") or "").strip()
+    session_token = str(data.get("session_token") or "")
+
+    try:
+        safe_session_id, session_payload = load_validated_session(raw_session_id, session_token, require_token=True)
+        reading_queue = normalize_paper_collection(data.get("items"), max_items=READING_QUEUE_LIMIT)
+        session_payload.setdefault("paper_search", {})
+        session_payload["paper_search"]["reading_queue"] = reading_queue
+        write_session_payload(safe_session_id, session_payload)
+        return JSONResponse(content={"items": reading_queue, "count": len(reading_queue)})
+    except PermissionError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=403)
+    except ValueError as exc:
+        return JSONResponse(content={"error": str(exc)}, status_code=400)
+    except Exception as exc:
+        logger.exception("Reading queue save failed")
         return JSONResponse(content={"error": str(exc)}, status_code=500)
 
 
