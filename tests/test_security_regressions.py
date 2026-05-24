@@ -119,6 +119,11 @@ def test_static_frontend_assets_are_served():
     assert "setAnswerMode" in js_response.text
     assert "SUPPORTED_UPLOAD_EXTENSIONS" in js_response.text
     assert "MAX_UPLOAD_BYTES" in js_response.text
+    assert "getUploadFileExtension" in js_response.text
+    assert "appendFileMetaItem" in js_response.text
+    assert "Ready to analyze" in js_response.text
+    assert "Review needed" in js_response.text
+    assert "Supported document type and size." in js_response.text
     assert "updateAnalysisProgress" in js_response.text
     assert "getPaperStateDetails" in js_response.text
     assert "getWorkspaceGuidanceItems" in js_response.text
@@ -166,6 +171,10 @@ def test_static_frontend_assets_are_served():
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
+    assert ".file-meta-ready" in css_response.text
+    assert ".file-meta-error" in css_response.text
+    assert ".file-meta-details" in css_response.text
+    assert ".file-meta-status" in css_response.text
     assert ".progress-step.active" in css_response.text
     assert ".paper-state" in css_response.text
     assert ".workspace-guidance" in css_response.text
