@@ -85,6 +85,7 @@ def test_static_frontend_assets_are_served():
 def test_standalone_landing_page_accessibility_regressions():
     html = Path(__file__).resolve().parents[1].joinpath("index.html").read_text(encoding="utf-8")
 
+    assert '<html lang="zh-CN">' in html
     assert 'class="skip-link" href="#main-content"' in html
     assert '<main id="main-content">' in html
     assert 'aria-label="Primary navigation"' in html
