@@ -350,6 +350,18 @@ def test_remove_file_safely_logs_cleanup_failures(tmp_path, monkeypatch, caplog)
     assert str(destination) in caplog.text
 
 
+def test_close_response_safely_logs_cleanup_failures(caplog):
+    class BrokenCloseResponse:
+        def close(self):
+            raise OSError("close failed")
+
+    caplog.set_level("ERROR", logger=web_app.__name__)
+
+    web_app.close_response_safely(BrokenCloseResponse(), "test response")
+
+    assert "Failed to close test response" in caplog.text
+
+
 def test_public_hostname_validation_uses_short_cache(monkeypatch):
     web_app.PUBLIC_HOSTNAME_CACHE.clear()
     calls = []

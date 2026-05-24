@@ -830,6 +830,15 @@ def remove_file_safely(file_path, description="temporary file"):
         logger.exception("Failed to remove %s: %s", description, file_path)
 
 
+def close_response_safely(response, description="remote response"):
+    if not response:
+        return
+    try:
+        response.close()
+    except Exception:
+        logger.exception("Failed to close %s", description)
+
+
 def atomic_write_json(file_path, payload):
     temp_path = f"{file_path}.{uuid.uuid4().hex}.tmp"
     try:
@@ -1105,11 +1114,7 @@ def stream_remote_paper(title, pdf_url, url):
 
             return response, file_name, content_type, initial_chunk
         except Exception as exc:
-            if response:
-                try:
-                    response.close()
-                except Exception:
-                    pass
+            close_response_safely(response, "failed remote paper response")
             last_error = exc
 
     if last_error:
@@ -1158,10 +1163,7 @@ def iter_remote_file_chunks(response, max_bytes, initial_chunk=b""):
         if total_bytes <= 0:
             raise ValueError("Downloaded file is empty.")
     finally:
-        try:
-            response.close()
-        except Exception:
-            pass
+        close_response_safely(response, "remote file stream response")
 
 
 def cleanup_expired_sessions(force=False):
@@ -1246,11 +1248,7 @@ def download_remote_paper(title, pdf_url, url):
         remove_file_safely(temp_path, "failed remote download file")
         raise
     finally:
-        if response:
-            try:
-                response.close()
-            except Exception:
-                pass
+        close_response_safely(response, "remote paper download response")
 
 
 def finalize_analysis_result(result, whisperer, original_filename, generate_evaluation_bool, session_id, generate_research_brief_bool=True):
