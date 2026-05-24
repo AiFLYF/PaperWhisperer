@@ -2115,18 +2115,21 @@ async def health_check():
         "output": OUTPUT_FOLDER,
         "context": CONTEXT_FOLDER,
     }
-    return JSONResponse(content={
-        "status": "ok",
-        "app": "PaperWhisperer",
-        "timestamp": now_iso(),
-        "folders": {
-            name: {
-                "exists": os.path.isdir(path),
-                "writable": os.path.isdir(path) and os.access(path, os.W_OK),
-            }
-            for name, path in runtime_folders.items()
+    return JSONResponse(
+        content={
+            "status": "ok",
+            "app": "PaperWhisperer",
+            "timestamp": now_iso(),
+            "folders": {
+                name: {
+                    "exists": os.path.isdir(path),
+                    "writable": os.path.isdir(path) and os.access(path, os.W_OK),
+                }
+                for name, path in runtime_folders.items()
+            },
         },
-    })
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.post("/api/analyze")
