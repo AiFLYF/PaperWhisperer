@@ -76,6 +76,9 @@ def test_index_page_renders():
     assert 'aria-pressed="true"' in response.text
     assert "Ask about evidence, methods, limitations, or reproducibility" in response.text
     assert 'id="backToTopBtn"' in response.text
+    assert 'rel="preconnect" href="https://cdn.jsdelivr.net"' in response.text
+    assert 'rel="dns-prefetch" href="https://github.com"' in response.text
+    assert 'fetchpriority="high"' in response.text
 
 
 def test_static_frontend_assets_are_served():
