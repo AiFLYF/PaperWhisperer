@@ -580,6 +580,43 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     word-break: break-word;
 }
 .empty-state { color: var(--text-secondary); font-style: italic; }
+.section-state {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 16px;
+    border: 1px dashed rgba(15, 118, 110, 0.22);
+    border-radius: var(--radius-md);
+    background: rgba(15, 118, 110, 0.06);
+}
+.section-state-error {
+    border-style: solid;
+    border-color: rgba(217, 72, 15, 0.32);
+    background: rgba(217, 72, 15, 0.08);
+}
+.section-state-icon {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border-radius: 10px;
+    background: var(--bg-card);
+    color: var(--primary-color);
+    font-weight: 800;
+}
+.section-state-error .section-state-icon { color: var(--error-color); }
+.section-state-title {
+    margin: 0 0 4px;
+    color: var(--text-primary);
+    font-weight: 700;
+}
+.section-state-detail {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.55;
+}
 
 .paper-actions {
     display: flex;

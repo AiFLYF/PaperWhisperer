@@ -441,12 +441,28 @@ function formatContent(content, fallbackText) {
     return sanitizeGeneratedHtml(htmlContent);
 }
 
+function renderSectionStateCard(title, detail, tone = 'empty') {
+    return `
+        <div class="section-state section-state-${tone}">
+            <span class="section-state-icon" aria-hidden="true">${tone === 'error' ? '!' : 'i'}</span>
+            <div>
+                <p class="section-state-title">${escapeHtml(title)}</p>
+                <p class="section-state-detail">${escapeHtml(detail)}</p>
+            </div>
+        </div>
+    `;
+}
+
 function setSectionContent(id, value, errorMessage = '') {
     const element = document.getElementById(id);
     if (!element) return;
     element.dataset.rawContent = value || '';
     if (errorMessage) {
-        element.innerHTML = `<p class="empty-state">${escapeHtml(errorMessage)}</p>`;
+        element.innerHTML = renderSectionStateCard('Section needs review', errorMessage, 'error');
+        return;
+    }
+    if (!value) {
+        element.innerHTML = renderSectionStateCard('Waiting for content', SECTION_EMPTY_TEXT[id] || 'No content available.');
         return;
     }
     element.innerHTML = formatContent(value, SECTION_EMPTY_TEXT[id]);
