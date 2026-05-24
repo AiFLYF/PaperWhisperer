@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 from docx import Document
 from pptx import Presentation
 

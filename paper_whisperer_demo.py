@@ -16,7 +16,7 @@ except ImportError:
     OpenAI = None
 
 try:
-    from PyPDF2 import PdfReader
+    from pypdf import PdfReader
 except ImportError:
     PdfReader = None
 
@@ -118,7 +118,7 @@ class DocumentLoader:
     @staticmethod
     def load_pdf(file_path):
         if PdfReader is None:
-            raise ValueError("PyPDF2 is not installed. Please install dependencies first.")
+            raise ValueError("pypdf is not installed. Please install dependencies first.")
         try:
             reader = PdfReader(file_path)
             return "\n\n".join(page.extract_text() or "" for page in reader.pages).strip()

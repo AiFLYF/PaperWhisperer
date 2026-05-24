@@ -31,7 +31,7 @@ PaperWhisperer 是一个面向论文和技术文档阅读的 AI Research Workspa
 - Python 3.10+
 - FastAPI + Uvicorn
 - OpenAI Python SDK（兼容 OpenAI API 协议的服务）
-- PyPDF2 / python-docx / python-pptx
+- pypdf / python-docx / python-pptx
 - Vanilla HTML / CSS / JavaScript
 - KaTeX / marked / svg-pan-zoom
 
