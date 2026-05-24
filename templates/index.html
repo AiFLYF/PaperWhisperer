@@ -220,11 +220,11 @@
 
             <section class="ask-section" aria-labelledby="askQuestionsTitle">
                 <h3 class="section-title" id="askQuestionsTitle">Ask Questions</h3>
-                <div class="answer-mode-group" id="answerModeGroup" aria-label="Answer mode" aria-describedby="answerModeHint">
-                    <button class="mode-chip active" type="button" data-mode="evidence" aria-pressed="true">Evidence</button>
-                    <button class="mode-chip" type="button" data-mode="explain" aria-pressed="false">Explain</button>
-                    <button class="mode-chip" type="button" data-mode="critique" aria-pressed="false">Critique</button>
-                    <button class="mode-chip" type="button" data-mode="reproduce" aria-pressed="false">Reproduce</button>
+                <div class="answer-mode-group" id="answerModeGroup" role="radiogroup" aria-label="Answer mode" aria-describedby="answerModeHint">
+                    <button class="mode-chip active" type="button" role="radio" data-mode="evidence" aria-checked="true" aria-pressed="true">Evidence</button>
+                    <button class="mode-chip" type="button" role="radio" data-mode="explain" aria-checked="false" aria-pressed="false">Explain</button>
+                    <button class="mode-chip" type="button" role="radio" data-mode="critique" aria-checked="false" aria-pressed="false">Critique</button>
+                    <button class="mode-chip" type="button" role="radio" data-mode="reproduce" aria-checked="false" aria-pressed="false">Reproduce</button>
                 </div>
                 <p class="answer-mode-hint" id="answerModeHint">Evidence mode answers first, then cites document support and uncertainty.</p>
                 <div class="question-starter-chips" aria-label="Starter questions">

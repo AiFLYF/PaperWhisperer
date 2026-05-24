@@ -84,7 +84,9 @@ def test_index_page_renders():
     assert 'id="apiKey" placeholder="Enter your API Key" autocomplete="off" autocapitalize="off" spellcheck="false"' in response.text
     assert 'type="search" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="search"' in response.text
     assert 'id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint" autocomplete="off" autocapitalize="off" spellcheck="false"' in response.text
-    assert 'aria-pressed="true"' in response.text
+    assert 'id="answerModeGroup" role="radiogroup" aria-label="Answer mode" aria-describedby="answerModeHint"' in response.text
+    assert 'role="radio" data-mode="evidence" aria-checked="true" aria-pressed="true"' in response.text
+    assert 'role="radio" data-mode="reproduce" aria-checked="false" aria-pressed="false"' in response.text
     assert "Ask about evidence, methods, limitations, or reproducibility" in response.text
     assert 'id="backToTopBtn" aria-label="Back to top" aria-hidden="true" tabindex="-1"' in response.text
     assert 'class="skip-links"' in response.text
@@ -147,6 +149,7 @@ def test_static_frontend_assets_are_served():
     assert "Supported document type and size." in js_response.text
     assert "updateAnalysisProgress" in js_response.text
     assert "btn.setAttribute('aria-pressed', String(isDark))" in js_response.text
+    assert "button.setAttribute('aria-checked', selected ? 'true' : 'false')" in js_response.text
     assert "function readLocalStorageValue(key)" in js_response.text
     assert "function writeLocalStorageValue(key, value)" in js_response.text
     assert "Local storage read failed" in js_response.text
