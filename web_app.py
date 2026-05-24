@@ -821,6 +821,15 @@ def extract_json_object(text):
     return raw_text
 
 
+def remove_file_safely(file_path, description="temporary file"):
+    if not file_path or not os.path.exists(file_path):
+        return
+    try:
+        os.remove(file_path)
+    except Exception:
+        logger.exception("Failed to remove %s: %s", description, file_path)
+
+
 def atomic_write_json(file_path, payload):
     temp_path = f"{file_path}.{uuid.uuid4().hex}.tmp"
     try:
@@ -830,11 +839,7 @@ def atomic_write_json(file_path, payload):
             os.fsync(f.fileno())
         os.replace(temp_path, file_path)
     finally:
-        if os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
+        remove_file_safely(temp_path, "stale JSON temp file")
 
 
 def write_session_payload(session_id, payload):
@@ -1129,11 +1134,7 @@ async def save_upload_file(upload_file, destination_path, max_bytes):
         validate_saved_file_signature(destination_path)
         return total_bytes
     except Exception:
-        if destination_path and os.path.exists(destination_path):
-            try:
-                os.remove(destination_path)
-            except Exception:
-                pass
+        remove_file_safely(destination_path, "failed upload file")
         raise
 
 
@@ -1242,11 +1243,7 @@ def download_remote_paper(title, pdf_url, url):
 
         return temp_path, file_name
     except Exception:
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.remove(temp_path)
-            except Exception:
-                pass
+        remove_file_safely(temp_path, "failed remote download file")
         raise
     finally:
         if response:
