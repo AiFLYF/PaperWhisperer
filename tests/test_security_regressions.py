@@ -79,7 +79,7 @@ def test_index_page_renders():
     assert 'id="downloadMermaidBtn" title="Download SVG" aria-label="Download visual map SVG" aria-controls="mermaidChart"' in response.text
     assert "Deep Research Brief" in response.text
     assert "Reading Queue" in response.text
-    assert 'id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" aria-invalid="false" aria-keyshortcuts="Alt+U"' in response.text
+    assert 'id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" aria-invalid="false" aria-keyshortcuts="Alt+U" aria-controls="file"' in response.text
     assert 'class="file-meta" id="fileMeta" role="status" aria-live="polite"' in response.text
     assert "Drop a paper here or browse" in response.text
     assert 'id="analysisProgressSteps"' in response.text
