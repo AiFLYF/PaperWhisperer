@@ -1757,6 +1757,30 @@ function formatPaperTrace(items) {
     }).join('\n');
 }
 
+function getWorkspaceGuidanceItems(status, completed) {
+    const failed = Array.isArray(status.failed_sections) ? status.failed_sections.length : 0;
+    const disabled = Array.isArray(status.disabled_sections) ? status.disabled_sections.length : 0;
+    const paperLeadCount = currentPaperSearchResults.length + currentPaperRecommendations.length;
+    const nextAction = currentNextActions[0];
+    return [
+        {
+            label: 'Workspace state',
+            value: failed ? `${completed} ready · ${failed} need review` : `${completed} sections ready`,
+            detail: disabled ? `${disabled} optional section(s) disabled for this run.` : 'Core analysis cards are ready for review and export.'
+        },
+        {
+            label: 'Best next step',
+            value: nextAction?.label || 'Ask a grounded follow-up',
+            detail: nextAction?.prompt || 'Use Evidence mode to verify claims before switching to critique or reproduce mode.'
+        },
+        {
+            label: 'Research trail',
+            value: currentReadingQueue.length ? `${currentReadingQueue.length} saved paper(s)` : `${paperLeadCount} paper lead(s)`,
+            detail: currentReadingQueue.length ? 'Saved papers are included in the session export.' : 'Search or recommend papers, then save the strongest leads to the queue.'
+        }
+    ];
+}
+
 function renderExportPreview() {
     const preview = document.getElementById('exportPreview');
     if (!preview) return;
@@ -1767,12 +1791,22 @@ function renderExportPreview() {
 
     const status = currentAnalysisResult.analysis_status || {};
     const completed = Array.isArray(status.completed_sections) ? status.completed_sections.length : Object.keys(currentSections || {}).length;
+    const guidanceItems = getWorkspaceGuidanceItems(status, completed);
     preview.innerHTML = `
         <div class="export-preview-grid">
             <span><strong>${completed}</strong> sections</span>
             <span><strong>${currentChatTurns.length}</strong> Q&A turns</span>
             <span><strong>${currentPaperSearchResults.length + currentPaperRecommendations.length}</strong> paper leads</span>
             <span><strong>${currentReadingQueue.length}</strong> saved papers</span>
+        </div>
+        <div class="workspace-guidance" aria-label="Workspace guidance">
+            ${guidanceItems.map(item => `
+                <div class="workspace-guidance-item">
+                    <span>${escapeHtml(item.label)}</span>
+                    <strong>${escapeHtml(item.value)}</strong>
+                    <small>${escapeHtml(item.detail)}</small>
+                </div>
+            `).join('')}
         </div>
         <p class="export-preview-note">Includes analysis, research brief, reading queue, suggested follow-ups, research trace, and local Q&A history.</p>
     `;
