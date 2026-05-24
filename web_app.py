@@ -1412,13 +1412,18 @@ def load_session_payload(session_id):
     payload.setdefault("created_at", payload.get("generated_at") or now_iso())
     payload.setdefault("updated_at", payload.get("generated_at") or now_iso())
     payload.setdefault("expires_at", build_session_expiry())
-    payload["paper_search"].setdefault("last_query", "")
+    payload["paper_search"]["last_query"] = compact_text(payload["paper_search"].get("last_query"), limit=240)
     payload["paper_search"]["last_results"] = normalize_paper_collection(
         payload["paper_search"].get("last_results"),
         max_items=PAPER_SEARCH_RESULT_LIMIT,
     )
     last_recommendation = payload["paper_search"].get("last_recommendation")
     if isinstance(last_recommendation, dict):
+        last_recommendation["original_query"] = compact_text(last_recommendation.get("original_query"), limit=240)
+        last_recommendation["query"] = compact_text(last_recommendation.get("query"), limit=240)
+        last_recommendation["reason"] = compact_text(last_recommendation.get("reason"), limit=500)
+        last_recommendation["rewrite_model"] = compact_text(last_recommendation.get("rewrite_model"), limit=120)
+        last_recommendation["generated_at"] = compact_text(last_recommendation.get("generated_at"), limit=40)
         last_recommendation["items"] = normalize_paper_collection(
             last_recommendation.get("items"),
             max_items=RECOMMENDATION_RESULT_LIMIT,
