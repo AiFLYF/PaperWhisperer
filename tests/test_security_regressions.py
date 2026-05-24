@@ -78,6 +78,9 @@ def test_index_page_renders():
     assert 'id="backToTopBtn"' in response.text
     assert 'class="skip-links"' in response.text
     assert 'href="#uploadWorkspace"' in response.text
+    assert 'class="workspace-quick-nav"' in response.text
+    assert 'aria-label="Workspace quick navigation"' in response.text
+    assert 'href="#readingQueueTitle"' in response.text
     assert 'id="uploadWorkspace"' in response.text
     assert 'aria-labelledby="uploadWorkspaceTitle"' in response.text
     assert 'class="shortcut-hints"' in response.text
@@ -154,6 +157,8 @@ def test_static_frontend_assets_are_served():
     assert ".shortcut-hints kbd" in css_response.text
     assert ".request-cancel" in css_response.text
     assert ".request-actions" in css_response.text
+    assert ".workspace-quick-nav" in css_response.text
+    assert ".workspace-quick-nav a:focus-visible" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():
