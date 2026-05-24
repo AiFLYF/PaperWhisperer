@@ -1383,6 +1383,7 @@ def load_session_payload(session_id):
     expires_at = parse_iso_datetime(payload.get("expires_at"))
     if expires_at and expires_at.timestamp() < time.time():
         remove_file_safely(session_file, "expired session file")
+        logger.info("Removed expired session file: %s", session_file)
         return None
     if not expires_at:
         payload["expires_at"] = build_session_expiry()
