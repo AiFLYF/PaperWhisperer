@@ -81,8 +81,9 @@ def test_index_page_renders():
     assert 'class="error is-hidden" id="error" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1"' in response.text
     assert "Upload" in response.text
     assert 'id="answerModeHint"' in response.text
-    assert 'type="search" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" autocomplete="off" spellcheck="false" inputmode="search"' in response.text
-    assert 'id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint" autocomplete="off" spellcheck="false"' in response.text
+    assert 'id="apiKey" placeholder="Enter your API Key" autocomplete="off" autocapitalize="off" spellcheck="false"' in response.text
+    assert 'type="search" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="search"' in response.text
+    assert 'id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint" autocomplete="off" autocapitalize="off" spellcheck="false"' in response.text
     assert 'aria-pressed="true"' in response.text
     assert "Ask about evidence, methods, limitations, or reproducibility" in response.text
     assert 'id="backToTopBtn" aria-label="Back to top" aria-hidden="true" tabindex="-1"' in response.text
