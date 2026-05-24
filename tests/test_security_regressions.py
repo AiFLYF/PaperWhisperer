@@ -65,6 +65,7 @@ def test_index_page_renders():
 
     assert response.status_code == 200
     assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "no-store"
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
     assert "camera=(), microphone=(), geolocation=()" in response.headers["permissions-policy"]
