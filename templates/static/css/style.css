@@ -216,6 +216,36 @@ body[data-theme="dark"] {
 }
 .hero-stats strong { color: var(--primary-color); }
 
+.workspace-quick-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.workspace-quick-nav a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 8px 13px;
+    border: 1px solid rgba(15, 118, 110, 0.18);
+    border-radius: 999px;
+    background: rgba(15, 118, 110, 0.08);
+    color: var(--primary-color);
+    font-size: 13px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: var(--transition);
+}
+
+.workspace-quick-nav a:hover,
+.workspace-quick-nav a:focus-visible {
+    border-color: var(--primary-color);
+    background: rgba(15, 118, 110, 0.14);
+    transform: translateY(-1px);
+}
+
 .nav-actions {
     display: flex;
     align-items: center;
