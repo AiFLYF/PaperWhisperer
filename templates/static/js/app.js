@@ -28,6 +28,7 @@ let currentReadingQueue = [];
 let currentAnswerMode = 'evidence';
 let pendingAnalysisSnapshot = null;
 let activeStreamingAnswerShell = null;
+let backToTopFramePending = false;
 let currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with a single query.';
 let currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
 
@@ -267,9 +268,18 @@ function updateBackToTopVisibility() {
     button.classList.toggle('show', window.scrollY > 640);
 }
 
+function scheduleBackToTopVisibilityUpdate() {
+    if (backToTopFramePending) return;
+    backToTopFramePending = true;
+    requestAnimationFrame(() => {
+        backToTopFramePending = false;
+        updateBackToTopVisibility();
+    });
+}
+
 function initializeBackToTop() {
     updateBackToTopVisibility();
-    window.addEventListener('scroll', updateBackToTopVisibility, { passive: true });
+    window.addEventListener('scroll', scheduleBackToTopVisibilityUpdate, { passive: true });
 }
 
 function scrollToTop() {
