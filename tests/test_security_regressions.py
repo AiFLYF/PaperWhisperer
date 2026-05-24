@@ -836,6 +836,20 @@ def test_load_session_payload_logs_unreadable_file(tmp_path, monkeypatch, caplog
     assert f"Unable to read session file {session_file}: permission denied" in caplog.text
 
 
+def test_load_session_payload_logs_expired_session_removal(tmp_path, monkeypatch, caplog):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    session_file = tmp_path / "expired.json"
+    session_file.write_text(
+        json.dumps({"expires_at": "2000-01-01T00:00:00", "document_content": "old"}),
+        encoding="utf-8",
+    )
+    caplog.set_level("INFO", logger=web_app.__name__)
+
+    assert web_app.load_session_payload("expired") is None
+    assert not session_file.exists()
+    assert f"Removed expired session file: {session_file}" in caplog.text
+
+
 def test_load_session_payload_normalizes_nested_schema(tmp_path, monkeypatch):
     monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
     session_file = tmp_path / "session.json"
