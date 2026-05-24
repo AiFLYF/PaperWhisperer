@@ -769,6 +769,12 @@ button.paper-link:disabled {
     background: rgba(15, 118, 110, 0.10);
     color: var(--primary-color);
 }
+.answer-mode-hint {
+    margin: -6px 0 16px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.55;
+}
 .ask-input-group { display: flex; gap: 12px; margin-bottom: 16px; }
 .ask-input-group input { flex: 1; }
 .ask-input-group .btn { width: auto; padding: 0 24px; }
