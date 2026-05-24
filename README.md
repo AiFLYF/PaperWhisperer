@@ -129,7 +129,7 @@ python -m pytest tests/test_security_regressions.py
 5. 在 `Paper Search` 搜索相关论文，也可以点击示例查询快速开始；空搜索、加载中、无结果和部分失败都会显示可操作提示。
 6. 对结果点击 `Save` 加入 Reading Queue，点击 `Add` 可导入公开 PDF 原文继续分析。
 7. 在 `Auto Recommendations` 基于当前论文生成延伸阅读。
-8. 在 Ask Questions 中选择追问模式并继续提问，模式说明会提示答案结构差异。
+8. 在 Ask Questions 中选择追问模式并继续提问，可点击示例问题快速填充贡献、证据、局限和复现类追问，模式说明会提示答案结构差异。
 9. 点击 `Export Session` 导出分析、阅读队列、搜索轨迹、问答历史和 Mermaid 资源；复制和导出按钮会显示成功或缺失内容反馈。
 
 ## API 概览
