@@ -926,17 +926,17 @@ const heroLayer = document.getElementById('hero-layer');
 
 window.addEventListener('scroll', () => {
   sc = window.scrollY;
-  const max = document.body.scrollHeight - window.innerHeight;
-  progBar.style.width = (sc / max * 100) + '%';
+  const max = Math.max(document.body.scrollHeight - window.innerHeight, 1);
+  progBar.style.width = Math.min(sc / max * 100, 100) + '%';
   nav.classList.toggle('scrolled', sc > 40);
 
-  // Nebula parallax
+  if (reduceMotion) return;
+
   nebulas.forEach(n => {
     const spd = parseFloat(n.dataset.p);
     n.style.transform = `translateY(${sc * spd}px)`;
   });
 
-  // Hero title slow parallax
   if (sc < window.innerHeight) {
     heroLayer.style.transform = `translateY(${sc * .08}px)`;
   }
