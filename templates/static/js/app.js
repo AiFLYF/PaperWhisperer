@@ -1393,6 +1393,7 @@ function showError(message) {
 
     errorEl.textContent = tips.length ? `${text}\n\n${tips.join('\n')}` : text;
     errorEl.style.display = 'block';
+    errorEl.focus({ preventScroll: true });
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
