@@ -1419,7 +1419,7 @@ function showError(message) {
     }
 
     errorEl.textContent = tips.length ? `${text}\n\n${tips.join('\n')}` : text;
-    errorEl.style.display = 'block';
+    errorEl.classList.remove('is-hidden');
     errorEl.focus({ preventScroll: true });
     scrollWindowTo({ top: 0 });
 }
@@ -1427,7 +1427,7 @@ function showError(message) {
 function hideError() {
     const errorEl = document.getElementById('error');
     errorEl.textContent = '';
-    errorEl.style.display = 'none';
+    errorEl.classList.add('is-hidden');
 }
 
 async function parseJsonSafely(response) {

@@ -77,7 +77,7 @@ def test_index_page_renders():
     assert 'id="dropZone"' in response.text
     assert "Drop a paper here or browse" in response.text
     assert 'id="analysisProgressSteps"' in response.text
-    assert 'id="error" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1"' in response.text
+    assert 'class="error is-hidden" id="error" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1"' in response.text
     assert "Upload" in response.text
     assert 'id="answerModeHint"' in response.text
     assert 'aria-pressed="true"' in response.text
@@ -193,6 +193,9 @@ def test_static_frontend_assets_are_served():
     assert "cancelPaperSearchRequest" in js_response.text
     assert "setCancelVisible" in js_response.text
     assert "Analysis canceled" in js_response.text
+    assert "errorEl.classList.remove('is-hidden')" in js_response.text
+    assert "errorEl.classList.add('is-hidden')" in js_response.text
+    assert "errorEl.style.display" not in js_response.text
     assert "errorEl.focus({ preventScroll: true })" in js_response.text
     assert "useExampleQuery" in js_response.text
     assert "Example query loaded" in js_response.text
