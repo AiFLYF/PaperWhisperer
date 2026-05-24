@@ -1253,25 +1253,9 @@ def download_remote_paper(title, pdf_url, url):
     try:
         response, file_name, _content_type, initial_chunk = stream_remote_paper(title=title, pdf_url=pdf_url, url=url)
         temp_path = build_unique_storage_path(UPLOAD_FOLDER, file_name)
-        total_bytes = 0
         with open(temp_path, "wb") as f:
-            if initial_chunk:
-                total_bytes += len(initial_chunk)
-                if total_bytes > MAX_CONTENT_LENGTH:
-                    raise ValueError(f"Remote file is too large. Limit: {MAX_CONTENT_LENGTH // (1024 * 1024)} MB")
-                f.write(initial_chunk)
-
-            while True:
-                chunk = response.read(1024 * 64)
-                if not chunk:
-                    break
-                total_bytes += len(chunk)
-                if total_bytes > MAX_CONTENT_LENGTH:
-                    raise ValueError(f"Remote file is too large. Limit: {MAX_CONTENT_LENGTH // (1024 * 1024)} MB")
+            for chunk in iter_remote_file_chunks(response, MAX_CONTENT_LENGTH, initial_chunk):
                 f.write(chunk)
-
-        if total_bytes <= 0:
-            raise ValueError("Downloaded file is empty.")
 
         return temp_path, file_name
     except Exception:

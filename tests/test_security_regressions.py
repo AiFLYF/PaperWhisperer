@@ -627,6 +627,22 @@ def test_remote_pdf_import_uses_app_user_agent(monkeypatch, public_example_urls)
     assert captured["user_agent"] == web_app.APP_USER_AGENT
 
 
+def test_download_remote_paper_preserves_initial_chunk(monkeypatch, public_example_urls):
+    body = b"%PDF-1.7\n" + (b"x" * 5000)
+    patch_remote_response(monkeypatch, FakeResponse(body))
+
+    temp_path, file_name = web_app.download_remote_paper(
+        title="Valid PDF",
+        pdf_url="https://example.com/paper.pdf",
+        url="",
+    )
+    try:
+        assert file_name.endswith(".pdf")
+        assert Path(temp_path).read_bytes() == body
+    finally:
+        web_app.remove_file_safely(temp_path, "test imported paper")
+
+
 @pytest.mark.parametrize(
     ("body", "content_type"),
     [
