@@ -1617,7 +1617,7 @@ class PaperWhisperer:
                 message = str(e)
 
             if attempt < retries - 1:
-                time.sleep(min(2 * (attempt + 1), 8))
+                time.sleep(get_retry_delay_seconds(attempt, max_delay=8))
             else:
                 logger.error(message)
                 raise RuntimeError(message)
@@ -1686,7 +1686,7 @@ class PaperWhisperer:
                 message = str(e)
 
             if attempt < retries - 1:
-                time.sleep(min(2 * (attempt + 1), 8))
+                time.sleep(get_retry_delay_seconds(attempt, max_delay=8))
             else:
                 logger.error(message)
                 raise RuntimeError(message)
