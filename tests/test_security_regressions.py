@@ -68,6 +68,7 @@ def test_index_page_renders():
     assert response.headers["x-frame-options"] == "DENY"
     assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
     assert "camera=(), microphone=(), geolocation=()" in response.headers["permissions-policy"]
+    assert float(response.headers["x-process-time-ms"]) >= 0
     assert "PaperWhisperer" in response.text
     assert "aria-live=\"polite\"" in response.text
     assert "Deep Research Brief" in response.text
