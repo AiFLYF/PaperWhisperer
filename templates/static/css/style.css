@@ -324,6 +324,24 @@ body[data-theme="dark"] {
 }
 .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
 .section-header .section-title { margin-bottom: 0; }
+.section-actions,
+.request-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.request-actions .btn { flex: 1 1 220px; }
+.request-cancel {
+    border-color: rgba(217, 119, 6, 0.28);
+    color: var(--accent-color);
+    background: var(--accent-soft);
+}
+.request-cancel:hover {
+    border-color: var(--accent-color);
+    color: var(--accent-color);
+}
+.request-cancel[hidden] { display: none; }
 
 .form-group { margin-bottom: 24px; }
 .form-group label {
