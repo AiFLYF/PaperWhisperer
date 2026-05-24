@@ -10,7 +10,7 @@ PaperWhisperer 是一个面向论文和技术文档阅读的 AI Research Workspa
 
 - 支持 `.pdf`、`.txt`、`.docx`、`.pptx` 四类文档。
 - 生成 `Overview`、`Key Citations`、`Text Structure`、`Visual Map`、`Evaluation`、`Deep Research Brief`。
-- 支持 SSE 流式分析，先完成的分析 section 会优先显示。
+- 支持 SSE 流式分析，先完成的分析 section 会优先显示，并可取消正在进行的长耗时请求。
 - 支持 Evidence / Explain / Critique / Reproduce 四种追问模式。
 - 支持 Semantic Scholar + arXiv 论文搜索。
 - 支持基于当前论文自动推荐延伸阅读。
@@ -18,7 +18,7 @@ PaperWhisperer 是一个面向论文和技术文档阅读的 AI Research Workspa
 - 支持从公开 PDF 直链导入论文并替换当前分析会话。
 - 支持导出 Markdown 会话报告和 Mermaid SVG，并在复制/导出时给出即时反馈；Mermaid 渲染器会在需要图谱时按需加载。
 - 内置上传校验、远程 URL 校验、会话 token、XSS 防护和 JSON 请求校验。
-- 前端提供拖拽上传、分析进度、结果状态卡、跳转链接、快捷键、返回顶部、键盘焦点流转、移动端触控优化和资源加载预热。
+- 前端提供拖拽上传、分析进度、结果状态卡、请求取消按钮、跳转链接、快捷键、返回顶部、键盘焦点流转、移动端触控优化和资源加载预热。
 
 ## 使用场景
 
@@ -125,7 +125,7 @@ python -m pytest tests/test_security_regressions.py
 1. 打开页面，输入 API Key 或使用服务端 `.env`。
 2. 上传 PDF / TXT / DOCX / PPTX。
 3. 按需开启结构图、批判性评价、深度阅读简报。
-4. 点击 `Analyze Document`，等待流式 section 完成；页面会显示上传、分析、渲染、就绪进度，并在完成后聚焦到分析工作区。可用 `Alt+U`、`Alt+S`、`Alt+Q` 快速跳到上传、论文搜索和追问输入。
+4. 点击 `Analyze Document`，等待流式 section 完成；页面会显示上传、分析、渲染、就绪进度，并在完成后聚焦到分析工作区。长耗时分析、检索、推荐和追问都可以用页面上的 Cancel 按钮中止；也可用 `Alt+U`、`Alt+S`、`Alt+Q` 快速跳到上传、论文搜索和追问输入。
 5. 在 `Paper Search` 搜索相关论文；空搜索、加载中、无结果和部分失败都会显示可操作提示。
 6. 对结果点击 `Save` 加入 Reading Queue，点击 `Add` 可导入公开 PDF 原文继续分析。
 7. 在 `Auto Recommendations` 基于当前论文生成延伸阅读。
