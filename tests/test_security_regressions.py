@@ -197,6 +197,7 @@ def test_static_frontend_assets_are_served():
     assert "formatSectionStatusTable" in js_response.text
     assert "handleWorkspaceShortcut" in js_response.text
     assert "focusWorkspaceTarget" in js_response.text
+    assert "reader.releaseLock()" in js_response.text
     assert "Upload shortcut focused document source" in js_response.text
     assert "loadMermaidRenderer" in js_response.text
     assert "mermaidReadyPromise" in js_response.text

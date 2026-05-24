@@ -1530,21 +1530,25 @@ async function readSseStream(response, handlers = {}) {
         }
     };
 
-    while (true) {
-        const { value, done } = await reader.read();
-        buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    try {
+        while (true) {
+            const { value, done } = await reader.read();
+            buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
 
-        const normalized = buffer.replace(/\r\n/g, '\n');
-        const blocks = normalized.split('\n\n');
-        buffer = blocks.pop() || '';
-        blocks.forEach(dispatchBlock);
+            const normalized = buffer.replace(/\r\n/g, '\n');
+            const blocks = normalized.split('\n\n');
+            buffer = blocks.pop() || '';
+            blocks.forEach(dispatchBlock);
 
-        if (done) {
-            if (buffer.trim()) {
-                dispatchBlock(buffer);
+            if (done) {
+                if (buffer.trim()) {
+                    dispatchBlock(buffer);
+                }
+                break;
             }
-            break;
         }
+    } finally {
+        reader.releaseLock();
     }
 }
 
