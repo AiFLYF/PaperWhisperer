@@ -572,6 +572,20 @@ def test_cleanup_expired_sessions_removes_malformed_json(tmp_path, monkeypatch, 
     assert "Removed unreadable session file" in caplog.text
 
 
+def test_semantic_scholar_search_uses_app_user_agent(monkeypatch):
+    captured = {}
+
+    def fake_http_get_json(url, timeout=None, headers=None, retries=None):
+        captured["headers"] = headers
+        return {"data": []}
+
+    monkeypatch.setattr(web_app, "SEMANTIC_SCHOLAR_API_KEY", "")
+    monkeypatch.setattr(web_app, "http_get_json", fake_http_get_json)
+
+    assert web_app.search_semantic_scholar_papers("retrieval augmented generation", 2) == []
+    assert captured["headers"]["User-Agent"] == web_app.APP_USER_AGENT
+
+
 def test_search_papers_falls_back_to_direct_search_without_api_key(monkeypatch):
     monkeypatch.setattr(web_app, "PAPER_SEARCH_ENABLE_REWRITE", True)
     monkeypatch.setattr(web_app, "search_papers", lambda query, limit: {"query": query, "items": [], "errors": []})
