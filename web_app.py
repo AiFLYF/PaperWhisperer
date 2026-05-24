@@ -62,7 +62,9 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION)
 
 @app.middleware("http")
 async def add_security_headers(request, call_next):
+    started_at = time.perf_counter()
     response = await call_next(request)
+    response.headers["X-Process-Time-Ms"] = f"{(time.perf_counter() - started_at) * 1000:.2f}"
     for header, value in SECURITY_HEADERS.items():
         response.headers.setdefault(header, value)
     return response
