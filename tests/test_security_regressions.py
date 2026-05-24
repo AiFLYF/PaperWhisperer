@@ -79,6 +79,10 @@ def test_index_page_renders():
     assert 'rel="preconnect" href="https://cdn.jsdelivr.net"' in response.text
     assert 'rel="dns-prefetch" href="https://github.com"' in response.text
     assert 'fetchpriority="high"' in response.text
+    assert 'aria-labelledby="paperSearchTitle"' in response.text
+    assert 'aria-labelledby="readingQueueTitle"' in response.text
+    assert 'role="region" aria-label="Analysis results workspace" tabindex="-1"' in response.text
+    assert 'aria-labelledby="askQuestionsTitle"' in response.text
 
 
 def test_static_frontend_assets_are_served():

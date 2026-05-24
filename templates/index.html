@@ -92,9 +92,9 @@
         </div>
         <div class="error" id="error" role="alert" aria-live="assertive"></div>
 
-        <div class="result-card">
+        <section class="result-card" aria-labelledby="paperSearchTitle">
             <div class="section-header">
-                <h3 class="section-title">Paper Search</h3>
+                <h3 class="section-title" id="paperSearchTitle">Paper Search</h3>
             </div>
             <div class="paper-actions">
                 <label class="sr-only" for="paperSearchInput">Paper search query</label>
@@ -103,55 +103,55 @@
             </div>
             <div class="paper-meta" id="paperSearchMeta">Search across Semantic Scholar and arXiv with a single query.</div>
             <div class="paper-list" id="paperSearchResults"></div>
-        </div>
+        </section>
 
-        <div class="result-card reading-queue-card">
+        <section class="result-card reading-queue-card" aria-labelledby="readingQueueTitle">
             <div class="section-header">
-                <h3 class="section-title">Reading Queue</h3>
+                <h3 class="section-title" id="readingQueueTitle">Reading Queue</h3>
                 <button class="action-btn" type="button" id="clearReadingQueueBtn">Clear</button>
             </div>
             <div class="paper-meta" id="readingQueueMeta">Save papers from search or recommendations into this session reading queue.</div>
             <div class="reading-queue" id="readingQueue"></div>
-        </div>
+        </section>
 
-        <div class="result-section" id="result">
+        <div class="result-section" id="result" role="region" aria-label="Analysis results workspace" tabindex="-1">
             <div class="file-info" id="fileInfo"></div>
 
-            <div class="result-card">
+            <section class="result-card" aria-labelledby="sessionExportTitle">
                 <div class="section-header">
-                    <h3 class="section-title">Session Export</h3>
+                    <h3 class="section-title" id="sessionExportTitle">Session Export</h3>
                     <button class="action-btn" type="button" id="exportBtn" disabled>Export Session</button>
                 </div>
                 <div class="content" id="exportPreview"><p class="empty-state">Export the current analysis, Q&A history, research trace, and Mermaid assets after a successful run.</p></div>
-            </div>
+            </section>
 
-            <div class="result-card">
+            <section class="result-card" aria-labelledby="overviewTitle">
                 <div class="section-header">
-                    <h3 class="section-title">Overview</h3>
+                    <h3 class="section-title" id="overviewTitle">Overview</h3>
                     <button class="action-btn" type="button" data-copy-target="summary">Copy</button>
                 </div>
                 <div class="content" id="summary"></div>
-            </div>
+            </section>
 
-            <div class="result-card">
+            <section class="result-card" aria-labelledby="citationsTitle">
                 <div class="section-header">
-                    <h3 class="section-title">Key Citations</h3>
+                    <h3 class="section-title" id="citationsTitle">Key Citations</h3>
                     <button class="action-btn" type="button" data-copy-target="quotes">Copy</button>
                 </div>
                 <div class="content" id="quotes"></div>
-            </div>
+            </section>
 
-            <div class="result-card">
+            <section class="result-card" aria-labelledby="structureTitle">
                 <div class="section-header">
-                    <h3 class="section-title">Text Structure</h3>
+                    <h3 class="section-title" id="structureTitle">Text Structure</h3>
                     <button class="action-btn" type="button" data-copy-target="mindmap">Copy</button>
                 </div>
                 <div class="content" id="mindmap"></div>
-            </div>
-            
-            <div class="result-card" id="mermaidCard" style="display: none;">
+            </section>
+
+            <section class="result-card" id="mermaidCard" style="display: none;" aria-labelledby="visualMapTitle">
                 <div class="section-header">
-                    <h3 class="section-title">Visual Map</h3>
+                    <h3 class="section-title" id="visualMapTitle">Visual Map</h3>
                     <div class="canvas-toolbar">
                         <button class="tool-btn" type="button" id="zoomInBtn" title="Zoom In" aria-label="Zoom in visual map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
                         <button class="tool-btn" type="button" id="zoomOutBtn" title="Zoom Out" aria-label="Zoom out visual map"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
@@ -162,35 +162,35 @@
                 <div class="mermaid-wrapper" id="mermaidWrapper">
                     <div class="mermaid-container" id="mermaidChart"></div>
                 </div>
-            </div>
-            
-            <div class="result-card" id="evaluationCard">
+            </section>
+
+            <section class="result-card" id="evaluationCard" aria-labelledby="evaluationTitle">
                 <div class="section-header">
-                    <h3 class="section-title">Evaluation</h3>
+                    <h3 class="section-title" id="evaluationTitle">Evaluation</h3>
                     <button class="action-btn" type="button" data-copy-target="evaluation">Copy</button>
                 </div>
                 <div class="content" id="evaluation"></div>
-            </div>
+            </section>
 
-            <div class="result-card" id="researchBriefCard">
+            <section class="result-card" id="researchBriefCard" aria-labelledby="researchBriefTitle">
                 <div class="section-header">
-                    <h3 class="section-title">Deep Research Brief</h3>
+                    <h3 class="section-title" id="researchBriefTitle">Deep Research Brief</h3>
                     <button class="action-btn" type="button" data-copy-target="research_brief">Copy</button>
                 </div>
                 <div class="content" id="research_brief"></div>
-            </div>
+            </section>
 
-            <div class="result-card">
+            <section class="result-card" aria-labelledby="recommendationsTitle">
                 <div class="section-header">
-                    <h3 class="section-title">Auto Recommendations</h3>
+                    <h3 class="section-title" id="recommendationsTitle">Auto Recommendations</h3>
                     <button class="action-btn" type="button" id="recommendBtn" disabled>Recommend from current paper</button>
                 </div>
                 <div class="paper-meta" id="paperRecommendationMeta">Analyze a paper first, then generate follow-up reading suggestions from the current session.</div>
                 <div class="paper-list" id="paperRecommendations"></div>
-            </div>
+            </section>
 
-            <div class="ask-section">
-                <h3 class="section-title">Ask Questions</h3>
+            <section class="ask-section" aria-labelledby="askQuestionsTitle">
+                <h3 class="section-title" id="askQuestionsTitle">Ask Questions</h3>
                 <div class="answer-mode-group" id="answerModeGroup" aria-label="Answer mode" aria-describedby="answerModeHint">
                     <button class="mode-chip active" type="button" data-mode="evidence" aria-pressed="true">Evidence</button>
                     <button class="mode-chip" type="button" data-mode="explain" aria-pressed="false">Explain</button>
@@ -206,7 +206,7 @@
                 <div class="smart-prompts" id="smartPrompts" aria-label="Suggested follow-up questions"></div>
                 <div class="next-actions" id="nextActions" aria-label="Recommended next actions"></div>
                 <div class="chat-history" id="chatHistory"></div>
-            </div>
+            </section>
         </div>
         
         <button class="back-to-top" type="button" id="backToTopBtn" aria-label="Back to top">↑</button>
