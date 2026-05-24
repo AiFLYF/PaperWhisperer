@@ -97,6 +97,7 @@ def test_health_endpoint_reports_runtime_status():
     response = TestClient(web_app.app).get("/api/health")
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
     payload = response.json()
     assert payload["status"] == "ok"
     assert payload["app"] == "PaperWhisperer"
