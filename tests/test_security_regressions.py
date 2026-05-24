@@ -146,6 +146,8 @@ def test_static_frontend_assets_are_served():
     assert "MAX_UPLOAD_BYTES" in js_response.text
     assert "getUploadFileExtension" in js_response.text
     assert "appendFileMetaItem" in js_response.text
+    assert "fileMeta.replaceChildren()" in js_response.text
+    assert "fileMeta.innerHTML = ''" not in js_response.text
     assert "dropZone?.setAttribute('aria-invalid', 'false')" in js_response.text
     assert "dropZone?.setAttribute('aria-invalid', String(hasError))" in js_response.text
     assert "Ready to analyze" in js_response.text
