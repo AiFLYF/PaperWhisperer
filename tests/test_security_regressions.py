@@ -156,6 +156,10 @@ def test_static_frontend_assets_are_served():
     assert "updateAnalysisProgress" in js_response.text
     assert "element.setAttribute('aria-current', 'step')" in js_response.text
     assert "element.removeAttribute('aria-current')" in js_response.text
+    assert "btn.replaceChildren(createThemeIcon(isDark ? 'sun' : 'moon'))" in js_response.text
+    assert "document.createElementNS(SVG_NS, 'svg')" in js_response.text
+    assert "btn.innerHTML = sunIcon" not in js_response.text
+    assert "btn.innerHTML = moonIcon" not in js_response.text
     assert "btn.setAttribute('aria-pressed', String(isDark))" in js_response.text
     assert "button.setAttribute('aria-checked', selected ? 'true' : 'false')" in js_response.text
     assert "button.tabIndex = selected ? 0 : -1" in js_response.text

@@ -57,8 +57,16 @@ const ANSWER_MODE_DETAILS = {
     reproduce: 'Reproduce mode turns the paper into steps, variables, dependencies, and risks.'
 };
 
-const sunIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
-const moonIcon = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`;
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const THEME_ICONS = {
+    sun: [
+        ['circle', { cx: '12', cy: '12', r: '5' }],
+        ['path', { d: 'M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42' }]
+    ],
+    moon: [
+        ['path', { d: 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z' }]
+    ]
+};
 
 function loadMermaidRenderer() {
     if (mermaidInstance) return Promise.resolve(mermaidInstance);
@@ -475,17 +483,32 @@ function initializeTheme() {
     applyTheme(savedTheme || (prefersDark ? 'dark' : 'light'));
 }
 
+function createThemeIcon(name) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('width', '16');
+    svg.setAttribute('height', '16');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    (THEME_ICONS[name] || THEME_ICONS.moon).forEach(([tagName, attributes]) => {
+        const element = document.createElementNS(SVG_NS, tagName);
+        Object.entries(attributes).forEach(([attribute, value]) => element.setAttribute(attribute, value));
+        svg.appendChild(element);
+    });
+    return svg;
+}
+
 function applyTheme(theme) {
     const body = document.body;
     const btn = document.getElementById('themeBtn');
     const isDark = theme === 'dark';
     if (isDark) {
         body.setAttribute('data-theme', 'dark');
-        btn.innerHTML = sunIcon;
     } else {
         body.removeAttribute('data-theme');
-        btn.innerHTML = moonIcon;
     }
+    btn.replaceChildren(createThemeIcon(isDark ? 'sun' : 'moon'));
     btn.setAttribute('aria-pressed', String(isDark));
     btn.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
 }
