@@ -109,6 +109,9 @@ def test_index_page_renders():
     assert 'rel="preconnect" href="https://cdn.jsdelivr.net"' in response.text
     assert 'rel="dns-prefetch" href="https://github.com"' in response.text
     assert 'fetchpriority="high"' in response.text
+    assert 'class="github-link" href="https://github.com/AiFLYF/PaperWhisperer" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin"' in response.text
+    assert 'src="https://github.com/favicon.ico" alt="GitHub" width="18" height="18" loading="lazy" decoding="async" referrerpolicy="strict-origin-when-cross-origin"' in response.text
+    assert 'class="author-link" href="https://github.com/AiFLYF" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin"' in response.text
     assert 'aria-labelledby="paperSearchTitle"' in response.text
     assert 'aria-labelledby="readingQueueTitle"' in response.text
     assert 'role="region" aria-label="Analysis results workspace" tabindex="-1"' in response.text
@@ -235,6 +238,7 @@ def test_static_frontend_assets_are_served():
     assert "currentSuggestedQuestions.length ? 'flex'" not in js_response.text
     assert "currentNextActions.length ? 'flex'" not in js_response.text
     assert "queue-rank" in js_response.text
+    assert "target=\"_blank\" rel=\"noopener noreferrer\" referrerpolicy=\"strict-origin-when-cross-origin\"" in js_response.text
     assert "queue-details" in js_response.text
     assert "queue-actions" in js_response.text
     assert "handleReadingQueueClick" in js_response.text

@@ -866,13 +866,13 @@ function renderReadingQueue(message = '') {
         const bits = [item.source, item.year, item.venue].filter(Boolean).map(value => escapeHtml(value)).join(' · ');
         const authors = item.authors.length ? escapeHtml(item.authors.join(', ')) : 'Unknown authors';
         const titleUrl = sanitizeUrl(item.url || item.pdf_url || '#');
-        const openLink = item.url ? `<a class="paper-link" href="${sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>` : '';
-        const pdfLink = item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer">PDF</a>` : '';
+        const openLink = item.url ? `<a class="paper-link" href="${sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">Open</a>` : '';
+        const pdfLink = item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">PDF</a>` : '';
         return `
             <article class="queue-item">
                 <div class="queue-rank" aria-label="Reading queue item ${index + 1}">${index + 1}</div>
                 <div class="queue-body">
-                    <div class="queue-title"><a href="${titleUrl}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.title)}</a></div>
+                    <div class="queue-title"><a href="${titleUrl}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">${escapeHtml(item.title)}</a></div>
                     <div class="queue-details">
                         ${bits ? `<span>${bits}</span>` : '<span>Metadata pending</span>'}
                         <span>${authors}</span>
@@ -1108,15 +1108,15 @@ function renderPaperList(elementId, items, emptyText, meta) {
                 : '';
             const saveButton = `<button class="paper-link" type="button" data-paper-action="save" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}">Save</button>`;
             const links = [
-                item.url ? `<a class="paper-link" href="${sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>` : '',
-                item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer">PDF</a>` : '',
+                item.url ? `<a class="paper-link" href="${sanitizeUrl(item.url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">Open</a>` : '',
+                item.pdf_url ? `<a class="paper-link" href="${sanitizeUrl(item.pdf_url)}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">PDF</a>` : '',
                 downloadButton,
                 saveButton,
                 addButton
             ].join('');
             return `
                 <article class="paper-card">
-                    <div class="paper-card-title"><a href="${titleUrl}" target="_blank" rel="noopener noreferrer">${title}</a></div>
+                    <div class="paper-card-title"><a href="${titleUrl}" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">${title}</a></div>
                     <div class="paper-card-tags">${tags}</div>
                     <div class="paper-authors">${authors}</div>
                     <div class="paper-abstract">${abstractText}</div>
