@@ -147,6 +147,9 @@ def test_static_frontend_assets_are_served():
     assert "Example query loaded" in js_response.text
     assert "useStarterQuestion" in js_response.text
     assert "Starter question loaded" in js_response.text
+    assert "queue-rank" in js_response.text
+    assert "queue-details" in js_response.text
+    assert "queue-actions" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
@@ -173,6 +176,9 @@ def test_static_frontend_assets_are_served():
     assert ".example-query-chips button:focus-visible" in css_response.text
     assert ".question-starter-chips" in css_response.text
     assert ".question-starter-chips button:focus-visible" in css_response.text
+    assert ".queue-rank" in css_response.text
+    assert ".queue-details" in css_response.text
+    assert ".queue-actions" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():
