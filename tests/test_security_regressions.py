@@ -92,6 +92,7 @@ def test_static_frontend_assets_are_served():
     assert "getReadingQueueKey" in js_response.text
     assert "hasReadingQueueItem" in js_response.text
     assert "ANSWER_MODE_DETAILS" in js_response.text
+    assert "renderSectionStateCard" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
@@ -100,6 +101,7 @@ def test_static_frontend_assets_are_served():
     assert ".workspace-guidance" in css_response.text
     assert ".action-btn:disabled" in css_response.text
     assert ".answer-mode-hint" in css_response.text
+    assert ".section-state" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():
