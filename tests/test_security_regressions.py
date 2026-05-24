@@ -75,6 +75,7 @@ def test_index_page_renders():
     assert 'id="answerModeHint"' in response.text
     assert 'aria-pressed="true"' in response.text
     assert "Ask about evidence, methods, limitations, or reproducibility" in response.text
+    assert 'id="backToTopBtn"' in response.text
 
 
 def test_static_frontend_assets_are_served():
@@ -100,6 +101,8 @@ def test_static_frontend_assets_are_served():
     assert "is-busy" in js_response.text
     assert "Search query needed" in js_response.text
     assert "Question needed" in js_response.text
+    assert "initializeBackToTop" in js_response.text
+    assert "scrollToTop" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
@@ -113,6 +116,7 @@ def test_static_frontend_assets_are_served():
     assert ".section-state" in css_response.text
     assert "@media (pointer: coarse)" in css_response.text
     assert "-webkit-tap-highlight-color" in css_response.text
+    assert ".back-to-top.show" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():

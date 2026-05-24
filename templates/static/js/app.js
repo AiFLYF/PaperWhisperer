@@ -95,7 +95,9 @@ document.addEventListener('DOMContentLoaded', () => {
     bindClick('zoomOutBtn', zoomOut);
     bindClick('zoomResetBtn', zoomReset);
     bindClick('downloadMermaidBtn', downloadMermaidSVG);
+    bindClick('backToTopBtn', scrollToTop);
 
+    initializeBackToTop();
     initializeUploadDropZone();
     document.getElementById('file')?.addEventListener('change', handleFileSelection);
     document.getElementById('paperSearchInput')?.addEventListener('keydown', handlePaperSearchKeyPress);
@@ -111,6 +113,21 @@ document.addEventListener('DOMContentLoaded', () => {
 function bindClick(id, handler) {
     const element = document.getElementById(id);
     if (element) element.addEventListener('click', handler);
+}
+
+function updateBackToTopVisibility() {
+    const button = document.getElementById('backToTopBtn');
+    if (!button) return;
+    button.classList.toggle('show', window.scrollY > 640);
+}
+
+function initializeBackToTop() {
+    updateBackToTopVisibility();
+    window.addEventListener('scroll', updateBackToTopVisibility, { passive: true });
+}
+
+function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 async function searchPapers() {
