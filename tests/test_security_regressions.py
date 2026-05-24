@@ -467,6 +467,8 @@ def test_public_hostname_validation_uses_short_cache(monkeypatch):
 def test_public_hostname_validation_does_not_cache_private_ip_literals():
     web_app.PUBLIC_HOSTNAME_CACHE.clear()
 
+    assert web_app.is_ip_literal("127.0.0.1") is True
+    assert web_app.is_ip_literal("example.com") is False
     assert web_app.resolve_public_hostname("127.0.0.1") is False
     assert web_app.PUBLIC_HOSTNAME_CACHE == {}
 
