@@ -122,7 +122,7 @@ def test_index_page_renders():
     assert 'aria-labelledby="askQuestionsTitle"' in response.text
     assert 'class="smart-prompts is-hidden" id="smartPrompts"' in response.text
     assert 'class="next-actions is-hidden" id="nextActions"' in response.text
-    assert 'id="aiToggleBtn" aria-expanded="false" aria-controls="aiList"' in response.text
+    assert 'id="aiToggleBtn" aria-expanded="false" aria-controls="aiList" aria-label="Show AI collaborators"' in response.text
     assert 'class="ai-list" id="aiList" hidden' in response.text
 
 
@@ -221,6 +221,7 @@ def test_static_frontend_assets_are_served():
     assert "setCancelVisible" in js_response.text
     assert "const shouldShow = list.hidden" in js_response.text
     assert "list.hidden = !shouldShow" in js_response.text
+    assert "button.setAttribute('aria-label', shouldShow ? 'Hide AI collaborators' : 'Show AI collaborators')" in js_response.text
     assert "Analysis canceled" in js_response.text
     assert "errorEl.classList.remove('is-hidden')" in js_response.text
     assert "errorEl.classList.add('is-hidden')" in js_response.text
