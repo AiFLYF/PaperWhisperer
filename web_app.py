@@ -49,7 +49,7 @@ OUTPUT_FOLDER = "output"
 CONTEXT_FOLDER = "context"
 MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB max limit
 
-app = FastAPI(title=APP_NAME)
+app = FastAPI(title=APP_NAME, version=APP_VERSION)
 app.mount("/static", StaticFiles(directory="templates/static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
