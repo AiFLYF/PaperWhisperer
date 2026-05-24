@@ -158,6 +158,8 @@ def test_static_frontend_assets_are_served():
     assert "element.removeAttribute('aria-current')" in js_response.text
     assert "btn.replaceChildren(createThemeIcon(isDark ? 'sun' : 'moon'))" in js_response.text
     assert "document.createElementNS(SVG_NS, 'svg')" in js_response.text
+    assert "svg.setAttribute('aria-hidden', 'true')" in js_response.text
+    assert "svg.setAttribute('focusable', 'false')" in js_response.text
     assert "btn.innerHTML = sunIcon" not in js_response.text
     assert "btn.innerHTML = moonIcon" not in js_response.text
     assert "btn.setAttribute('aria-pressed', String(isDark))" in js_response.text
