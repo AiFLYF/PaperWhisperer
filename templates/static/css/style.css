@@ -474,9 +474,40 @@ button.paper-link:disabled {
 }
 
 .ask-section { margin-top: 40px; }
-.ask-input-group { display: flex; gap: 12px; margin-bottom: 24px; }
+.ask-input-group { display: flex; gap: 12px; margin-bottom: 16px; }
 .ask-input-group input { flex: 1; }
 .ask-input-group .btn { width: auto; padding: 0 24px; }
+.smart-prompts,
+.next-actions {
+    display: none;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+.next-actions { margin-bottom: 24px; }
+.prompt-chip,
+.next-action-btn {
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.35;
+    padding: 9px 13px;
+    transition: var(--transition);
+}
+.prompt-chip:hover,
+.next-action-btn:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    transform: translateY(-1px);
+}
+.next-action-btn {
+    background: rgba(15, 118, 110, 0.08);
+    color: var(--primary-color);
+}
 
 .chat-history { display: flex; flex-direction: column; gap: 16px; }
 .chat-item { max-width: 85%; padding: 16px 20px; border-radius: var(--radius-md); font-size: 15px; line-height: 1.5; position: relative; }

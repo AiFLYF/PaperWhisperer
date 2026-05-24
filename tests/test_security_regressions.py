@@ -212,3 +212,78 @@ def test_load_session_payload_normalizes_nested_schema(tmp_path, monkeypatch):
     assert payload["paper_search"]["last_recommendation"] == {}
     assert payload["session_auth"] == {"token_hash": ""}
     assert payload["document_excerpt"]
+
+
+def test_load_session_payload_normalizes_analysis_metadata(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    session_file = tmp_path / "session.json"
+    session_file.write_text(
+        json.dumps(
+            {
+                "expires_at": web_app.build_session_expiry(),
+                "analysis": {
+                    "sections": {},
+                    "suggested_questions": ["  问题一？  ", "问题一？", ""],
+                    "next_actions": [
+                        {"label": "  行动  ", "prompt": "  请解释方法。  "},
+                        {"label": "重复", "prompt": "请解释方法。"},
+                        {"label": "无效"},
+                    ],
+                    "analysis_status": "invalid",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = web_app.load_session_payload("session")
+
+    assert payload["analysis"]["suggested_questions"] == ["问题一？"]
+    assert payload["analysis"]["next_actions"] == [{"label": "行动", "prompt": "请解释方法。"}]
+    assert payload["analysis"]["analysis_status"] == {}
+
+
+def test_finalize_analysis_sections_adds_smart_metadata():
+    whisperer = web_app.PaperWhisperer("")
+    sections = {
+        "summary": web_app.build_section_result("success", "summary"),
+        "quotes": web_app.build_section_result("success", "quotes"),
+        "mindmap": web_app.build_section_result("success", "mindmap"),
+        "mermaid": web_app.build_section_result("disabled"),
+        "evaluation": web_app.build_section_result("disabled"),
+    }
+
+    result = whisperer._finalize_analysis_sections("document content", sections)
+
+    assert result["suggested_questions"]
+    assert result["next_actions"]
+    assert result["analysis_status"]["quality"] == "complete"
+    assert "视觉图谱" in result["analysis_status"]["disabled_sections"]
+
+
+def test_cleanup_expired_sessions_removes_malformed_json(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    monkeypatch.setattr(web_app, "LAST_SESSION_CLEANUP_AT", 0.0)
+    session_file = tmp_path / "broken.json"
+    session_file.write_text("{not valid json", encoding="utf-8")
+
+    web_app.cleanup_expired_sessions(force=True)
+
+    assert not session_file.exists()
+
+
+def test_search_papers_falls_back_to_direct_search_without_api_key(monkeypatch):
+    monkeypatch.setattr(web_app, "PAPER_SEARCH_ENABLE_REWRITE", True)
+    monkeypatch.setattr(web_app, "search_papers", lambda query, limit: {"query": query, "items": [], "errors": []})
+
+    response = TestClient(web_app.app).post(
+        "/api/search-papers",
+        content=json.dumps({"query": "graph neural networks"}),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rewritten_query"] == "graph neural networks"
+    assert payload["rewrite_model"] == ""
+    assert "direct search" in payload["reason"]
