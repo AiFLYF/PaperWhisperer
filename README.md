@@ -16,8 +16,9 @@ PaperWhisperer 是一个面向论文和技术文档阅读的 AI Research Workspa
 - 支持基于当前论文自动推荐延伸阅读。
 - 支持把搜索或推荐结果保存到 Reading Queue。
 - 支持从公开 PDF 直链导入论文并替换当前分析会话。
-- 支持导出 Markdown 会话报告和 Mermaid SVG。
+- 支持导出 Markdown 会话报告和 Mermaid SVG，并在复制/导出时给出即时反馈。
 - 内置上传校验、远程 URL 校验、会话 token、XSS 防护和 JSON 请求校验。
+- 前端提供拖拽上传、分析进度、结果状态卡、返回顶部、键盘焦点流转、移动端触控优化和资源加载预热。
 
 ## 使用场景
 
@@ -124,12 +125,12 @@ python -m pytest tests/test_security_regressions.py
 1. 打开页面，输入 API Key 或使用服务端 `.env`。
 2. 上传 PDF / TXT / DOCX / PPTX。
 3. 按需开启结构图、批判性评价、深度阅读简报。
-4. 点击 `Analyze Document`，等待流式 section 完成。
-5. 在 `Paper Search` 搜索相关论文。
+4. 点击 `Analyze Document`，等待流式 section 完成；页面会显示上传、分析、渲染、就绪进度，并在完成后聚焦到分析工作区。
+5. 在 `Paper Search` 搜索相关论文；空搜索、加载中、无结果和部分失败都会显示可操作提示。
 6. 对结果点击 `Save` 加入 Reading Queue，点击 `Add` 可导入公开 PDF 原文继续分析。
 7. 在 `Auto Recommendations` 基于当前论文生成延伸阅读。
-8. 在 Ask Questions 中选择追问模式并继续提问。
-9. 点击 `Export Session` 导出分析、阅读队列、搜索轨迹、问答历史和 Mermaid 资源。
+8. 在 Ask Questions 中选择追问模式并继续提问，模式说明会提示答案结构差异。
+9. 点击 `Export Session` 导出分析、阅读队列、搜索轨迹、问答历史和 Mermaid 资源；复制和导出按钮会显示成功或缺失内容反馈。
 
 ## API 概览
 
@@ -301,6 +302,7 @@ data: {"answer":"完整答案"}
   "app": "PaperWhisperer",
   "version": "0.9.0",
   "timestamp": "2026-05-25T00:00:00Z",
+  "uptime_seconds": 12.345,
   "folders": {
     "uploads": {"exists": true, "writable": true},
     "output": {"exists": true, "writable": true},
@@ -309,7 +311,7 @@ data: {"answer":"完整答案"}
 }
 ```
 
-该接口响应包含 `Cache-Control: no-store`，探活和部署检查会读取实时运行状态。
+该接口响应包含 `Cache-Control: no-store`，探活和部署检查会读取实时运行状态。`uptime_seconds` 可用于确认进程是否刚重启。
 
 ## Session 生命周期
 
@@ -327,7 +329,7 @@ data: {"answer":"完整答案"}
 - 文档签名校验会拒绝伪装成 PDF/DOCX/PPTX 的 HTML 等内容。
 - 远程下载只允许公开 HTTP/HTTPS 链接，拒绝 localhost、私有 IP、环回地址等 SSRF 风险目标。
 - 远程响应会校验 `Content-Type`、`Content-Length` 和文件头。
-- JSON API 会统一拒绝非法 JSON 或非对象 body。
+- JSON API 会统一拒绝非法 JSON 或非对象 body，并返回 `error`、`code`、`timestamp` 便于定位问题。
 - 前端动态内容经过 HTML 转义和 URL 白名单处理。
 - SSE 设置 `X-Accel-Buffering: no`，降低代理缓冲影响。
 
