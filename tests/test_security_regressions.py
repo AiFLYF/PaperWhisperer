@@ -115,6 +115,8 @@ def test_index_page_renders():
     assert 'class="result-card is-hidden" id="mermaidCard"' in response.text
     assert 'style="display: none;"' not in response.text
     assert 'aria-labelledby="askQuestionsTitle"' in response.text
+    assert 'class="smart-prompts is-hidden" id="smartPrompts"' in response.text
+    assert 'class="next-actions is-hidden" id="nextActions"' in response.text
 
 
 def test_static_frontend_assets_are_served():
@@ -189,6 +191,10 @@ def test_static_frontend_assets_are_served():
     assert "Example query loaded" in js_response.text
     assert "useStarterQuestion" in js_response.text
     assert "Starter question loaded" in js_response.text
+    assert "container.classList.toggle('is-hidden', !currentSuggestedQuestions.length)" in js_response.text
+    assert "container.classList.toggle('is-hidden', !currentNextActions.length)" in js_response.text
+    assert "currentSuggestedQuestions.length ? 'flex'" not in js_response.text
+    assert "currentNextActions.length ? 'flex'" not in js_response.text
     assert "queue-rank" in js_response.text
     assert "queue-details" in js_response.text
     assert "queue-actions" in js_response.text
