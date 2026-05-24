@@ -728,6 +728,22 @@ def build_error_response(message, status_code=400, code="bad_request"):
     )
 
 
+def describe_remote_http_error(status_code):
+    if status_code == 404:
+        return "The paper file could not be found at the remote source."
+    if status_code == 403:
+        return "The remote source denied access to the paper file."
+    if status_code == 429:
+        return "The remote source rate limited the paper download. Please retry in a moment."
+    return f"Remote paper download failed with HTTP {status_code}."
+
+
+def describe_remote_url_error(reason):
+    if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+        return "SSL certificate verification failed while downloading the paper file."
+    return f"Paper download failed: {reason}"
+
+
 async def parse_json_object_request(request):
     try:
         raw_body = await request.body()
@@ -2224,23 +2240,10 @@ async def download_paper(url: str = "", pdf_url: str = "", title: str = ""):
         return build_error_response(str(exc), code="invalid_request")
     except urllib.error.HTTPError as exc:
         logger.warning("Paper proxy download failed: %s", exc)
-        if exc.code == 404:
-            message = "The paper file could not be found at the remote source."
-        elif exc.code == 403:
-            message = "The remote source denied access to the paper file."
-        elif exc.code == 429:
-            message = "The remote source rate limited the paper download. Please retry in a moment."
-        else:
-            message = f"Remote paper download failed with HTTP {exc.code}."
-        return build_error_response(message, code="paper_download_failed")
+        return build_error_response(describe_remote_http_error(exc.code), code="paper_download_failed")
     except urllib.error.URLError as exc:
         logger.warning("Paper proxy download failed: %s", exc)
-        reason = getattr(exc, "reason", exc)
-        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
-            message = "SSL certificate verification failed while downloading the paper file."
-        else:
-            message = f"Paper download failed: {reason}"
-        return build_error_response(message, code="paper_download_failed")
+        return build_error_response(describe_remote_url_error(getattr(exc, "reason", exc)), code="paper_download_failed")
     except Exception as exc:
         logger.exception("Paper proxy download failed")
         return build_error_response(str(exc), status_code=500, code="paper_download_failed")
@@ -2352,23 +2355,10 @@ async def import_paper(request: Request):
         return build_error_response(str(exc), code="invalid_request")
     except urllib.error.HTTPError as exc:
         logger.warning("Paper import download failed: %s", exc)
-        if exc.code == 404:
-            message = "The paper file could not be found at the remote source."
-        elif exc.code == 403:
-            message = "The remote source denied access to the paper file."
-        elif exc.code == 429:
-            message = "The remote source rate limited the paper download. Please retry in a moment."
-        else:
-            message = f"Remote paper download failed with HTTP {exc.code}."
-        return build_error_response(message, code="paper_import_failed")
+        return build_error_response(describe_remote_http_error(exc.code), code="paper_import_failed")
     except urllib.error.URLError as exc:
         logger.warning("Paper import download failed: %s", exc)
-        reason = getattr(exc, "reason", exc)
-        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
-            message = "SSL certificate verification failed while downloading the paper file."
-        else:
-            message = f"Paper download failed: {reason}"
-        return build_error_response(message, code="paper_import_failed")
+        return build_error_response(describe_remote_url_error(getattr(exc, "reason", exc)), code="paper_import_failed")
     except Exception as exc:
         logger.exception("Paper import failed")
         return build_error_response(str(exc), status_code=500, code="paper_import_failed")

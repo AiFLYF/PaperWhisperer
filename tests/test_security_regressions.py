@@ -503,6 +503,14 @@ def test_analyze_stream_emits_sections_and_done(tmp_path, monkeypatch):
     assert '"session_token"' in response.text
 
 
+def test_remote_error_descriptions_are_consistent():
+    assert web_app.describe_remote_http_error(404) == "The paper file could not be found at the remote source."
+    assert web_app.describe_remote_http_error(403) == "The remote source denied access to the paper file."
+    assert web_app.describe_remote_http_error(429) == "The remote source rate limited the paper download. Please retry in a moment."
+    assert web_app.describe_remote_http_error(500) == "Remote paper download failed with HTTP 500."
+    assert web_app.describe_remote_url_error("timeout") == "Paper download failed: timeout"
+
+
 def test_remote_pdf_validation_preserves_initial_chunk(monkeypatch, public_example_urls):
     body = b"%PDF-1.7\n" + (b"x" * 5000)
     patch_remote_response(monkeypatch, FakeResponse(body))
