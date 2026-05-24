@@ -1504,8 +1504,8 @@ class DocumentLoader:
 class PaperWhisperer:
     """文献分析核心类"""
     def __init__(self, api_key):
-        self.name = "PaperWhisperer"
-        self.version = "0.9.0"
+        self.name = APP_NAME
+        self.version = APP_VERSION
         self.api_key = resolve_api_key(api_key)
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
