@@ -747,6 +747,31 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     color: var(--text-secondary);
     margin-bottom: 14px;
 }
+.example-query-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: -4px 0 16px;
+}
+.example-query-chips button {
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    background: var(--surface-highlight);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    min-height: 36px;
+    padding: 7px 12px;
+    transition: var(--transition);
+}
+.example-query-chips button:hover,
+.example-query-chips button:focus-visible {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    background: rgba(15, 118, 110, 0.10);
+}
 .paper-list {
     display: grid;
     gap: 16px;

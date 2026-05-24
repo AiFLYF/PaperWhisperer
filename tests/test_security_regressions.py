@@ -89,6 +89,9 @@ def test_index_page_renders():
     assert 'id="cancelPaperSearchBtn"' in response.text
     assert 'id="cancelRecommendBtn"' in response.text
     assert 'id="cancelAskBtn"' in response.text
+    assert 'class="example-query-chips"' in response.text
+    assert 'data-example-query="retrieval augmented generation evaluation"' in response.text
+    assert 'RAG evaluation' in response.text
     assert 'rel="preconnect" href="https://cdn.jsdelivr.net"' in response.text
     assert 'rel="dns-prefetch" href="https://github.com"' in response.text
     assert 'fetchpriority="high"' in response.text
@@ -137,6 +140,8 @@ def test_static_frontend_assets_are_served():
     assert "cancelPaperSearchRequest" in js_response.text
     assert "setCancelVisible" in js_response.text
     assert "Analysis canceled" in js_response.text
+    assert "useExampleQuery" in js_response.text
+    assert "Example query loaded" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
@@ -159,6 +164,8 @@ def test_static_frontend_assets_are_served():
     assert ".request-actions" in css_response.text
     assert ".workspace-quick-nav" in css_response.text
     assert ".workspace-quick-nav a:focus-visible" in css_response.text
+    assert ".example-query-chips" in css_response.text
+    assert ".example-query-chips button:focus-visible" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():
