@@ -1413,9 +1413,28 @@ def load_session_payload(session_id):
     payload.setdefault("updated_at", payload.get("generated_at") or now_iso())
     payload.setdefault("expires_at", build_session_expiry())
     payload["paper_search"].setdefault("last_query", "")
-    if not isinstance(payload["paper_search"].get("last_results"), list):
-        payload["paper_search"]["last_results"] = []
-    if not isinstance(payload["paper_search"].get("last_recommendation"), dict):
+    payload["paper_search"]["last_results"] = normalize_paper_collection(
+        payload["paper_search"].get("last_results"),
+        max_items=PAPER_SEARCH_RESULT_LIMIT,
+    )
+    last_recommendation = payload["paper_search"].get("last_recommendation")
+    if isinstance(last_recommendation, dict):
+        last_recommendation["items"] = normalize_paper_collection(
+            last_recommendation.get("items"),
+            max_items=RECOMMENDATION_RESULT_LIMIT,
+        )
+        last_recommendation["topics"] = normalize_text_items(
+            last_recommendation.get("topics"),
+            max_items=6,
+            item_limit=120,
+        )
+        last_recommendation["errors"] = normalize_text_items(
+            last_recommendation.get("errors"),
+            max_items=4,
+            item_limit=240,
+        )
+        payload["paper_search"]["last_recommendation"] = last_recommendation
+    else:
         payload["paper_search"]["last_recommendation"] = {}
     payload["paper_search"]["reading_queue"] = normalize_paper_collection(
         payload["paper_search"].get("reading_queue"),
