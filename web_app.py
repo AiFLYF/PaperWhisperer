@@ -1367,8 +1367,9 @@ def load_session_payload(session_id):
     try:
         with open(session_file, "r", encoding="utf-8") as f:
             payload = json.load(f)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
         remove_file_safely(session_file, "corrupt session file")
+        logger.warning("Removed corrupt session file %s: %s", session_file, exc)
         return None
     except OSError as exc:
         logger.warning("Unable to read session file %s: %s", session_file, exc)
@@ -1376,6 +1377,7 @@ def load_session_payload(session_id):
 
     if not isinstance(payload, dict):
         remove_file_safely(session_file, "non-object session file")
+        logger.warning("Removed non-object session file %s", session_file)
         return None
 
     expires_at = parse_iso_datetime(payload.get("expires_at"))
