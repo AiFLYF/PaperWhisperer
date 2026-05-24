@@ -210,6 +210,141 @@ def build_document_excerpt(content, limit=12000):
     return (content or "")[:limit]
 
 
+PROMPT_STABLE_PREFIX = """你是 PaperWhisperer 的学术研究助手。目标是帮助研究者快速理解论文、保留证据、识别结构与局限。
+始终优先依据用户提供的文档内容，不编造文献细节；文档没有依据时明确说明。
+输出默认使用中文；只有检索词、JSON 字段值或代码任务明确要求时才使用英文。"""
+
+PROMPT_FORMULA_RULES = """公式与格式规则：
+- 行内公式必须使用 $...$，不要使用 \\( ... \\)。
+- 块级公式必须使用 $$...$$，不要使用 \\[ ... \\]。
+- 公式内部的下划线和星号不要做 Markdown 转义。
+- 不要把公式放进普通代码块。"""
+
+PROMPT_QUALITY_RULES = """回答质量规则：
+- 先给结论，再给依据或层级展开。
+- 区分文档事实、合理推断和不确定内容。
+- 避免空泛套话，优先输出可直接用于阅读、复盘或追问的内容。
+- 保持结构清晰，标题层级不要过深。"""
+
+PROMPT_TASK_CONTRACTS = {
+    "summary_chunk": """任务契约：从文献片段提取核心观点和高价值引用，保留关键术语、方法、数据集、结论和公式。""",
+    "summary_merge": """任务契约：整合多个片段摘要，去重、合并同义观点，并形成一份连贯的整篇论文概要。""",
+    "quotes": """任务契约：提取最值得引用的原句或接近原文的关键表述，不要改写成泛泛总结。""",
+    "mindmap": """任务契约：识别论文的研究问题、方法、实验、结论与局限，输出文本层级结构。""",
+    "mermaid": """任务契约：输出可渲染的 Mermaid 结构图代码，只输出 Mermaid，不解释。""",
+    "evaluation": """任务契约：以审稿和读者复盘视角评价论文贡献、优点、局限、历史地位与学习价值。""",
+    "qa": """任务契约：基于当前文档和最近问答历史回答用户追问；文档优先级高于历史。""",
+    "search_rewrite": """Task contract: rewrite paper-search intent into concise English retrieval queries and return JSON only.""",
+}
+
+
+def build_stable_system_prompt(task_key):
+    task_contract = PROMPT_TASK_CONTRACTS.get(task_key, "任务契约：完成用户指定的学术阅读任务。")
+    return "\n\n".join([PROMPT_STABLE_PREFIX, PROMPT_FORMULA_RULES, PROMPT_QUALITY_RULES, task_contract])
+
+
+def build_prompt_block(tag, content):
+    safe_tag = re.sub(r"[^A-Za-z0-9_]", "_", str(tag or "input")).strip("_") or "input"
+    return f"<{safe_tag}>\n{str(content or '').strip()}\n</{safe_tag}>"
+
+
+def build_task_user_prompt(task, input_blocks, constraints="", output_format=""):
+    parts = [build_prompt_block("task", task)]
+    if constraints:
+        parts.append(build_prompt_block("constraints", constraints))
+    if output_format:
+        parts.append(build_prompt_block("output_format", output_format))
+    for tag, content in input_blocks:
+        parts.append(build_prompt_block(tag, content))
+    parts.append(build_prompt_block("self_check", "提交前确认：没有编造文档外事实；公式格式符合要求；输出结构与任务契约一致。"))
+    return "\n\n".join(parts)
+
+
+def normalize_text_items(values, max_items=8, item_limit=180):
+    if not isinstance(values, list):
+        return []
+    items = []
+    seen = set()
+    for value in values:
+        text = compact_text(value, limit=item_limit)
+        if not text or text in seen:
+            continue
+        items.append(text)
+        seen.add(text)
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def normalize_next_actions(values, max_items=5):
+    if not isinstance(values, list):
+        return []
+    actions = []
+    seen = set()
+    for value in values:
+        if not isinstance(value, dict):
+            continue
+        label = compact_text(value.get("label"), limit=40)
+        prompt = compact_text(value.get("prompt"), limit=240)
+        if not label or not prompt or prompt in seen:
+            continue
+        actions.append({"label": label, "prompt": prompt})
+        seen.add(prompt)
+        if len(actions) >= max_items:
+            break
+    return actions
+
+
+def build_analysis_metadata(sections):
+    section_labels = {
+        "summary": "概览",
+        "quotes": "引用片段",
+        "mindmap": "文本结构",
+        "mermaid": "视觉图谱",
+        "evaluation": "批判评价",
+    }
+    section_statuses = {
+        name: str((section or {}).get("status") or "empty")
+        for name, section in (sections or {}).items()
+    }
+    completed = [section_labels.get(name, name) for name, status in section_statuses.items() if status == "success"]
+    failed = [section_labels.get(name, name) for name, status in section_statuses.items() if status == "failed"]
+    disabled = [section_labels.get(name, name) for name, status in section_statuses.items() if status == "disabled"]
+
+    suggested_questions = [
+        "这篇论文要解决的核心问题是什么？",
+        "它的主要方法和创新点分别是什么？",
+        "实验或论证最支持哪些结论？",
+        "这篇论文有哪些局限性和后续研究方向？",
+    ]
+    if section_statuses.get("quotes") == "success":
+        suggested_questions.append("哪些原文片段最适合在综述或笔记中引用？")
+    if section_statuses.get("evaluation") == "success":
+        suggested_questions.append("如果我要复现或扩展这篇论文，应该优先关注什么？")
+
+    next_actions = [
+        {"label": "追问方法细节", "prompt": "请解释这篇论文的方法流程，并指出每一步解决了什么问题。"},
+        {"label": "整理局限性", "prompt": "请基于文档总结这篇论文的局限性，并给出可能的改进方向。"},
+        {"label": "生成阅读路线", "prompt": "请把这篇论文拆成适合精读的阅读路线和检查清单。"},
+    ]
+    if section_statuses.get("evaluation") == "disabled":
+        next_actions.append({"label": "手动评价", "prompt": "请基于当前文档补充一份批判性评价。"})
+    if failed:
+        next_actions.append({"label": "补全失败部分", "prompt": f"请重新生成以下分析部分：{', '.join(failed)}。"})
+
+    return {
+        "suggested_questions": suggested_questions[:6],
+        "next_actions": next_actions[:5],
+        "analysis_status": {
+            "quality": "partial" if failed else "complete",
+            "completed_sections": completed,
+            "failed_sections": failed,
+            "disabled_sections": disabled,
+            "section_statuses": section_statuses,
+        },
+    }
+
+
 def trim_text_for_log(text, limit=2000):
     text = (text or "").strip()
     if len(text) <= limit:
@@ -470,6 +605,9 @@ def build_session_payload(session_id, source_filename, document_content, analysi
             "char_count": analysis.get("char_count", 0),
             "elapsed_seconds": analysis.get("elapsed_seconds"),
             "output_file": analysis.get("output_file", ""),
+            "suggested_questions": analysis.get("suggested_questions", []),
+            "next_actions": analysis.get("next_actions", []),
+            "analysis_status": analysis.get("analysis_status", {}),
         },
     }
 
@@ -921,6 +1059,10 @@ def cleanup_expired_sessions(force=False):
             if expires_at and expires_at.timestamp() < now_ts:
                 os.remove(file_path)
         except Exception:
+            try:
+                os.remove(file_path)
+            except Exception:
+                pass
             continue
 
 
@@ -1121,6 +1263,14 @@ def load_session_payload(session_id):
     payload["session_auth"].setdefault("token_hash", "")
     if not isinstance(payload["analysis"].get("sections"), dict):
         payload["analysis"]["sections"] = {}
+    payload["analysis"]["suggested_questions"] = normalize_text_items(
+        payload["analysis"].get("suggested_questions"),
+        max_items=6,
+        item_limit=180,
+    )
+    payload["analysis"]["next_actions"] = normalize_next_actions(payload["analysis"].get("next_actions"), max_items=5)
+    if not isinstance(payload["analysis"].get("analysis_status"), dict):
+        payload["analysis"]["analysis_status"] = {}
     return payload
 
 
@@ -1405,28 +1555,20 @@ class PaperWhisperer:
         return max(1, min(task_count, configured_workers))
 
     def _generate_summary_chunk(self, content):
-        system_prompt = """你是一个专业的学术文献分析助手，擅长总结论文的核心观点。请用中文回复，保持专业、简洁、准确。
-【极其重要的公式格式要求】：
-1. 行内公式必须且只能使用单个美元符号包裹，例如：$E = mc^2$。绝对不要使用 \\( \\) 或 ( )。
-2. 独立块级公式必须且只能使用双美元符号包裹，例如：$$\\int_0^1 x^2 dx$$。绝对不要使用 \\[ \\] 或[ ]。
-3. 公式内部的下划线（_）和星号（*）不要做任何 Markdown 转义，直接输出原生的 LaTeX 代码。
-4. 绝对不要把公式放在普通的代码块（```）中。"""
-
-        user_prompt = f"""请仔细阅读以下文献内容，然后：
-1. 提取 3-5 个核心观点（每个观点用一句话概括）
-2. 找出 2-3 个最值得引用的金句
-文献内容：{content}
-
-请按以下格式输出：
-## 核心观点
+        system_prompt = build_stable_system_prompt("summary_chunk")
+        user_prompt = build_task_user_prompt(
+            task="从文献片段中提取 3-5 个核心观点，并找出 2-3 个最值得引用的片段。",
+            constraints="每个核心观点必须是一句话；引用片段尽量保留原文措辞；不要补充文档外背景。",
+            output_format="""## 核心观点
 1. [观点1]
 2. [观点2]
 3. [观点3]
 
 ## 引用片段
-- "[引用1，严格遵守公式格式要求保留原文公式]"
-- "[引用2，严格遵守公式格式要求保留原文公式]"
-"""
+- "[引用1]"
+- "[引用2]""",
+            input_blocks=[("document_excerpt", content)],
+        )
         return self._call_llm(system_prompt, user_prompt)
 
     def _merge_summaries(self, summaries):
@@ -1436,23 +1578,19 @@ class PaperWhisperer:
             return summaries[0]
 
         combined = "\n\n--- 章节 ---\n\n".join(summaries)
-
-        system_prompt = """你是一个专业的学术文献分析助手，擅长整合多个文献片段的摘要。请用中文回复，保持专业、简洁、准确。
-【极其重要的公式格式要求】：
-1. 行内公式必须且只能使用单个美元符号包裹，例如：$E = mc^2$。绝对不要使用 \\( \\) 或 ( )。
-2. 独立块级公式必须且只能使用双美元符号包裹，例如：$$\\int_0^1 x^2 dx$$。绝对不要使用 \\[ \\] 或[ ]。
-3. 公式内部的下划线（_）和星号（*）不要做任何转义，直接输出原生的 LaTeX 代码。"""
-
-        user_prompt = f"""以下是一篇长文献不同部分的摘要内容，请整合成一份完整、连贯的摘要：
-{combined}
-
-请按以下格式输出：
-## 核心观点
-[整合后的核心观点列表]
+        system_prompt = build_stable_system_prompt("summary_merge")
+        user_prompt = build_task_user_prompt(
+            task="把长文献不同片段的摘要整合成一份完整、连贯、去重后的论文概要。",
+            constraints="合并重复观点；保留关键方法、贡献、实验结论和引用片段；不要添加片段中没有的信息。",
+            output_format="""## 核心观点
+1. [整合后的观点1]
+2. [整合后的观点2]
 
 ## 引用片段
-[整合后的引用片段列表，保留原文公式]
-"""
+- "[整合后的引用1]"
+- "[整合后的引用2]""",
+            input_blocks=[("chunk_summaries", combined)],
+        )
         return self._call_llm(system_prompt, user_prompt)
 
     def generate_summary(self, content):
@@ -1473,56 +1611,48 @@ class PaperWhisperer:
         return chunk_summaries[0] if chunk_summaries else "无法生成摘要"
 
     def extract_quotes(self, content):
-        system_prompt = """你是一个专业的学术文献分析助手，擅长从文献中提取重要的引用片段。请用中文回复，精确提取文献中的原句。
-【极其重要的公式格式要求】：
-1. 行内公式必须且只能使用单个美元符号包裹，例如：$E = mc^2$。绝对不要使用 \\( \\) 或 ( )。
-2. 独立块级公式必须且只能使用双美元符号包裹，例如：$$\\int_0^1 x^2 dx$$。绝对不要使用 \\[ \\] 或[ ]。
-3. 公式内部的下划线（_）和星号（*）不要做任何转义，直接输出原生的 LaTeX 代码。"""
-
-        user_prompt = f"""请从以下文献中提取 3-5 个最值得引用的金句或核心观点：
-{content[:15000]}
-
-请按以下格式输出：
-## 引用片段
-1. "[原句1，严格按要求保留公式]"
-2. "[原句2，严格按要求保留公式]"
-3. "[原句3，严格按要求保留公式]"
-"""
+        system_prompt = build_stable_system_prompt("quotes")
+        user_prompt = build_task_user_prompt(
+            task="从文献中提取 3-5 个最值得引用的原句、定义、结论或核心观点。",
+            constraints="优先选择能支撑论文主张的方法、发现或结论；尽量保留原文措辞；不要把普通摘要改写成引用。",
+            output_format="""## 引用片段
+1. "[原句1]"
+2. "[原句2]"
+3. "[原句3]""",
+            input_blocks=[("document_excerpt", build_document_excerpt(content, limit=15000))],
+        )
         return self._call_llm(system_prompt, user_prompt)
 
     def generate_mindmap(self, content):
-        system_prompt = """你是一个专业的学术文献分析助手，擅长分析文献结构并生成思维导图。请用中文回复。如涉及公式，请严格使用 $...$ (行内) 或 $$...$$ (块级) 包裹。"""
-
-        user_prompt = f"""请为以下文献生成一个文本格式的思维导图：
-{content[:10000]}
-
-请按以下格式输出：
-## 思维导图
-[使用 ├── 和 └── 符号的层级结构]
-"""
+        system_prompt = build_stable_system_prompt("mindmap")
+        user_prompt = build_task_user_prompt(
+            task="为文献生成文本格式的研究结构图，帮助用户快速定位论文逻辑。",
+            constraints="覆盖研究问题、核心方法、实验或论证、关键结论、局限性；层级控制在 3-4 层；节点短句化。",
+            output_format="""## 思维导图
+论文主题
+├── 研究问题
+├── 方法框架
+│   ├── [关键模块]
+│   └── [关键模块]
+├── 证据与实验
+└── 结论与局限""",
+            input_blocks=[("document_excerpt", build_document_excerpt(content, limit=10000))],
+        )
         return self._call_llm(system_prompt, user_prompt)
 
     def generate_mermaid_mindmap(self, content):
-        system_prompt = """你是一个专业的学术文献分析助手，擅长分析文献结构并生成 Mermaid 格式的思维导图。请直接输出 Mermaid 代码，不要添加任何解释。
-重要提示：
-1. 必须以 "graph TD" 或 "graph LR" 开头
-2. 节点ID只能包含字母、数字和下划线
-3. 节点文本用方括号包裹，如：A[标题]
-4. 不要使用特殊字符，中文可以正常使用
-5. 保持简洁，不要超过20个节点
-6. Mermaid节点文本内不要包含复杂的LaTeX公式，以免渲染崩溃，请用简短的中文概括。"""
-
-        user_prompt = f"""请为以下文献生成 Mermaid 格式的思维导图代码。
-文献内容：{content[:4000]}
-
-请只输出 Mermaid 代码，格式如下：
-graph TD
+        system_prompt = build_stable_system_prompt("mermaid")
+        user_prompt = build_task_user_prompt(
+            task="生成可渲染的 Mermaid 论文结构图代码。",
+            constraints="必须以 graph TD 或 graph LR 开头；节点 ID 只能包含字母、数字和下划线；节点文本使用方括号；不超过 20 个节点；节点文本不要包含复杂 LaTeX 公式；不要输出 Markdown 代码围栏。",
+            output_format="""graph TD
     A[论文标题]
-    A --> B[章节1]
-    A --> C[章节2]
-    B --> B1[小节1]
-    B --> B2[小节2]
-"""
+    A --> B[研究问题]
+    A --> C[方法]
+    A --> D[实验]
+    A --> E[结论]""",
+            input_blocks=[("document_excerpt", build_document_excerpt(content, limit=4000))],
+        )
         result = self._call_llm(system_prompt, user_prompt)
         if result:
             # 寻找真正的 Mermaid 代码起始行，过滤掉大模型输出的开头废话
@@ -1553,22 +1683,11 @@ graph TD
         return None
 
     def generate_evaluation(self, content):
-        system_prompt = """你是一个专业的学术论文评审专家，擅长对论文进行批判性评价。请用中文回复，包括论文的优点、局限性、历史地位和贡献。
-【极其重要的公式格式要求】：
-1. 行内公式必须且只能使用单个美元符号包裹，例如：$E = mc^2$。绝对不要使用 \\( \\) 或 ( )。
-2. 独立块级公式必须且只能使用双美元符号包裹，例如：$$\\int_0^1 x^2 dx$$。绝对不要使用 \\[ \\] 或[ ]。"""
-
-        user_prompt = f"""请对以下文献进行总结性评价，包括：
-1. **论文的主要贡献**：这篇论文的核心创新点是什么？
-2. **历史地位**：在相关领域的重要性如何？是否是奠基性工作？
-3. **主要优点**：论文的优势和创新之处
-4. **局限性**：论文存在的问题或后续工作指出的缺点
-5. **值得学习的地方**：对读者有什么启发？
-
-文献内容：{content[:15000]}
-
-请按以下格式输出：
-## 论文评价
+        system_prompt = build_stable_system_prompt("evaluation")
+        user_prompt = build_task_user_prompt(
+            task="对文献做总结性评价，兼顾审稿视角、读者复盘和后续研究启发。",
+            constraints="贡献和局限必须能从文档内容推出；历史地位不确定时说明不确定；避免泛泛而谈。",
+            output_format="""## 论文评价
 
 ### 主要贡献
 [评价内容]
@@ -1586,8 +1705,9 @@ graph TD
 
 ### 值得学习的地方
 - 学习点1
-- 学习点2
-"""
+- 学习点2""",
+            input_blocks=[("document_excerpt", build_document_excerpt(content, limit=15000))],
+        )
         return self._call_llm(system_prompt, user_prompt)
 
     def _build_answer_prompts(self, question, history=None):
@@ -1623,22 +1743,21 @@ graph TD
         history_sections.reverse()
         history_block = "\n\n---\n\n".join(history_sections)
 
-        system_prompt = (
-            "你是专业学术助手。请优先基于给定文档内容回答问题，"
-            "若文档中没有答案，请明确说明。"
-            "可以参考此前问答历史来理解上下文，但不要把历史结论当作高于文档的事实来源。"
-            "避免重复复述已经确认过的文档段落。"
-            "如涉及公式，请严格使用 $...$ (行内) 或 $$...$$ (块级) 包裹。"
+        system_prompt = build_stable_system_prompt("qa")
+        constraints = (
+            "优先依据 document_excerpt；history 只用于理解追问上下文；"
+            "如果文档没有答案，明确说明缺少依据；回答要简洁但保留关键证据。"
         )
-
-        user_prompt_parts = [
-            f"文档内容（节选）:\n{document_window}",
-        ]
+        input_blocks = [("document_excerpt", document_window)]
         if history_block:
-            user_prompt_parts.append(f"最近问答历史:\n{history_block}")
-        user_prompt_parts.append(f"用户当前问题:\n{question}")
-        user_prompt_parts.append("请给出简洁、准确的中文回答；如果是在追问，请延续上下文但不要重复长段原文。")
-        user_prompt = "\n\n".join(user_prompt_parts)
+            input_blocks.append(("recent_qa_history", history_block))
+        input_blocks.append(("user_question", question))
+        user_prompt = build_task_user_prompt(
+            task="回答用户关于当前文档的追问。",
+            constraints=constraints,
+            output_format="先给直接答案；必要时用要点列出依据、公式或不确定处。",
+            input_blocks=input_blocks,
+        )
         return system_prompt, user_prompt
 
     def answer_question(self, question, history=None):
@@ -1658,41 +1777,28 @@ graph TD
         if not clean_query:
             raise ValueError("Please enter a search query.")
 
-        context_excerpt = build_document_excerpt(context_text or "", limit=6000)
-        system_prompt = (
-            "You are an academic literature retrieval assistant. "
-            "Rewrite user search requests into a precise English academic search query. "
-            "If the user is clearly asking for a specific paper by nickname, alias, version name, or shorthand, resolve it to the canonical paper title instead of broadening it. "
-            "Only broaden the query when the user's intent is genuinely ambiguous. "
-            "Return JSON only."
-        )
-        user_prompt = f'''Rewrite the following paper search request into a concise English query for Semantic Scholar and arXiv.
-
-Required JSON schema:
-{{
+        context_excerpt = build_document_excerpt(context_text or "", limit=4000)
+        system_prompt = build_stable_system_prompt("search_rewrite")
+        user_prompt = build_task_user_prompt(
+            task="Rewrite the paper search request into a concise English query for Semantic Scholar and arXiv.",
+            constraints="""- rewritten_query must be concise English.
+- Preserve specific-paper intent; if a nickname or shorthand points to a known paper, prefer the canonical title.
+- Do not broaden a specific-paper query into a vague family query.
+- Only expand when the intent is ambiguous.
+- topics must be short.
+- why must be Chinese.
+- Return JSON only, without markdown fences.""",
+            output_format='''{
   "original_query": "original user query",
   "rewritten_query": "better english academic query",
   "topics": ["topic 1", "topic 2", "topic 3"],
   "why": "brief reason in Chinese"
-}}
-
-Constraints:
-- rewritten_query must be concise and in English
-- preserve the user's research intent
-- if the query likely refers to a specific known paper, prefer the canonical paper title
-- examples: "yolov1的论文" should become the actual paper title "You Only Look Once: Unified, Real-Time Object Detection"
-- do not broaden a specific-paper query into a vague family query like "YOLO papers"
-- only expand or generalize when the user query is actually unclear or ambiguous
-- topics should be short
-- why should explain what was clarified or expanded in Chinese
-- do not wrap JSON in markdown fences
-
-User query:
-{clean_query}
-
-Optional context from current paper:
-{context_excerpt}
-'''
+}''',
+            input_blocks=[
+                ("user_query", clean_query),
+                ("optional_context", context_excerpt),
+            ],
+        )
         raw_response = self._call_llm(system_prompt, user_prompt, model=self.search_rewrite_model)
         try:
             rewrite_meta = json.loads(extract_json_object(raw_response))
@@ -1755,6 +1861,8 @@ Optional context from current paper:
         result["mindmap"] = sections["mindmap"]["content"]
         result["mermaid"] = sections["mermaid"]["content"]
         result["evaluation"] = sections["evaluation"]["content"]
+
+        result.update(build_analysis_metadata(sections))
 
         required_sections = [sections["summary"], sections["quotes"], sections["mindmap"]]
         if all(section["status"] == "failed" for section in required_sections):
@@ -2228,17 +2336,14 @@ async def search_papers_api(request: Request):
         if raw_session_id:
             safe_session_id, session_payload = load_validated_session(raw_session_id, session_token, require_token=True)
 
-        if PAPER_SEARCH_ENABLE_REWRITE:
-            if not resolved_api_key:
-                return JSONResponse(
-                    content={"error": "API key is required for AI-assisted paper search. Provide api_key or set OPENAI_API_KEY."},
-                    status_code=400,
-                )
+        if PAPER_SEARCH_ENABLE_REWRITE and resolved_api_key:
             whisperer = PaperWhisperer(resolved_api_key)
-            rewrite_context = context_text
+            rewrite_context = compact_text(context_text, limit=4000)
             if session_payload and not rewrite_context:
-                rewrite_context = get_session_document_content(session_payload)
+                rewrite_context = build_document_excerpt(get_session_document_content(session_payload), limit=4000)
             rewrite_meta = whisperer.rewrite_search_query(query, context_text=rewrite_context)
+        elif PAPER_SEARCH_ENABLE_REWRITE:
+            rewrite_meta["reason"] = "No API key available; used direct search without AI rewriting."
 
         result = search_papers(rewrite_meta["rewritten_query"], limit)
         result["original_query"] = rewrite_meta.get("original_query", query)

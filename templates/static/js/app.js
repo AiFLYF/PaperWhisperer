@@ -21,6 +21,8 @@ let currentOutputFile = '';
 let currentChatTurns = [];
 let currentPaperSearchResults = [];
 let currentPaperRecommendations = [];
+let currentSuggestedQuestions = [];
+let currentNextActions = [];
 let currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with a single query.';
 let currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
 
@@ -415,6 +417,7 @@ function resetExportState() {
     currentChatTurns = [];
     currentSections = {};
     currentSessionToken = '';
+    resetSmartSuggestions();
     setExportEnabled(false);
 }
 
@@ -423,6 +426,81 @@ function setRecommendEnabled(enabled) {
     if (recommendBtn) {
         recommendBtn.disabled = !enabled;
     }
+}
+
+function normalizeSmartTextItems(values, maxItems = 6) {
+    if (!Array.isArray(values)) return [];
+    const seen = new Set();
+    const items = [];
+    values.forEach(value => {
+        const text = String(value || '').trim();
+        if (!text || seen.has(text)) return;
+        items.push(text);
+        seen.add(text);
+    });
+    return items.slice(0, maxItems);
+}
+
+function normalizeSmartActions(values, maxItems = 5) {
+    if (!Array.isArray(values)) return [];
+    const seen = new Set();
+    const actions = [];
+    values.forEach(value => {
+        if (!value || typeof value !== 'object') return;
+        const label = String(value.label || '').trim();
+        const prompt = String(value.prompt || '').trim();
+        if (!label || !prompt || seen.has(prompt)) return;
+        actions.push({ label, prompt });
+        seen.add(prompt);
+    });
+    return actions.slice(0, maxItems);
+}
+
+function fillQuestionInput(prompt) {
+    const questionInput = document.getElementById('questionInput');
+    if (!questionInput) return;
+    questionInput.value = prompt;
+    questionInput.focus();
+}
+
+function renderSmartPrompts(questions = currentSuggestedQuestions) {
+    const container = document.getElementById('smartPrompts');
+    if (!container) return;
+    currentSuggestedQuestions = normalizeSmartTextItems(questions);
+    container.innerHTML = '';
+    container.style.display = currentSuggestedQuestions.length ? 'flex' : 'none';
+    currentSuggestedQuestions.forEach(question => {
+        const button = document.createElement('button');
+        button.className = 'prompt-chip';
+        button.type = 'button';
+        button.textContent = question;
+        button.addEventListener('click', () => fillQuestionInput(question));
+        container.appendChild(button);
+    });
+}
+
+function renderNextActions(actions = currentNextActions) {
+    const container = document.getElementById('nextActions');
+    if (!container) return;
+    currentNextActions = normalizeSmartActions(actions);
+    container.innerHTML = '';
+    container.style.display = currentNextActions.length ? 'flex' : 'none';
+    currentNextActions.forEach(action => {
+        const button = document.createElement('button');
+        button.className = 'next-action-btn';
+        button.type = 'button';
+        button.textContent = action.label;
+        button.title = action.prompt;
+        button.addEventListener('click', () => fillQuestionInput(action.prompt));
+        container.appendChild(button);
+    });
+}
+
+function resetSmartSuggestions() {
+    currentSuggestedQuestions = [];
+    currentNextActions = [];
+    renderSmartPrompts([]);
+    renderNextActions([]);
 }
 
 function applyAnalysisSection(sectionName, sectionPayload, generateEvaluation, generateMermaid) {
@@ -457,6 +535,10 @@ function finalizeAnalysisResultState(data, fileName) {
     currentElapsedSeconds = data.elapsed_seconds ?? null;
     currentOutputFile = data.output_file || '';
     currentChatTurns = [];
+    currentSuggestedQuestions = normalizeSmartTextItems(data.suggested_questions || []);
+    currentNextActions = normalizeSmartActions(data.next_actions || []);
+    renderSmartPrompts(currentSuggestedQuestions);
+    renderNextActions(currentNextActions);
     resetPaperPanels();
     setExportEnabled(true);
     document.getElementById('askBtn').disabled = false;
@@ -579,6 +661,8 @@ function captureWorkspaceState() {
         currentChatTurns: [...currentChatTurns],
         currentPaperSearchResults: [...currentPaperSearchResults],
         currentPaperRecommendations: [...currentPaperRecommendations],
+        currentSuggestedQuestions: [...currentSuggestedQuestions],
+        currentNextActions: currentNextActions.map(action => ({ ...action })),
         currentPaperSearchMetaText,
         currentPaperRecommendationMetaText,
         html: {
@@ -616,6 +700,8 @@ function restoreWorkspaceState(snapshot) {
     currentChatTurns = [...snapshot.currentChatTurns];
     currentPaperSearchResults = [...snapshot.currentPaperSearchResults];
     currentPaperRecommendations = [...snapshot.currentPaperRecommendations];
+    currentSuggestedQuestions = normalizeSmartTextItems(snapshot.currentSuggestedQuestions || []);
+    currentNextActions = normalizeSmartActions(snapshot.currentNextActions || []);
     currentPaperSearchMetaText = snapshot.currentPaperSearchMetaText;
     currentPaperRecommendationMetaText = snapshot.currentPaperRecommendationMetaText;
 
@@ -629,6 +715,8 @@ function restoreWorkspaceState(snapshot) {
     document.getElementById('paperRecommendations').innerHTML = snapshot.html.paperRecommendations;
     document.getElementById('paperSearchMeta').textContent = currentPaperSearchMetaText;
     document.getElementById('paperRecommendationMeta').textContent = currentPaperRecommendationMetaText;
+    renderSmartPrompts(currentSuggestedQuestions);
+    renderNextActions(currentNextActions);
     document.getElementById('mermaidChart').innerHTML = snapshot.html.mermaidChart;
 
     document.getElementById('result').classList.toggle('active', snapshot.ui.resultActive);
@@ -1314,6 +1402,18 @@ function formatExportTimestamp(value) {
     return date.toLocaleString();
 }
 
+function formatMarkdownList(items) {
+    const normalizedItems = normalizeSmartTextItems(items, 12);
+    return normalizedItems.length ? normalizedItems.map(item => `- ${item}`).join('\n') : '- _None._';
+}
+
+function formatMarkdownActions(actions) {
+    const normalizedActions = normalizeSmartActions(actions, 8);
+    return normalizedActions.length
+        ? normalizedActions.map(action => `- **${action.label}**: ${action.prompt}`).join('\n')
+        : '- _None._';
+}
+
 function buildSessionMarkdown() {
     if (!currentAnalysisResult) return '';
 
@@ -1338,7 +1438,6 @@ function buildSessionMarkdown() {
         `| Generated at | ${formatExportTimestamp(reportTime.toISOString())} |`,
         `| Analysis duration | ${currentElapsedSeconds ?? 'N/A'} s |`,
         `| Character count | ${currentAnalysisResult.char_count ?? 'N/A'} |`,
-        `| Backend archive | ${currentOutputFile || 'N/A'} |`,
         '',
         '---',
         '',
@@ -1361,6 +1460,23 @@ function buildSessionMarkdown() {
 
     if (currentAnalysisResult.evaluation) {
         lines.push('', '---', '', '## Evaluation', '', currentAnalysisResult.evaluation);
+    }
+
+    if (currentSuggestedQuestions.length || currentNextActions.length) {
+        lines.push(
+            '',
+            '---',
+            '',
+            '## Suggested Follow-ups',
+            '',
+            '### Questions',
+            '',
+            formatMarkdownList(currentSuggestedQuestions),
+            '',
+            '### Next Actions',
+            '',
+            formatMarkdownActions(currentNextActions)
+        );
     }
 
     if (currentMermaidSource) {
