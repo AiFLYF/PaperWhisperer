@@ -208,17 +208,30 @@ function cancelAskRequest() {
     updateStatus('Question canceled', 'idle');
 }
 
+function getMotionSafeScrollBehavior() {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+}
+
+function scrollElementIntoView(element, options = {}) {
+    if (!element) return;
+    element.scrollIntoView({ behavior: getMotionSafeScrollBehavior(), block: 'start', ...options });
+}
+
+function scrollWindowTo(options) {
+    window.scrollTo({ behavior: getMotionSafeScrollBehavior(), ...options });
+}
+
 function focusAnalysisWorkspace({ scroll = true } = {}) {
     const result = document.getElementById('result');
     if (!result || !result.classList.contains('active')) return;
-    if (scroll) result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (scroll) scrollElementIntoView(result);
     result.focus({ preventScroll: true });
 }
 
 function focusWorkspaceTarget(targetId, focusSelector) {
     const target = document.getElementById(targetId);
     if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    scrollElementIntoView(target);
     const focusTarget = focusSelector ? target.querySelector(focusSelector) : target;
     if (focusTarget) focusTarget.focus({ preventScroll: true });
 }
@@ -254,7 +267,7 @@ function initializeBackToTop() {
 }
 
 function scrollToTop() {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollWindowTo({ top: 0 });
 }
 
 function useExampleQuery(query) {
@@ -1397,7 +1410,7 @@ function showError(message) {
     errorEl.textContent = tips.length ? `${text}\n\n${tips.join('\n')}` : text;
     errorEl.style.display = 'block';
     errorEl.focus({ preventScroll: true });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    scrollWindowTo({ top: 0 });
 }
 
 function hideError() {
@@ -1864,7 +1877,7 @@ async function askQuestion() {
             askController = null;
             activeStreamingAnswerShell = null;
             questionInput.focus();
-            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            scrollWindowTo({ top: document.body.scrollHeight });
         }
     }
 }

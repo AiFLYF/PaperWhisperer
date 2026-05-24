@@ -144,6 +144,12 @@ def test_static_frontend_assets_are_served():
     assert "Question needed" in js_response.text
     assert "initializeBackToTop" in js_response.text
     assert "scrollToTop" in js_response.text
+    assert "getMotionSafeScrollBehavior" in js_response.text
+    assert "prefers-reduced-motion: reduce" in js_response.text
+    assert "scrollElementIntoView" in js_response.text
+    assert "scrollWindowTo" in js_response.text
+    assert "behavior: getMotionSafeScrollBehavior()" in js_response.text
+    assert "behavior: 'smooth'" not in js_response.text
     assert "focusAnalysisWorkspace" in js_response.text
     assert "preventScroll" in js_response.text
     assert "formatWorkspaceGuidanceMarkdown" in js_response.text
