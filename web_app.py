@@ -1218,7 +1218,12 @@ def cleanup_expired_sessions(force=False):
     if not force and now_ts - LAST_SESSION_CLEANUP_AT < SESSION_CLEANUP_INTERVAL_SECONDS:
         return
     LAST_SESSION_CLEANUP_AT = now_ts
-    for name in os.listdir(CONTEXT_FOLDER):
+    try:
+        session_files = os.listdir(CONTEXT_FOLDER)
+    except OSError as exc:
+        logger.warning("Unable to list session folder %s: %s", CONTEXT_FOLDER, exc)
+        return
+    for name in session_files:
         if not name.endswith(".json"):
             continue
         file_path = os.path.join(CONTEXT_FOLDER, name)

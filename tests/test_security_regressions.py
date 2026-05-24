@@ -1180,6 +1180,17 @@ def test_cleanup_expired_sessions_removes_non_object_json(tmp_path, monkeypatch,
     assert "session payload must be an object" in caplog.text
 
 
+def test_cleanup_expired_sessions_logs_missing_context_folder(tmp_path, monkeypatch, caplog):
+    missing_folder = tmp_path / "missing-context"
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(missing_folder))
+    monkeypatch.setattr(web_app, "LAST_SESSION_CLEANUP_AT", 0.0)
+    caplog.set_level("WARNING", logger=web_app.__name__)
+
+    web_app.cleanup_expired_sessions(force=True)
+
+    assert f"Unable to list session folder {missing_folder}" in caplog.text
+
+
 def test_arxiv_search_uses_app_user_agent(monkeypatch):
     captured = {}
 
