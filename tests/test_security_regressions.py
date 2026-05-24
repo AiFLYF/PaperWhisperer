@@ -454,3 +454,71 @@ def test_search_papers_falls_back_to_direct_search_without_api_key(monkeypatch):
     assert payload["rewritten_query"] == "graph neural networks"
     assert payload["rewrite_model"] == ""
     assert "direct search" in payload["reason"]
+
+
+def test_search_papers_uses_direct_query_when_rewrite_disabled(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(web_app, "PAPER_SEARCH_ENABLE_REWRITE", False)
+
+    def fake_search(query, limit):
+        captured["query"] = query
+        captured["limit"] = limit
+        return {"query": query, "items": [], "errors": []}
+
+    monkeypatch.setattr(web_app, "search_papers", fake_search)
+
+    response = TestClient(web_app.app).post(
+        "/api/search-papers",
+        content=json.dumps({"query": "  efficient transformers  ", "api_key": "unused", "limit": 3}),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 200
+    assert captured == {"query": "efficient transformers", "limit": 3}
+    payload = response.json()
+    assert payload["rewritten_query"] == "efficient transformers"
+    assert payload["rewrite_model"] == ""
+    assert payload["reason"] == "Direct search without AI rewriting."
+
+
+def test_search_papers_rejects_invalid_session_token(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    monkeypatch.setattr(web_app, "search_papers", lambda query, limit: {"query": query, "items": [], "errors": []})
+    session_id = "session"
+    web_app.write_session_payload(
+        session_id,
+        {
+            "expires_at": web_app.build_session_expiry(),
+            "paper_search": {},
+            "session_auth": {"token_hash": web_app.hash_session_token("correct-token")},
+        },
+    )
+
+    response = TestClient(web_app.app).post(
+        "/api/search-papers",
+        content=json.dumps({"query": "rag", "session_id": session_id, "session_token": "wrong-token"}),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 403
+
+
+def test_recommend_papers_rejects_invalid_session_token(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "CONTEXT_FOLDER", str(tmp_path))
+    session_id = "session"
+    web_app.write_session_payload(
+        session_id,
+        {
+            "expires_at": web_app.build_session_expiry(),
+            "document_content": "paper text",
+            "session_auth": {"token_hash": web_app.hash_session_token("correct-token")},
+        },
+    )
+
+    response = TestClient(web_app.app).post(
+        "/api/recommend-papers",
+        content=json.dumps({"session_id": session_id, "session_token": "wrong-token", "api_key": "key"}),
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 403
