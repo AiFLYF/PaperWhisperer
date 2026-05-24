@@ -139,11 +139,17 @@ function bindClick(id, handler) {
     if (element) element.addEventListener('click', handler);
 }
 
+function setControlDisabled(element, disabled) {
+    if (!element) return;
+    element.disabled = disabled;
+    element.setAttribute('aria-disabled', String(disabled));
+}
+
 function setCancelVisible(id, isVisible) {
     const button = document.getElementById(id);
     if (!button) return;
     button.hidden = !isVisible;
-    button.disabled = !isVisible;
+    setControlDisabled(button, !isVisible);
 }
 
 function cancelAnalyzeRequest() {
@@ -665,10 +671,7 @@ function clearChatHistory() {
 }
 
 function setExportEnabled(enabled) {
-    const exportBtn = document.getElementById('exportBtn');
-    if (exportBtn) {
-        exportBtn.disabled = !enabled;
-    }
+    setControlDisabled(document.getElementById('exportBtn'), !enabled);
 }
 
 function resetExportState() {
@@ -685,10 +688,7 @@ function resetExportState() {
 }
 
 function setRecommendEnabled(enabled) {
-    const recommendBtn = document.getElementById('recommendBtn');
-    if (recommendBtn) {
-        recommendBtn.disabled = !enabled;
-    }
+    setControlDisabled(document.getElementById('recommendBtn'), !enabled);
 }
 
 function normalizeSmartTextItems(values, maxItems = 6) {
@@ -825,7 +825,7 @@ function renderReadingQueue(message = '') {
     const clearButton = document.getElementById('clearReadingQueueBtn');
     if (!container) return;
     currentReadingQueue = normalizeReadingQueue(currentReadingQueue);
-    if (clearButton) clearButton.disabled = !currentReadingQueue.length;
+    setControlDisabled(clearButton, !currentReadingQueue.length);
     if (meta) {
         meta.textContent = message || (currentReadingQueue.length
             ? `${currentReadingQueue.length} saved paper(s) in this session reading queue.`
@@ -986,7 +986,7 @@ function finalizeAnalysisResultState(data, fileName) {
     resetPaperPanels();
     saveReadingQueue();
     setExportEnabled(true);
-    document.getElementById('askBtn').disabled = false;
+    setControlDisabled(document.getElementById('askBtn'), false);
 }
 
 function applyAnalysisResult(data, fileName, generateEvaluation, generateMermaid, generateResearchBrief = true) {
@@ -1071,8 +1071,9 @@ function renderPaperList(elementId, items, emptyText, meta) {
             const downloadButton = (item.pdf_url || item.url)
                 ? `<button class="paper-link" type="button" data-paper-action="download" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}">Download</button>`
                 : '';
+            const addButtonDisabled = currentImportPaperKey === actionKey;
             const addButton = allowImport
-                ? `<button class="paper-link" type="button" data-paper-action="add" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}" ${currentImportPaperKey === actionKey ? 'disabled' : ''}>${currentImportPaperKey === actionKey ? 'Adding...' : 'Add'}</button>`
+                ? `<button class="paper-link" type="button" data-paper-action="add" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}" aria-disabled="${String(addButtonDisabled)}" ${addButtonDisabled ? 'disabled' : ''}>${addButtonDisabled ? 'Adding...' : 'Add'}</button>`
                 : '';
             const saveButton = `<button class="paper-link" type="button" data-paper-action="save" data-paper-list="${escapeHtml(elementId)}" data-paper-index="${index}">Save</button>`;
             const links = [
@@ -1217,9 +1218,9 @@ function restoreWorkspaceState(snapshot) {
     document.getElementById('result').classList.toggle('active', snapshot.ui.resultActive);
     document.getElementById('evaluationCard').style.display = snapshot.ui.evaluationDisplay;
     document.getElementById('mermaidCard').style.display = snapshot.ui.mermaidDisplay;
-    document.getElementById('askBtn').disabled = snapshot.ui.askDisabled;
-    document.getElementById('exportBtn').disabled = snapshot.ui.exportDisabled;
-    document.getElementById('recommendBtn').disabled = snapshot.ui.recommendDisabled;
+    setControlDisabled(document.getElementById('askBtn'), snapshot.ui.askDisabled);
+    setControlDisabled(document.getElementById('exportBtn'), snapshot.ui.exportDisabled);
+    setControlDisabled(document.getElementById('recommendBtn'), snapshot.ui.recommendDisabled);
     resetPanZoom();
     if (currentMermaidSource) {
         requestAnimationFrame(() => renderMermaidDiagram(currentMermaidSource));
@@ -1230,7 +1231,7 @@ function resetResultView() {
     ['summary', 'quotes', 'mindmap', 'evaluation', 'research_brief'].forEach(id => setSectionContent(id, ''));
     document.getElementById('fileInfo').innerHTML = '';
     document.getElementById('result').classList.remove('active');
-    document.getElementById('askBtn').disabled = true;
+    setControlDisabled(document.getElementById('askBtn'), true);
     document.getElementById('evaluationCard').style.display = '';
     document.getElementById('researchBriefCard').style.display = '';
     clearChatHistory();
@@ -1508,7 +1509,7 @@ async function readSseStream(response, handlers = {}) {
 
 function setButtonLoading(button, loadingText, defaultText, isLoading) {
     if (!button) return;
-    button.disabled = isLoading;
+    setControlDisabled(button, isLoading);
     button.textContent = isLoading ? loadingText : defaultText;
     button.classList.toggle('is-busy', isLoading);
     if (isLoading) {
@@ -1604,7 +1605,7 @@ async function analyze() {
     document.getElementById('loading').classList.add('active');
     updateAnalysisProgress('upload', 'Uploading and preparing your document...');
     hideError();
-    askBtn.disabled = true;
+    setControlDisabled(askBtn, true);
     updateStatus('Analyzing document...', 'idle');
 
     const formData = new FormData();
@@ -1736,7 +1737,7 @@ function appendStreamingAnswerShell() {
     button.className = 'action-btn';
     button.type = 'button';
     button.textContent = 'Copy';
-    button.disabled = true;
+    setControlDisabled(button, true);
 
     const content = document.createElement('div');
     content.id = answerId;
@@ -1762,7 +1763,7 @@ function updateStreamingAnswer(shell, answer) {
 function finalizeStreamingAnswer(shell, answer) {
     if (!shell || !shell.button || !shell.content) return;
     updateStreamingAnswer(shell, answer);
-    shell.button.disabled = false;
+    setControlDisabled(shell.button, false);
     if (!shell.button.dataset.bound) {
         shell.button.addEventListener('click', () => copyText(shell.answerId, shell.button));
         shell.button.dataset.bound = 'true';
@@ -2016,7 +2017,7 @@ async function copyText(elementId, btnElement) {
         return;
     }
 
-    btnElement.disabled = true;
+    setControlDisabled(btnElement, true);
     btnElement.setAttribute('aria-busy', 'true');
     try {
         if (navigator.clipboard && window.isSecureContext) {
@@ -2043,7 +2044,7 @@ async function copyText(elementId, btnElement) {
     }
     setTimeout(() => {
         btnElement.innerText = originalText;
-        btnElement.disabled = false;
+        setControlDisabled(btnElement, false);
         btnElement.removeAttribute('aria-busy');
         btnElement.classList.remove('action-success');
     }, 1600);
