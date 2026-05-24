@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 APP_NAME = "PaperWhisperer"
 APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.9.0").strip() or "0.9.0"
 APP_USER_AGENT = f"{APP_NAME}/{APP_VERSION}"
+APP_STARTED_AT = time.time()
 UPLOAD_FOLDER = "uploads"
 OUTPUT_FOLDER = "output"
 CONTEXT_FOLDER = "context"
@@ -701,11 +702,18 @@ def build_sse_headers():
     }
 
 
+def build_error_response(message, status_code=400, code="bad_request"):
+    return JSONResponse(
+        content={"error": message, "code": code, "timestamp": now_iso()},
+        status_code=status_code,
+    )
+
+
 async def parse_json_object_request(request):
     try:
         raw_body = await request.body()
     except Exception:
-        return None, JSONResponse(content={"error": "Unable to read request body."}, status_code=400)
+        return None, build_error_response("Unable to read request body.", code="body_read_failed")
 
     if not raw_body or not raw_body.strip():
         return {}, None
@@ -713,10 +721,10 @@ async def parse_json_object_request(request):
     try:
         data = json.loads(raw_body)
     except json.JSONDecodeError:
-        return None, JSONResponse(content={"error": "Invalid JSON body."}, status_code=400)
+        return None, build_error_response("Invalid JSON body.", code="invalid_json")
 
     if not isinstance(data, dict):
-        return None, JSONResponse(content={"error": "JSON body must be an object."}, status_code=400)
+        return None, build_error_response("JSON body must be an object.", code="json_not_object")
     return data, None
 
 
@@ -2124,6 +2132,7 @@ async def health_check():
             "app": APP_NAME,
             "version": APP_VERSION,
             "timestamp": now_iso(),
+            "uptime_seconds": max(0, round(time.time() - APP_STARTED_AT, 3)),
             "folders": {
                 name: {
                     "exists": os.path.isdir(path),

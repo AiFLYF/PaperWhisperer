@@ -150,6 +150,7 @@ def test_health_endpoint_reports_runtime_status():
     assert payload["app"] == "PaperWhisperer"
     assert payload["version"] == web_app.APP_VERSION
     assert web_app.app.version == web_app.APP_VERSION
+    assert payload["uptime_seconds"] >= 0
     assert set(payload["folders"]) == {"uploads", "output", "context"}
 
 
@@ -349,7 +350,10 @@ def test_json_api_rejects_invalid_json(path):
     )
 
     assert response.status_code == 400
-    assert response.json()["error"] == "Invalid JSON body."
+    payload = response.json()
+    assert payload["error"] == "Invalid JSON body."
+    assert payload["code"] == "invalid_json"
+    assert "timestamp" in payload
 
 
 def test_json_api_rejects_non_object_body():
