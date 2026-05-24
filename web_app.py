@@ -2171,15 +2171,12 @@ async def analyze(
     file_path = None
 
     if file is None:
-        return JSONResponse(content={"error": "Please upload a file."}, status_code=400)
+        return build_error_response("Please upload a file.", code="missing_file")
 
     if file.filename == "":
-        return JSONResponse(content={"error": "Please select a file."}, status_code=400)
+        return build_error_response("Please select a file.", code="missing_filename")
     if not is_allowed_file(file.filename):
-        return JSONResponse(
-            content={"error": f"Unsupported file type. Please upload one of: {SUPPORTED_FILE_TYPES_TEXT}"},
-            status_code=400,
-        )
+        return build_error_response(f"Unsupported file type. Please upload one of: {SUPPORTED_FILE_TYPES_TEXT}", code="unsupported_file_type")
 
     try:
         cleanup_expired_sessions()
@@ -2203,10 +2200,10 @@ async def analyze(
         return JSONResponse(content=result)
 
     except ValueError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=400)
+        return build_error_response(str(exc), code="invalid_request")
     except Exception as e:
         logger.exception("Document analysis failed")
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        return build_error_response(str(e), status_code=500, code="document_analysis_failed")
     finally:
         await close_upload_file_safely(file, "analysis upload file")
         remove_file_safely(file_path, "analyzed upload file")
@@ -2224,7 +2221,7 @@ async def download_paper(url: str = "", pdf_url: str = "", title: str = ""):
         }
         return StreamingResponse(iter_remote_file_chunks(response, MAX_CONTENT_LENGTH, initial_chunk), media_type=media_type, headers=headers)
     except ValueError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=400)
+        return build_error_response(str(exc), code="invalid_request")
     except urllib.error.HTTPError as exc:
         logger.warning("Paper proxy download failed: %s", exc)
         if exc.code == 404:
@@ -2235,7 +2232,7 @@ async def download_paper(url: str = "", pdf_url: str = "", title: str = ""):
             message = "The remote source rate limited the paper download. Please retry in a moment."
         else:
             message = f"Remote paper download failed with HTTP {exc.code}."
-        return JSONResponse(content={"error": message}, status_code=400)
+        return build_error_response(message, code="paper_download_failed")
     except urllib.error.URLError as exc:
         logger.warning("Paper proxy download failed: %s", exc)
         reason = getattr(exc, "reason", exc)
@@ -2243,10 +2240,10 @@ async def download_paper(url: str = "", pdf_url: str = "", title: str = ""):
             message = "SSL certificate verification failed while downloading the paper file."
         else:
             message = f"Paper download failed: {reason}"
-        return JSONResponse(content={"error": message}, status_code=400)
+        return build_error_response(message, code="paper_download_failed")
     except Exception as exc:
         logger.exception("Paper proxy download failed")
-        return JSONResponse(content={"error": str(exc)}, status_code=500)
+        return build_error_response(str(exc), status_code=500, code="paper_download_failed")
 
 
 @app.post("/api/analyze/stream")
@@ -2261,19 +2258,16 @@ async def analyze_stream(
     file_path = None
 
     if file is None:
-        return JSONResponse(content={"error": "Please upload a file."}, status_code=400)
+        return build_error_response("Please upload a file.", code="missing_file")
     if file.filename == "":
-        return JSONResponse(content={"error": "Please select a file."}, status_code=400)
+        return build_error_response("Please select a file.", code="missing_filename")
     if not is_allowed_file(file.filename):
-        return JSONResponse(
-            content={"error": f"Unsupported file type. Please upload one of: {SUPPORTED_FILE_TYPES_TEXT}"},
-            status_code=400,
-        )
+        return build_error_response(f"Unsupported file type. Please upload one of: {SUPPORTED_FILE_TYPES_TEXT}", code="unsupported_file_type")
 
     cleanup_expired_sessions()
     resolved_api_key = resolve_api_key(api_key)
     if not resolved_api_key:
-        return JSONResponse(content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."}, status_code=400)
+        return build_error_response("API key is required. Provide api_key or set OPENAI_API_KEY.", code="missing_api_key")
 
     original_filename = build_safe_upload_filename(file.filename)
     file_path = build_unique_storage_path(UPLOAD_FOLDER, original_filename)
@@ -2284,10 +2278,10 @@ async def analyze_stream(
     try:
         await save_upload_file(file, file_path, MAX_CONTENT_LENGTH)
     except ValueError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=400)
+        return build_error_response(str(exc), code="invalid_request")
     except Exception as exc:
         logger.exception("Streaming analyze upload failed")
-        return JSONResponse(content={"error": str(exc)}, status_code=500)
+        return build_error_response(str(exc), status_code=500, code="streaming_upload_failed")
     finally:
         await close_upload_file_safely(file, "streaming analysis upload file")
 
@@ -2338,7 +2332,7 @@ async def import_paper(request: Request):
         url = str(data.get("url") or "").strip()
         pdf_url = str(data.get("pdf_url") or "").strip()
         if not pdf_url and not url:
-            return JSONResponse(content={"error": "A downloadable paper URL is required."}, status_code=400)
+            return build_error_response("A downloadable paper URL is required.", code="missing_paper_url")
 
         generate_mermaid_bool = parse_bool_value(data.get("generate_mermaid"), default=True)
         generate_evaluation_bool = parse_bool_value(data.get("generate_evaluation"), default=True)
@@ -2355,7 +2349,7 @@ async def import_paper(request: Request):
         )
         return JSONResponse(content=result)
     except ValueError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=400)
+        return build_error_response(str(exc), code="invalid_request")
     except urllib.error.HTTPError as exc:
         logger.warning("Paper import download failed: %s", exc)
         if exc.code == 404:
@@ -2366,7 +2360,7 @@ async def import_paper(request: Request):
             message = "The remote source rate limited the paper download. Please retry in a moment."
         else:
             message = f"Remote paper download failed with HTTP {exc.code}."
-        return JSONResponse(content={"error": message}, status_code=400)
+        return build_error_response(message, code="paper_import_failed")
     except urllib.error.URLError as exc:
         logger.warning("Paper import download failed: %s", exc)
         reason = getattr(exc, "reason", exc)
@@ -2374,10 +2368,10 @@ async def import_paper(request: Request):
             message = "SSL certificate verification failed while downloading the paper file."
         else:
             message = f"Paper download failed: {reason}"
-        return JSONResponse(content={"error": message}, status_code=400)
+        return build_error_response(message, code="paper_import_failed")
     except Exception as exc:
         logger.exception("Paper import failed")
-        return JSONResponse(content={"error": str(exc)}, status_code=500)
+        return build_error_response(str(exc), status_code=500, code="paper_import_failed")
     finally:
         remove_file_safely(file_path, "imported paper analysis file")
 
