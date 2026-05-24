@@ -599,6 +599,43 @@ input:focus { outline: none; background-color: var(--bg-card); border-color: var
     display: grid;
     gap: 16px;
 }
+.paper-state {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 18px 20px;
+    border: 1px dashed rgba(15, 118, 110, 0.22);
+    border-radius: var(--radius-md);
+    background: rgba(15, 118, 110, 0.06);
+}
+.paper-state.loading-state {
+    border-style: solid;
+    background: linear-gradient(135deg, rgba(15, 118, 110, 0.10), rgba(14, 165, 233, 0.08));
+}
+.paper-state-icon {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--bg-card);
+    color: var(--primary-color);
+    font-weight: 800;
+    box-shadow: var(--shadow-soft);
+}
+.paper-state-title {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.paper-state-body {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-secondary);
+}
 .paper-card {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
