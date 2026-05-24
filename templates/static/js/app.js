@@ -506,6 +506,7 @@ function toggleAIList() {
     list.hidden = !shouldShow;
     list.classList.toggle('show', shouldShow);
     button.setAttribute('aria-expanded', String(shouldShow));
+    button.setAttribute('aria-label', shouldShow ? 'Hide AI collaborators' : 'Show AI collaborators');
 }
 
 function escapeHtml(value) {
