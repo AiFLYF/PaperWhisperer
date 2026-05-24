@@ -706,6 +706,13 @@ function formatContent(content, fallbackText) {
     return sanitizeGeneratedHtml(htmlContent);
 }
 
+function replaceWithFormattedContent(element, content, fallbackText) {
+    const template = document.createElement('template');
+    template.innerHTML = formatContent(content, fallbackText);
+    element.replaceChildren(template.content.cloneNode(true));
+    renderMath(element);
+}
+
 function createSectionStateCard(title, detail, tone = 'empty') {
     const card = document.createElement('div');
     card.className = `section-state section-state-${tone}`;
@@ -741,8 +748,7 @@ function setSectionContent(id, value, errorMessage = '') {
         element.replaceChildren(createSectionStateCard('Waiting for content', SECTION_EMPTY_TEXT[id] || 'No content available.'));
         return;
     }
-    element.innerHTML = formatContent(value, SECTION_EMPTY_TEXT[id]);
-    renderMath(element);
+    replaceWithFormattedContent(element, value, SECTION_EMPTY_TEXT[id]);
 }
 
 function getSectionPayload(data, sectionName) {
@@ -1939,8 +1945,7 @@ function appendChatText(role, message, className) {
     body.className = className.includes('chat-answer') ? 'chat-text content' : 'chat-text';
     if (className.includes('chat-answer')) {
         body.dataset.rawContent = message || '';
-        body.innerHTML = formatContent(message, 'No content available.');
-        renderMath(body);
+        replaceWithFormattedContent(body, message, 'No content available.');
     } else {
         body.textContent = message;
     }
@@ -2006,8 +2011,7 @@ function appendStreamingAnswerShell() {
 function updateStreamingAnswer(shell, answer) {
     if (!shell || !shell.content) return;
     shell.content.dataset.rawContent = answer || '';
-    shell.content.innerHTML = formatContent(answer, 'No answer available.');
-    renderMath(shell.content);
+    replaceWithFormattedContent(shell.content, answer, 'No answer available.');
 }
 
 function finalizeStreamingAnswer(shell, answer) {
