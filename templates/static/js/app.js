@@ -1108,7 +1108,10 @@ function clearReadingQueue() {
 }
 
 function setOptionalCardVisible(cardId, visible) {
-    document.getElementById(cardId)?.classList.toggle('is-hidden', !visible);
+    const card = document.getElementById(cardId);
+    if (!card) return;
+    card.classList.toggle('is-hidden', !visible);
+    card.setAttribute('aria-hidden', String(!visible));
 }
 
 function applyAnalysisSection(sectionName, sectionPayload, generateEvaluation, generateMermaid, generateResearchBrief = true) {
@@ -1360,7 +1363,7 @@ function resetPanZoom() {
 }
 
 function setMermaidCardVisible(visible) {
-    document.getElementById('mermaidCard')?.classList.toggle('is-hidden', !visible);
+    setOptionalCardVisible('mermaidCard', visible);
 }
 
 function resetMermaidCard() {
