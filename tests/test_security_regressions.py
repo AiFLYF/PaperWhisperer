@@ -376,7 +376,10 @@ def test_json_api_rejects_non_object_body():
     )
 
     assert response.status_code == 400
-    assert response.json()["error"] == "JSON body must be an object."
+    payload = response.json()
+    assert payload["error"] == "JSON body must be an object."
+    assert payload["code"] == "json_not_object"
+    assert "timestamp" in payload
 
 
 def test_load_session_payload_removes_corrupted_json(tmp_path, monkeypatch):
