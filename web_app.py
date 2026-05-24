@@ -2210,11 +2210,7 @@ async def analyze(
     finally:
         if file:
             await file.close()
-        if file_path and os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except Exception:
-                pass
+        remove_file_safely(file_path, "analyzed upload file")
 
 
 @app.get("/api/download-paper")
@@ -2326,11 +2322,7 @@ async def analyze_stream(
             logger.exception("Streaming document analysis failed")
             yield build_sse_event("error", {"error": str(exc)})
         finally:
-            if file_path and os.path.exists(file_path):
-                try:
-                    os.remove(file_path)
-                except Exception:
-                    pass
+            remove_file_safely(file_path, "streamed analyzed upload file")
 
     return StreamingResponse(event_generator(), media_type="text/event-stream", headers=build_sse_headers())
 
@@ -2389,11 +2381,7 @@ async def import_paper(request: Request):
         logger.exception("Paper import failed")
         return JSONResponse(content={"error": str(exc)}, status_code=500)
     finally:
-        if file_path and os.path.exists(file_path):
-            try:
-                os.remove(file_path)
-            except Exception:
-                pass
+        remove_file_safely(file_path, "imported paper analysis file")
 
 
 @app.post("/api/ask")
