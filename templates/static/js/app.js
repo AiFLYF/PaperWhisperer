@@ -118,6 +118,7 @@ async function searchPapers() {
             elementId: 'paperSearchMeta',
             text: currentPaperSearchMetaText
         });
+        renderExportPreview();
     } catch (error) {
         if (error.name === 'AbortError') {
             return;
@@ -183,6 +184,7 @@ async function recommendPapers() {
             elementId: 'paperRecommendationMeta',
             text: currentPaperRecommendationMetaText
         });
+        renderExportPreview();
     } catch (error) {
         if (error.name === 'AbortError') {
             return;
@@ -418,6 +420,7 @@ function resetExportState() {
     currentSections = {};
     currentSessionToken = '';
     resetSmartSuggestions();
+    renderExportPreview();
     setExportEnabled(false);
 }
 
@@ -539,6 +542,7 @@ function finalizeAnalysisResultState(data, fileName) {
     currentNextActions = normalizeSmartActions(data.next_actions || []);
     renderSmartPrompts(currentSuggestedQuestions);
     renderNextActions(currentNextActions);
+    renderExportPreview();
     resetPaperPanels();
     setExportEnabled(true);
     document.getElementById('askBtn').disabled = false;
@@ -670,6 +674,7 @@ function captureWorkspaceState() {
             quotes: document.getElementById('quotes').innerHTML,
             mindmap: document.getElementById('mindmap').innerHTML,
             evaluation: document.getElementById('evaluation').innerHTML,
+            exportPreview: document.getElementById('exportPreview').innerHTML,
             fileInfo: document.getElementById('fileInfo').innerHTML,
             chatHistory: document.getElementById('chatHistory').innerHTML,
             paperSearchResults: document.getElementById('paperSearchResults').innerHTML,
@@ -709,6 +714,7 @@ function restoreWorkspaceState(snapshot) {
     document.getElementById('quotes').innerHTML = snapshot.html.quotes;
     document.getElementById('mindmap').innerHTML = snapshot.html.mindmap;
     document.getElementById('evaluation').innerHTML = snapshot.html.evaluation;
+    document.getElementById('exportPreview').innerHTML = snapshot.html.exportPreview;
     document.getElementById('fileInfo').innerHTML = snapshot.html.fileInfo;
     document.getElementById('chatHistory').innerHTML = snapshot.html.chatHistory;
     document.getElementById('paperSearchResults').innerHTML = snapshot.html.paperSearchResults;
@@ -1126,6 +1132,23 @@ function finalizeStreamingAnswer(shell, answer) {
         shell.button.addEventListener('click', () => copyText(shell.answerId, shell.button));
         shell.button.dataset.bound = 'true';
     }
+    if (!shell.actions) {
+        const actions = document.createElement('div');
+        actions.className = 'answer-actions';
+        currentNextActions.slice(0, 3).forEach(action => {
+            const button = document.createElement('button');
+            button.className = 'mini-action-btn';
+            button.type = 'button';
+            button.textContent = action.label;
+            button.title = action.prompt;
+            button.addEventListener('click', () => fillQuestionInput(action.prompt));
+            actions.appendChild(button);
+        });
+        if (actions.children.length) {
+            shell.answerDiv.appendChild(actions);
+            shell.actions = actions;
+        }
+    }
 }
 
 function appendAnswer(answer) {
@@ -1186,6 +1209,7 @@ async function askQuestion() {
                     answer: accumulatedAnswer,
                     timestamp: new Date().toISOString()
                 });
+                renderExportPreview();
                 updateStatus('Answer ready', 'success');
             },
             error: payload => {
@@ -1414,6 +1438,37 @@ function formatMarkdownActions(actions) {
         : '- _None._';
 }
 
+function formatPaperTrace(items) {
+    const normalizedItems = Array.isArray(items) ? items.slice(0, 8) : [];
+    if (!normalizedItems.length) return '- _None._';
+    return normalizedItems.map((item, index) => {
+        const bits = [item.source, item.year, item.venue].filter(Boolean).join(' · ');
+        const suffix = bits ? ` — ${bits}` : '';
+        return `${index + 1}. ${item.title || 'Untitled paper'}${suffix}`;
+    }).join('\n');
+}
+
+function renderExportPreview() {
+    const preview = document.getElementById('exportPreview');
+    if (!preview) return;
+    if (!currentAnalysisResult) {
+        preview.innerHTML = '<p class="empty-state">Export the current analysis, Q&A history, research trace, and Mermaid assets after a successful run.</p>';
+        return;
+    }
+
+    const status = currentAnalysisResult.analysis_status || {};
+    const completed = Array.isArray(status.completed_sections) ? status.completed_sections.length : Object.keys(currentSections || {}).length;
+    preview.innerHTML = `
+        <div class="export-preview-grid">
+            <span><strong>${completed}</strong> sections</span>
+            <span><strong>${currentChatTurns.length}</strong> Q&A turns</span>
+            <span><strong>${currentPaperSearchResults.length + currentPaperRecommendations.length}</strong> paper leads</span>
+            <span><strong>${currentMermaidSource ? 'SVG' : 'No SVG'}</strong> visual asset</span>
+        </div>
+        <p class="export-preview-note">Includes analysis, suggested follow-ups, research trace, and local Q&A history.</p>
+    `;
+}
+
 function buildSessionMarkdown() {
     if (!currentAnalysisResult) return '';
 
@@ -1476,6 +1531,23 @@ function buildSessionMarkdown() {
             '### Next Actions',
             '',
             formatMarkdownActions(currentNextActions)
+        );
+    }
+
+    if (currentPaperSearchResults.length || currentPaperRecommendations.length) {
+        lines.push(
+            '',
+            '---',
+            '',
+            '## Research Trace',
+            '',
+            '### Paper Search Results',
+            '',
+            formatPaperTrace(currentPaperSearchResults),
+            '',
+            '### Auto Recommendations',
+            '',
+            formatPaperTrace(currentPaperRecommendations)
         );
     }
 
