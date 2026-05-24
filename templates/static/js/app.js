@@ -31,6 +31,7 @@ let activeStreamingAnswerShell = null;
 let backToTopFramePending = false;
 let currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with a single query.';
 let currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
+const buttonFeedbackTimers = new WeakMap();
 
 const THEME_STORAGE_KEY = 'paperwhisperer-theme';
 const SUPPORTED_UPLOAD_EXTENSIONS = ['.txt', '.pdf', '.docx', '.pptx'];
@@ -160,6 +161,19 @@ function setCancelVisible(id, isVisible) {
     if (!button) return;
     button.hidden = !isVisible;
     setControlDisabled(button, !isVisible);
+}
+
+function scheduleButtonFeedbackReset(button, callback, delay = 1600) {
+    if (!button) return;
+    const existingTimer = buttonFeedbackTimers.get(button);
+    if (existingTimer) {
+        clearTimeout(existingTimer);
+    }
+    const timer = setTimeout(() => {
+        buttonFeedbackTimers.delete(button);
+        callback();
+    }, delay);
+    buttonFeedbackTimers.set(button, timer);
 }
 
 function cancelAnalyzeRequest() {
@@ -2272,7 +2286,7 @@ async function copyText(elementId, btnElement) {
     if (!text) {
         btnElement.textContent = 'No content';
         updateStatus('Nothing to copy yet', 'idle');
-        setTimeout(() => { btnElement.textContent = originalText; }, 1600);
+        scheduleButtonFeedbackReset(btnElement, () => { btnElement.textContent = originalText; });
         return;
     }
 
@@ -2303,12 +2317,12 @@ async function copyText(elementId, btnElement) {
         btnElement.textContent = 'Copy failed';
         updateStatus('Copy failed', 'error');
     }
-    setTimeout(() => {
+    scheduleButtonFeedbackReset(btnElement, () => {
         btnElement.textContent = originalText;
         setControlDisabled(btnElement, false);
         btnElement.removeAttribute('aria-busy');
         btnElement.classList.remove('action-success');
-    }, 1600);
+    });
 }
 
 function zoomIn() { if (panZoomInstance) panZoomInstance.zoomIn(); }
@@ -2655,7 +2669,7 @@ function exportSessionReport() {
         exportBtn.classList.add('action-success');
         exportBtn.setAttribute('aria-busy', 'true');
         setControlDisabled(exportBtn, true);
-        setTimeout(() => {
+        scheduleButtonFeedbackReset(exportBtn, () => {
             exportBtn.textContent = originalText;
             exportBtn.classList.remove('action-success');
             exportBtn.removeAttribute('aria-busy');

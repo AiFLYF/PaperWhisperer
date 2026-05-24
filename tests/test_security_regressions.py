@@ -233,6 +233,11 @@ def test_static_frontend_assets_are_served():
     assert "throw buildApiError(data, 'Connection failed.')" in js_response.text
     assert "btnElement.textContent = 'Copied'" in js_response.text
     assert "btnElement.innerText" not in js_response.text
+    assert "const buttonFeedbackTimers = new WeakMap()" in js_response.text
+    assert "function scheduleButtonFeedbackReset(button, callback, delay = 1600)" in js_response.text
+    assert "clearTimeout(existingTimer)" in js_response.text
+    assert "buttonFeedbackTimers.delete(button)" in js_response.text
+    assert "scheduleButtonFeedbackReset(btnElement, () => { btnElement.textContent = originalText; })" in js_response.text
     assert "exportBtn.textContent = svgSource ? 'Exported Report + SVG' : 'Exported Report'" in js_response.text
     assert "exportBtn.innerText" not in js_response.text
     assert "exportBtn.setAttribute('aria-busy', 'true')" in js_response.text
