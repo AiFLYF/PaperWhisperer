@@ -1855,6 +1855,24 @@ function formatMarkdownActions(actions) {
         : '- _None._';
 }
 
+function formatWorkspaceGuidanceMarkdown(items) {
+    return items.map(item => `- **${item.label}**: ${item.value} — ${item.detail}`).join('\n');
+}
+
+function formatSectionStatusTable(status) {
+    const completed = Array.isArray(status.completed_sections) ? status.completed_sections.join(', ') : 'N/A';
+    const failed = Array.isArray(status.failed_sections) && status.failed_sections.length ? status.failed_sections.join(', ') : 'None';
+    const disabled = Array.isArray(status.disabled_sections) && status.disabled_sections.length ? status.disabled_sections.join(', ') : 'None';
+    return [
+        '| Status | Sections |',
+        '| --- | --- |',
+        `| Completed | ${completed || 'None'} |`,
+        `| Failed | ${failed} |`,
+        `| Disabled | ${disabled} |`,
+        `| Quality | ${status.quality || 'N/A'} |`
+    ].join('\n');
+}
+
 function formatPaperTrace(items) {
     const normalizedItems = Array.isArray(items) ? items.slice(0, 8) : [];
     if (!normalizedItems.length) return '- _None._';
@@ -1927,6 +1945,9 @@ function buildSessionMarkdown() {
     const svgSource = getCurrentSvgSource();
     const fileStem = sanitizeFileStem(currentSourceFileName || currentAnalysisResult.session_id || 'paperwhisperer_session');
     const svgFileName = `${fileStem}_visual_map.svg`;
+    const status = currentAnalysisResult.analysis_status || {};
+    const completed = Array.isArray(status.completed_sections) ? status.completed_sections.length : Object.keys(currentSections || {}).length;
+    const guidanceItems = getWorkspaceGuidanceItems(status, completed);
     const lines = [
         '# PaperWhisperer Session Report',
         '',
@@ -1944,6 +1965,16 @@ function buildSessionMarkdown() {
         `| Generated at | ${formatExportTimestamp(reportTime.toISOString())} |`,
         `| Analysis duration | ${currentElapsedSeconds ?? 'N/A'} s |`,
         `| Character count | ${currentAnalysisResult.char_count ?? 'N/A'} |`,
+        `| Q&A turns | ${currentChatTurns.length} |`,
+        `| Saved papers | ${currentReadingQueue.length} |`,
+        '',
+        '### Workspace Guidance',
+        '',
+        formatWorkspaceGuidanceMarkdown(guidanceItems),
+        '',
+        '### Section Status',
+        '',
+        formatSectionStatusTable(status),
         '',
         '---',
         '',
