@@ -2395,14 +2395,11 @@ async def ask_question(request: Request):
     answer_mode = normalize_answer_mode(data.get("answer_mode"))
 
     if not question:
-        return JSONResponse(content={"error": "Please enter a question."}, status_code=400)
+        return build_error_response("Please enter a question.", code="missing_question")
 
     resolved_api_key = resolve_api_key(data.get("api_key", ""))
     if not resolved_api_key:
-        return JSONResponse(
-            content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."},
-            status_code=400,
-        )
+        return build_error_response("API key is required. Provide api_key or set OPENAI_API_KEY.", code="missing_api_key")
 
     try:
         safe_session_id, session_payload = load_validated_session(raw_session_id, session_token, require_token=True)
@@ -2428,12 +2425,12 @@ async def ask_question(request: Request):
         logger.info("Q&A completed in %.1fs for session %s", elapsed, safe_session_id)
         return JSONResponse(content={"answer": answer})
     except PermissionError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=403)
+        return build_error_response(str(exc), status_code=403, code="invalid_session_token")
     except ValueError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=400)
+        return build_error_response(str(exc), code="invalid_request")
     except Exception as e:
         logger.exception("Question answering failed")
-        return JSONResponse(content={"error": str(e)}, status_code=500)
+        return build_error_response(str(e), status_code=500, code="question_answering_failed")
 
 
 @app.post("/api/ask/stream")
@@ -2449,21 +2446,18 @@ async def ask_question_stream(request: Request):
     answer_mode = normalize_answer_mode(data.get("answer_mode"))
 
     if not question:
-        return JSONResponse(content={"error": "Please enter a question."}, status_code=400)
+        return build_error_response("Please enter a question.", code="missing_question")
 
     resolved_api_key = resolve_api_key(data.get("api_key", ""))
     if not resolved_api_key:
-        return JSONResponse(
-            content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."},
-            status_code=400,
-        )
+        return build_error_response("API key is required. Provide api_key or set OPENAI_API_KEY.", code="missing_api_key")
 
     try:
         safe_session_id, session_payload = load_validated_session(raw_session_id, session_token, require_token=True)
     except PermissionError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=403)
+        return build_error_response(str(exc), status_code=403, code="invalid_session_token")
     except ValueError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=400)
+        return build_error_response(str(exc), code="invalid_request")
 
     async def event_generator():
         try:
@@ -2514,7 +2508,7 @@ async def search_papers_api(request: Request):
     context_text = str(data.get("context_text") or "")
 
     if not query:
-        return JSONResponse(content={"error": "Please enter a search query."}, status_code=400)
+        return build_error_response("Please enter a search query.", code="missing_search_query")
 
     try:
         rewrite_meta = {
@@ -2554,12 +2548,12 @@ async def search_papers_api(request: Request):
             write_session_payload(safe_session_id, session_payload)
         return JSONResponse(content=result)
     except PermissionError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=403)
+        return build_error_response(str(exc), status_code=403, code="invalid_session_token")
     except ValueError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=400)
+        return build_error_response(str(exc), code="invalid_request")
     except Exception as exc:
         logger.exception("Paper search failed")
-        return JSONResponse(content={"error": str(exc)}, status_code=500)
+        return build_error_response(str(exc), status_code=500, code="paper_search_failed")
 
 
 @app.post("/api/reading-queue")
@@ -2580,12 +2574,12 @@ async def save_reading_queue(request: Request):
         write_session_payload(safe_session_id, session_payload)
         return JSONResponse(content={"items": reading_queue, "count": len(reading_queue)})
     except PermissionError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=403)
+        return build_error_response(str(exc), status_code=403, code="invalid_session_token")
     except ValueError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=400)
+        return build_error_response(str(exc), code="invalid_request")
     except Exception as exc:
         logger.exception("Reading queue save failed")
-        return JSONResponse(content={"error": str(exc)}, status_code=500)
+        return build_error_response(str(exc), status_code=500, code="reading_queue_save_failed")
 
 
 @app.post("/api/recommend-papers")
@@ -2598,15 +2592,12 @@ async def recommend_papers_api(request: Request):
     raw_session_id = str(data.get("session_id") or "").strip()
     session_token = str(data.get("session_token") or "")
     if not raw_session_id:
-        return JSONResponse(content={"error": "session_id is required."}, status_code=400)
+        return build_error_response("session_id is required.", code="missing_session_id")
 
     limit = data.get("limit") or RECOMMENDATION_RESULT_LIMIT
     resolved_api_key = resolve_api_key(data.get("api_key", ""))
     if not resolved_api_key:
-        return JSONResponse(
-            content={"error": "API key is required. Provide api_key or set OPENAI_API_KEY."},
-            status_code=400,
-        )
+        return build_error_response("API key is required. Provide api_key or set OPENAI_API_KEY.", code="missing_api_key")
 
     try:
         safe_session_id, session_payload = load_validated_session(raw_session_id, session_token, require_token=True)
@@ -2628,12 +2619,12 @@ async def recommend_papers_api(request: Request):
         write_session_payload(safe_session_id, session_payload)
         return JSONResponse(content=result)
     except PermissionError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=403)
+        return build_error_response(str(exc), status_code=403, code="invalid_session_token")
     except ValueError as exc:
-        return JSONResponse(content={"error": str(exc)}, status_code=400)
+        return build_error_response(str(exc), code="invalid_request")
     except Exception as exc:
         logger.exception("Paper recommendation failed")
-        return JSONResponse(content={"error": str(exc)}, status_code=500)
+        return build_error_response(str(exc), status_code=500, code="paper_recommendation_failed")
 
 
 if __name__ == "__main__":

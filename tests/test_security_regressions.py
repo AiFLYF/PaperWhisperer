@@ -559,6 +559,7 @@ def test_download_proxy_rejects_html_response(monkeypatch, public_example_urls):
         "/api/ask",
         "/api/ask/stream",
         "/api/search-papers",
+        "/api/reading-queue",
         "/api/recommend-papers",
     ],
 )
@@ -722,6 +723,9 @@ def test_reading_queue_endpoint_requires_valid_session(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 400
+    payload = response.json()
+    assert payload["code"] == "invalid_request"
+    assert "timestamp" in payload
 
 
 def test_reading_queue_endpoint_saves_normalized_items(tmp_path, monkeypatch):
@@ -948,6 +952,9 @@ def test_search_papers_rejects_invalid_session_token(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 403
+    payload = response.json()
+    assert payload["code"] == "invalid_session_token"
+    assert "timestamp" in payload
 
 
 def test_recommend_papers_rejects_invalid_session_token(tmp_path, monkeypatch):
@@ -969,3 +976,6 @@ def test_recommend_papers_rejects_invalid_session_token(tmp_path, monkeypatch):
     )
 
     assert response.status_code == 403
+    payload = response.json()
+    assert payload["code"] == "invalid_session_token"
+    assert "timestamp" in payload
