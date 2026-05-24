@@ -2040,7 +2040,7 @@ class PaperWhisperer:
         result = self._finalize_analysis_sections(content, sections)
         result["elapsed_seconds"] = round(elapsed, 1)
 
-        logger.info(f"Analysis completed in {elapsed:.1f}s for {os.path.basename(file_path)} ({len(content)} chars)")
+        logger.info("Analysis completed in %.1fs for %s (%d chars)", elapsed, os.path.basename(file_path), len(content))
         return result
 
     def analyze_stream(self, file_path, generate_mermaid=True, generate_evaluation=True, generate_research_brief=True):
@@ -2085,7 +2085,7 @@ class PaperWhisperer:
         elapsed = time.time() - t_start
         result = self._finalize_analysis_sections(content, sections)
         result["elapsed_seconds"] = round(elapsed, 1)
-        logger.info(f"Streaming analysis completed in {elapsed:.1f}s for {os.path.basename(file_path)} ({len(content)} chars)")
+        logger.info("Streaming analysis completed in %.1fs for %s (%d chars)", elapsed, os.path.basename(file_path), len(content))
         yield {
             "type": "done",
             "result": result,
@@ -2388,7 +2388,7 @@ async def ask_question(request: Request):
         session_payload["document_excerpt"] = build_document_excerpt(get_session_document_content(session_payload))
         write_session_payload(safe_session_id, session_payload)
 
-        logger.info(f"Q&A completed in {elapsed:.1f}s for session {safe_session_id}")
+        logger.info("Q&A completed in %.1fs for session %s", elapsed, safe_session_id)
         return JSONResponse(content={"answer": answer})
     except PermissionError as exc:
         return JSONResponse(content={"error": str(exc)}, status_code=403)
@@ -2454,7 +2454,7 @@ async def ask_question_stream(request: Request):
             session_payload["document_excerpt"] = build_document_excerpt(get_session_document_content(session_payload))
             write_session_payload(safe_session_id, session_payload)
 
-            logger.info(f"Streaming Q&A completed in {elapsed:.1f}s for session {safe_session_id}")
+            logger.info("Streaming Q&A completed in %.1fs for session %s", elapsed, safe_session_id)
             yield build_sse_event("done", {"answer": answer})
         except Exception as exc:
             logger.exception("Streaming question answering failed")
