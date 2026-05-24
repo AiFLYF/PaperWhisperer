@@ -123,6 +123,9 @@ def test_static_frontend_assets_are_served():
     assert "handleWorkspaceShortcut" in js_response.text
     assert "focusWorkspaceTarget" in js_response.text
     assert "Upload shortcut focused document source" in js_response.text
+    assert "loadMermaidRenderer" in js_response.text
+    assert "mermaidReadyPromise" in js_response.text
+    assert "const mermaidReady = import" not in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
