@@ -1380,6 +1380,8 @@ def load_session_payload(session_id):
     if expires_at and expires_at.timestamp() < time.time():
         remove_file_safely(session_file, "expired session file")
         return None
+    if not expires_at:
+        payload["expires_at"] = build_session_expiry()
 
     document_content = str(payload.get("document_content") or "")
     document_excerpt = str(payload.get("document_excerpt") or build_document_excerpt(document_content))
