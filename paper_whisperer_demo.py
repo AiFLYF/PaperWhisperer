@@ -31,6 +31,8 @@ except ImportError:
     Presentation = None
 
 
+APP_NAME = "PaperWhisperer"
+APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.9.0").strip() or "0.9.0"
 SUPPORTED_EXTENSIONS = (".txt", ".pdf", ".docx", ".pptx")
 ALLOWED_EXTENSIONS = set(SUPPORTED_EXTENSIONS)
 SUPPORTED_FILE_TYPES_TEXT = ", ".join(SUPPORTED_EXTENSIONS)
@@ -194,8 +196,8 @@ class DocumentLoader:
 
 class PaperWhisperer:
     def __init__(self, use_api=True, chunk_size=None, overlap=None):
-        self.name = "PaperWhisperer"
-        self.version = "0.9.0"
+        self.name = APP_NAME
+        self.version = APP_VERSION
         self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
