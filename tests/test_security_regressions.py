@@ -150,6 +150,9 @@ def test_static_frontend_assets_are_served():
     assert "queue-rank" in js_response.text
     assert "queue-details" in js_response.text
     assert "queue-actions" in js_response.text
+    assert "exportPreviewItems" in js_response.text
+    assert "Export contents summary" in js_response.text
+    assert "Mermaid SVG can be exported" in js_response.text
     assert css_response.status_code == 200
     assert "prefers-reduced-motion" in css_response.text
     assert ".drop-zone.has-error" in css_response.text
@@ -179,6 +182,8 @@ def test_static_frontend_assets_are_served():
     assert ".queue-rank" in css_response.text
     assert ".queue-details" in css_response.text
     assert ".queue-actions" in css_response.text
+    assert ".export-preview-card" in css_response.text
+    assert ".export-preview-card small" in css_response.text
 
 
 def test_standalone_landing_page_accessibility_regressions():
