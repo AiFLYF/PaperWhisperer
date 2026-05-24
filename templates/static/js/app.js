@@ -123,6 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('keydown', handleWorkspaceShortcut);
     document.querySelectorAll('.mode-chip').forEach(button => {
         button.addEventListener('click', () => setAnswerMode(button.dataset.mode));
+        button.addEventListener('keydown', handleAnswerModeKeydown);
     });
     document.querySelectorAll('[data-example-query]').forEach(button => {
         button.addEventListener('click', () => useExampleQuery(button.dataset.exampleQuery));
@@ -813,6 +814,31 @@ function setAnswerMode(mode) {
     });
     const hint = document.getElementById('answerModeHint');
     if (hint) hint.textContent = ANSWER_MODE_DETAILS[currentAnswerMode];
+}
+
+function handleAnswerModeKeydown(event) {
+    const navigationKeys = ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'Home', 'End'];
+    if (!navigationKeys.includes(event.key)) return;
+
+    const chips = Array.from(document.querySelectorAll('.mode-chip'));
+    if (!chips.length) return;
+    event.preventDefault();
+
+    const currentIndex = Math.max(0, chips.indexOf(event.currentTarget));
+    let nextIndex = currentIndex;
+    if (event.key === 'Home') {
+        nextIndex = 0;
+    } else if (event.key === 'End') {
+        nextIndex = chips.length - 1;
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+        nextIndex = (currentIndex - 1 + chips.length) % chips.length;
+    } else {
+        nextIndex = (currentIndex + 1) % chips.length;
+    }
+
+    const nextChip = chips[nextIndex];
+    setAnswerMode(nextChip.dataset.mode);
+    nextChip.focus({ preventScroll: true });
 }
 
 function fillQuestionInput(prompt) {

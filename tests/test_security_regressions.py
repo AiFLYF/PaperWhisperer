@@ -150,6 +150,10 @@ def test_static_frontend_assets_are_served():
     assert "updateAnalysisProgress" in js_response.text
     assert "btn.setAttribute('aria-pressed', String(isDark))" in js_response.text
     assert "button.setAttribute('aria-checked', selected ? 'true' : 'false')" in js_response.text
+    assert "button.addEventListener('keydown', handleAnswerModeKeydown)" in js_response.text
+    assert "function handleAnswerModeKeydown(event)" in js_response.text
+    assert "const navigationKeys = ['ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'Home', 'End']" in js_response.text
+    assert "nextChip.focus({ preventScroll: true })" in js_response.text
     assert "function readLocalStorageValue(key)" in js_response.text
     assert "function writeLocalStorageValue(key, value)" in js_response.text
     assert "Local storage read failed" in js_response.text
