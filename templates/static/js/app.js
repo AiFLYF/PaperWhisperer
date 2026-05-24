@@ -120,6 +120,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.mode-chip').forEach(button => {
         button.addEventListener('click', () => setAnswerMode(button.dataset.mode));
     });
+    document.querySelectorAll('[data-example-query]').forEach(button => {
+        button.addEventListener('click', () => useExampleQuery(button.dataset.exampleQuery));
+    });
     document.querySelectorAll('[data-copy-target]').forEach(button => {
         button.addEventListener('click', () => copyText(button.dataset.copyTarget, button));
     });
@@ -246,6 +249,15 @@ function initializeBackToTop() {
 
 function scrollToTop() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function useExampleQuery(query) {
+    const input = document.getElementById('paperSearchInput');
+    if (!input || !query) return;
+    input.value = query;
+    input.focus({ preventScroll: true });
+    updateStatus('Example query loaded', 'idle');
+    searchPapers();
 }
 
 async function searchPapers() {
