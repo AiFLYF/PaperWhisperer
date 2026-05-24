@@ -2339,6 +2339,10 @@ function getCurrentSvgSource() {
     return '<?xml version="1.0" standalone="no"?>\r\n' + source;
 }
 
+function scheduleObjectUrlRevoke(url, delay = 1000) {
+    setTimeout(() => URL.revokeObjectURL(url), delay);
+}
+
 function triggerTextDownload(fileName, content, mimeType = 'text/plain;charset=utf-8') {
     const blob = new Blob([content], { type: mimeType });
     const url = URL.createObjectURL(blob);
@@ -2350,7 +2354,7 @@ function triggerTextDownload(fileName, content, mimeType = 'text/plain;charset=u
         a.click();
     } finally {
         a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        scheduleObjectUrlRevoke(url);
     }
 }
 
