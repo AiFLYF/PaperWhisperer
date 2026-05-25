@@ -1,7 +1,19 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(grep -v '.pyc$')",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git diff *)",
+      "Bash(git *)",
+      "Bash(GIT_AUTHOR_NAME=FLYF GIT_AUTHOR_EMAIL=ikuena@qq.com GIT_COMMITTER_NAME=FLYF GIT_COMMITTER_EMAIL=ikuena@qq.com git commit -m ')",
+      "Bash(node *)",
+      "Bash(/home/flyf/miniconda3/bin/conda run *)",
+      "Bash(GIT_AUTHOR_NAME=FLYF GIT_AUTHOR_EMAIL=ikuena@qq.com GIT_COMMITTER_NAME=FLYF GIT_COMMITTER_EMAIL=ikuena@qq.com git commit -m ' *)",
+      "Bash(python3 *)",
+      "Bash(grep -E '/tests?/|test_.*\\\\.py$|spec\\\\.|\\\\.test\\\\.|\\\\.spec\\\\.')",
+      "WebSearch"
     ]
   }
 }

@@ -119,6 +119,11 @@ ARXIV_API_URL = "http://export.arxiv.org/api/query"
 SEMANTIC_SCHOLAR_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 SEMANTIC_SCHOLAR_TIMEOUT_SECONDS = parse_int_env("SEMANTIC_SCHOLAR_TIMEOUT_SECONDS", default=20, min_value=5, max_value=120)
 SEMANTIC_SCHOLAR_MAX_RETRIES = parse_int_env("SEMANTIC_SCHOLAR_MAX_RETRIES", default=3, min_value=1, max_value=6)
+SEMANTIC_SCHOLAR_RETRY_MAX_DELAY = parse_int_env("SEMANTIC_SCHOLAR_RETRY_MAX_DELAY", default=20, min_value=2, max_value=120)
+ARXIV_TIMEOUT_SECONDS = parse_int_env("ARXIV_TIMEOUT_SECONDS", default=30, min_value=5, max_value=180)
+ARXIV_MAX_RETRIES = parse_int_env("ARXIV_MAX_RETRIES", default=2, min_value=1, max_value=6)
+ARXIV_RETRY_MAX_DELAY = parse_int_env("ARXIV_RETRY_MAX_DELAY", default=8, min_value=2, max_value=60)
+PAPER_SEARCH_PARALLEL = parse_bool_env("PAPER_SEARCH_PARALLEL", default=True)
 PAPER_SEARCH_RESULT_LIMIT = parse_int_env("PAPER_SEARCH_RESULT_LIMIT", default=8, min_value=1, max_value=20)
 RECOMMENDATION_RESULT_LIMIT = parse_int_env("RECOMMENDATION_RESULT_LIMIT", default=6, min_value=1, max_value=20)
 PAPER_SEARCH_ENABLE_REWRITE = parse_bool_env("PAPER_SEARCH_ENABLE_REWRITE", default=True)
@@ -450,7 +455,36 @@ def get_retry_delay_seconds(attempt, max_delay=6):
     return min(2 * (attempt_index + 1), delay_cap)
 
 
-def http_get_json(url, timeout=20, headers=None, retries=1, ssl_context=None):
+def parse_retry_after_seconds(value, fallback_cap=60):
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        seconds = int(float(text))
+        return max(0, min(seconds, fallback_cap))
+    except (TypeError, ValueError):
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        target = parsedate_to_datetime(text)
+        if target is not None:
+            delta = int(target.timestamp() - time.time())
+            return max(0, min(delta, fallback_cap))
+    except Exception:
+        pass
+    return None
+
+
+def compute_retry_after_delay(exc, attempt, max_delay):
+    headers = getattr(exc, "headers", None)
+    if headers is not None:
+        retry_after = parse_retry_after_seconds(headers.get("Retry-After"), fallback_cap=max(max_delay, 60))
+        if retry_after is not None:
+            return max(1, min(retry_after, max_delay))
+    return get_retry_delay_seconds(attempt, max_delay=max_delay)
+
+
+def http_get_json(url, timeout=20, headers=None, retries=1, ssl_context=None, retry_max_delay=6):
     request = urllib.request.Request(url, headers=headers or {})
     last_error = None
     for attempt in range(max(1, retries)):
@@ -461,19 +495,19 @@ def http_get_json(url, timeout=20, headers=None, retries=1, ssl_context=None):
         except urllib.error.HTTPError as exc:
             last_error = exc
             if exc.code == 429 and attempt < retries - 1:
-                time.sleep(get_retry_delay_seconds(attempt))
+                time.sleep(compute_retry_after_delay(exc, attempt, retry_max_delay))
                 continue
             raise
         except Exception as exc:
             last_error = exc
             if attempt < retries - 1:
-                time.sleep(get_retry_delay_seconds(attempt))
+                time.sleep(get_retry_delay_seconds(attempt, max_delay=retry_max_delay))
                 continue
             raise
     raise last_error
 
 
-def http_get_text(url, timeout=20, headers=None, retries=1, ssl_context=None):
+def http_get_text(url, timeout=20, headers=None, retries=1, ssl_context=None, retry_max_delay=6):
     request = urllib.request.Request(url, headers=headers or {})
     last_error = None
     for attempt in range(max(1, retries)):
@@ -484,13 +518,13 @@ def http_get_text(url, timeout=20, headers=None, retries=1, ssl_context=None):
         except urllib.error.HTTPError as exc:
             last_error = exc
             if exc.code == 429 and attempt < retries - 1:
-                time.sleep(get_retry_delay_seconds(attempt))
+                time.sleep(compute_retry_after_delay(exc, attempt, retry_max_delay))
                 continue
             raise
         except Exception as exc:
             last_error = exc
             if attempt < retries - 1:
-                time.sleep(get_retry_delay_seconds(attempt))
+                time.sleep(get_retry_delay_seconds(attempt, max_delay=retry_max_delay))
                 continue
             raise
     raise last_error
@@ -572,10 +606,11 @@ def search_arxiv_papers(query, limit):
     url = f"{ARXIV_API_URL}?search_query=all:{encoded_query}&start=0&max_results={limit}"
     feed_text = http_get_text(
         url,
-        timeout=SEMANTIC_SCHOLAR_TIMEOUT_SECONDS,
+        timeout=ARXIV_TIMEOUT_SECONDS,
         headers={"User-Agent": APP_USER_AGENT},
-        retries=2,
+        retries=ARXIV_MAX_RETRIES,
         ssl_context=build_ssl_context(),
+        retry_max_delay=ARXIV_RETRY_MAX_DELAY,
     )
     root = ET.fromstring(feed_text)
     namespace = {"atom": "http://www.w3.org/2005/Atom"}
@@ -620,8 +655,36 @@ def search_semantic_scholar_papers(query, limit):
         timeout=SEMANTIC_SCHOLAR_TIMEOUT_SECONDS,
         headers=headers,
         retries=SEMANTIC_SCHOLAR_MAX_RETRIES,
+        retry_max_delay=SEMANTIC_SCHOLAR_RETRY_MAX_DELAY,
     )
     return [normalize_paper_record("Semantic Scholar", item) for item in payload.get("data", [])]
+
+
+def _execute_paper_source(source_name, search_fn, query, limit):
+    try:
+        return source_name, search_fn(query, limit), None
+    except urllib.error.HTTPError as exc:
+        logger.warning("%s paper search failed: %s", source_name, exc)
+        if exc.code == 429:
+            return source_name, [], f"{source_name}: rate limit reached, please retry in a moment"
+        return source_name, [], f"{source_name}: HTTP {exc.code}"
+    except ssl.SSLCertVerificationError:
+        logger.warning("%s paper search SSL verification failed", source_name)
+        return source_name, [], f"{source_name}: SSL certificate verification failed"
+    except urllib.error.URLError as exc:
+        logger.warning("%s paper search failed: %s", source_name, exc)
+        reason = getattr(exc, "reason", exc)
+        if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
+            return source_name, [], f"{source_name}: SSL certificate verification failed"
+        if isinstance(reason, socket.timeout) or "timed out" in str(reason).lower():
+            return source_name, [], f"{source_name}: request timed out"
+        return source_name, [], f"{source_name}: {reason}"
+    except socket.timeout:
+        logger.warning("%s paper search timed out", source_name)
+        return source_name, [], f"{source_name}: request timed out"
+    except Exception as exc:
+        logger.warning("%s paper search failed: %s", source_name, exc)
+        return source_name, [], f"{source_name}: {exc}"
 
 
 def search_papers(query, limit=None):
@@ -630,34 +693,36 @@ def search_papers(query, limit=None):
         raise ValueError("Please enter a search query.")
 
     resolved_limit = clamp_int_value(limit, PAPER_SEARCH_RESULT_LIMIT, min_value=1, max_value=PAPER_SEARCH_RESULT_LIMIT)
-    items = []
-    errors = []
 
-    for source_name, search_fn in (
+    sources = (
         ("Semantic Scholar", search_semantic_scholar_papers),
         ("arXiv", search_arxiv_papers),
-    ):
-        try:
-            items.extend(search_fn(clean_query, resolved_limit))
-        except urllib.error.HTTPError as exc:
-            logger.warning("%s paper search failed: %s", source_name, exc)
-            if exc.code == 429:
-                errors.append(f"{source_name}: rate limit reached, please retry in a moment")
-            else:
-                errors.append(f"{source_name}: HTTP {exc.code}")
-        except ssl.SSLCertVerificationError:
-            logger.warning("%s paper search SSL verification failed", source_name)
-            errors.append(f"{source_name}: SSL certificate verification failed")
-        except urllib.error.URLError as exc:
-            logger.warning("%s paper search failed: %s", source_name, exc)
-            reason = getattr(exc, "reason", exc)
-            if isinstance(reason, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
-                errors.append(f"{source_name}: SSL certificate verification failed")
-            else:
-                errors.append(f"{source_name}: {reason}")
-        except Exception as exc:
-            logger.warning("%s paper search failed: %s", source_name, exc)
-            errors.append(f"{source_name}: {exc}")
+    )
+
+    results_by_source = {name: [] for name, _ in sources}
+    errors_by_source = {name: None for name, _ in sources}
+
+    if PAPER_SEARCH_PARALLEL and len(sources) > 1:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(sources)) as executor:
+            futures = [
+                executor.submit(_execute_paper_source, name, fn, clean_query, resolved_limit)
+                for name, fn in sources
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                name, found_items, error = future.result()
+                results_by_source[name] = found_items
+                errors_by_source[name] = error
+    else:
+        for name, fn in sources:
+            name_back, found_items, error = _execute_paper_source(name, fn, clean_query, resolved_limit)
+            results_by_source[name_back] = found_items
+            errors_by_source[name_back] = error
+
+    items = []
+    for name, _ in sources:
+        items.extend(results_by_source[name])
+
+    errors = [errors_by_source[name] for name, _ in sources if errors_by_source[name]]
 
     return {
         "query": clean_query,
