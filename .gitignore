@@ -12,3 +12,9 @@ context/
 .claude/*.lock
 .ipynb_checkpoints/
 .CLAUDE.md
+.claude/
+.pytest_cache
+.gitignore
+logo.ico.bk
+logo.png.bk
+docs/

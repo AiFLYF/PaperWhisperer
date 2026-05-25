@@ -29,20 +29,23 @@
         <header class="nav-header">
             <div>
                 <div class="brand">
-                    <img class="brand-mark" src="/logo.ico" alt="PaperWhisperer logo" width="56" height="56" decoding="async" fetchpriority="high">
+                    <div class="brand-mark-wrap" aria-hidden="true">
+                        <img class="brand-mark" src="/logo.ico" alt="PaperWhisperer logo" width="56" height="56" decoding="async" fetchpriority="high">
+                        <span class="brand-pulse"></span>
+                    </div>
                     <div class="logo">PaperWhisperer<span>Research Workspace</span></div>
                 </div>
                 <p class="hero-copy">Upload a paper, extract structure, generate a map, and keep asking follow-up questions in the same workspace. This page now behaves more like a research desk than a single-use form.</p>
                 <div class="hero-stats" aria-label="Workspace highlights">
-                    <span><strong>4</strong> document types</span>
-                    <span><strong>Live</strong> section streaming</span>
-                    <span><strong>Smart</strong> follow-ups</span>
+                    <span><strong>4</strong><em>document types</em></span>
+                    <span><strong>Live</strong><em>section streaming</em></span>
+                    <span><strong>Smart</strong><em>follow-ups</em></span>
                 </div>
                 <nav class="workspace-quick-nav" aria-label="Workspace quick navigation">
-                    <a href="#uploadWorkspace">Upload</a>
-                    <a href="#paperSearchTitle">Paper Search</a>
-                    <a href="#readingQueueTitle">Reading Queue</a>
-                    <a href="#result">Analysis Workspace</a>
+                    <a href="#uploadWorkspace"><span class="nav-dot" aria-hidden="true"></span>Upload</a>
+                    <a href="#paperSearchTitle"><span class="nav-dot" aria-hidden="true"></span>Paper Search</a>
+                    <a href="#readingQueueTitle"><span class="nav-dot" aria-hidden="true"></span>Reading Queue</a>
+                    <a href="#result"><span class="nav-dot" aria-hidden="true"></span>Analysis Workspace</a>
                 </nav>
             </div>
             <div class="nav-actions">
@@ -71,7 +74,11 @@
             <div class="form-group">
                 <label for="file">Document Source</label>
                 <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" aria-invalid="false" aria-keyshortcuts="Alt+U" aria-controls="file">
-                    <div class="drop-zone-icon" aria-hidden="true">↑</div>
+                    <div class="drop-zone-icon" aria-hidden="true">
+                        <svg class="drop-zone-svg drop-zone-svg-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                        <svg class="drop-zone-svg drop-zone-svg-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" focusable="false"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <svg class="drop-zone-svg drop-zone-svg-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                    </div>
                     <div>
                         <div class="drop-zone-title">Drop a paper here or browse</div>
                         <div class="drop-zone-hint">PDF, TXT, DOCX, or PPTX · up to 16 MB</div>
@@ -221,10 +228,10 @@
             <section class="ask-section" aria-labelledby="askQuestionsTitle">
                 <h3 class="section-title" id="askQuestionsTitle">Ask Questions</h3>
                 <div class="answer-mode-group" id="answerModeGroup" role="radiogroup" aria-label="Answer mode" aria-describedby="answerModeHint">
-                    <button class="mode-chip active" type="button" role="radio" data-mode="evidence" aria-checked="true" aria-pressed="true" tabindex="0">Evidence</button>
-                    <button class="mode-chip" type="button" role="radio" data-mode="explain" aria-checked="false" aria-pressed="false" tabindex="-1">Explain</button>
-                    <button class="mode-chip" type="button" role="radio" data-mode="critique" aria-checked="false" aria-pressed="false" tabindex="-1">Critique</button>
-                    <button class="mode-chip" type="button" role="radio" data-mode="reproduce" aria-checked="false" aria-pressed="false" tabindex="-1">Reproduce</button>
+                    <button class="mode-chip active" type="button" role="radio" data-mode="evidence" data-mode-icon="evidence" aria-checked="true" aria-pressed="true" tabindex="0">Evidence</button>
+                    <button class="mode-chip" type="button" role="radio" data-mode="explain" data-mode-icon="explain" aria-checked="false" aria-pressed="false" tabindex="-1">Explain</button>
+                    <button class="mode-chip" type="button" role="radio" data-mode="critique" data-mode-icon="critique" aria-checked="false" aria-pressed="false" tabindex="-1">Critique</button>
+                    <button class="mode-chip" type="button" role="radio" data-mode="reproduce" data-mode-icon="reproduce" aria-checked="false" aria-pressed="false" tabindex="-1">Reproduce</button>
                 </div>
                 <p class="answer-mode-hint" id="answerModeHint">Evidence mode answers first, then cites document support and uncertainty.</p>
                 <div class="question-starter-chips" aria-label="Starter questions">
