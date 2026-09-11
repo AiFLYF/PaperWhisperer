@@ -75,6 +75,51 @@ a:focus-visible, button:focus-visible { outline: 1px solid var(--volt); outline-
   background: var(--volt); transition: width .08s linear;
 }
 
+/* ── LOAD VEIL ─────────────────────────────────────────────────── */
+#veil {
+  position: fixed; inset: 0; z-index: 9000; background: var(--ink);
+  display: flex; align-items: center; justify-content: center;
+  transform: translateY(0);
+  transition: transform 1.05s cubic-bezier(.76, 0, .24, 1);
+  animation: veilSafety 0s linear 9s forwards;
+}
+#veil.lift { transform: translateY(-100%); }
+#veil.gone { display: none; }
+@keyframes veilSafety { to { display: none; visibility: hidden; } }
+.veil-mark {
+  font-family: var(--display); font-weight: 500;
+  font-size: clamp(22px, 3.4vw, 40px); letter-spacing: -.035em; color: var(--paper);
+  opacity: 0; transform: translateY(10px);
+  animation: veilMark 1.1s var(--ease) .12s forwards;
+}
+.veil-mark em { font-style: normal; color: var(--volt); }
+@keyframes veilMark { to { opacity: 1; transform: none; } }
+.veil-foot {
+  position: absolute; left: 40px; right: 40px; bottom: 42px;
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--dim);
+}
+.veil-foot b { color: var(--paper); font-weight: 400; }
+.veil-track { position: absolute; left: 40px; right: 40px; bottom: 30px; height: 1px; background: rgba(244,242,236,.1); }
+.veil-track i { display: block; height: 100%; width: 0; background: var(--volt); }
+body.loading { overflow: hidden; }
+@media (max-width: 860px) {
+  .veil-foot, .veil-track { left: 24px; right: 24px; }
+}
+
+/* ── ENTRANCE ──────────────────────────────────────────────────── */
+.fd { opacity: 0; }
+body.loaded .fd { animation: fd .7s var(--ease) .9s forwards; }
+@keyframes fd { to { opacity: 1; } }
+.fu { opacity: 0; transform: translateY(16px); }
+body.loaded .fu { animation: fu .9s var(--ease) forwards; }
+body.loaded .fu-1 { animation-delay: .55s; }
+body.loaded .fu-2 { animation-delay: .95s; }
+body.loaded .fu-3 { animation-delay: 1.05s; }
+body.loaded .fu-4 { animation-delay: 1.15s; }
+@keyframes fu { to { opacity: 1; transform: none; } }
+
 /* ── CANVAS ────────────────────────────────────────────────────── */
 #gl { position: fixed; inset: 0; z-index: 0; display: block; }
 #gl-fallback { position: fixed; inset: 0; z-index: 0; display: none; }
@@ -122,8 +167,10 @@ h1 {
   color: var(--paper); margin-bottom: 34px;
 }
 h1 .l { display: block; overflow: hidden; }
-h1 .l span { display: block; white-space: nowrap; transform: translateY(105%); animation: rise 1.15s var(--ease) forwards; }
-h1 .l:nth-child(2) span { animation-delay: .1s; }
+h1 .l span { display: block; white-space: nowrap; transform: translateY(105%); }
+body.loaded h1 .l span { animation: rise 1.15s var(--ease) forwards; }
+body.loaded h1 .l:nth-child(1) span { animation-delay: .62s; }
+body.loaded h1 .l:nth-child(2) span { animation-delay: .72s; }
 h1 em { font-style: normal; color: var(--volt); }
 @keyframes rise { to { transform: none; } }
 
@@ -319,10 +366,16 @@ footer { border-top: 1px solid var(--line); padding: 34px 0; position: relative;
 <a class="skip-link" href="#main">Skip to content</a>
 <div id="progress"></div>
 
+<div id="veil">
+  <span class="veil-mark">Paper<em>Whisperer</em></span>
+  <div class="veil-foot"><span>Loading workspace</span><b id="veilNum">00</b></div>
+  <div class="veil-track"><i id="veilBar"></i></div>
+</div>
+
 <canvas id="gl" aria-hidden="true"></canvas>
 <canvas id="gl-fallback" aria-hidden="true"></canvas>
 
-<nav id="nav">
+<nav id="nav" class="fd">
   <div class="nav-in">
     <a href="#hero" class="brand"><img src="logo.ico" alt="">Paper<em>Whisperer</em></a>
     <div class="nav-links">
@@ -341,17 +394,17 @@ footer { border-top: 1px solid var(--line); padding: 34px 0; position: relative;
   <div class="wrap">
     <div class="hero-grid">
       <div class="hero-copy">
-        <p class="eyebrow">AI Research Workspace</p>
+        <p class="eyebrow fu fu-1">AI Research Workspace</p>
         <h1>
           <span class="l"><span>PAPER</span></span>
           <span class="l"><span>WHISP<em>E</em>RER</span></span>
         </h1>
-        <p class="lede">面向论文与长文档的研究工作台。上传文件，即刻获得<strong>结构化摘要</strong>、关键引用、可视化结构图与批判性评价。</p>
-        <div class="actions">
+        <p class="lede fu fu-2">面向论文与长文档的研究工作台。上传文件，即刻获得<strong>结构化摘要</strong>、关键引用、可视化结构图与批判性评价。</p>
+        <div class="actions fu fu-3">
           <a href="https://github.com/AiFLYF/PaperWhisperer" class="btn btn-solid" target="_blank" rel="noopener noreferrer">开始使用 <span class="ar">&#8594;</span></a>
           <a href="#statement" class="btn btn-line">了解更多 <span class="ar">&#8595;</span></a>
         </div>
-        <div class="hero-meta">
+        <div class="hero-meta fu fu-4">
           <span><b>v0.9.0</b> · MIT License</span>
           <span><b>4</b> 种文档格式</span>
           <span><b>SSE</b> 流式输出</span>
@@ -564,7 +617,12 @@ pip install -r requirements.txt
 </footer>
 
 <script>
-window.PW = { ready: false, fallback: false };
+window.PW = {
+  ready: false,
+  fallback: false,
+  started: false,
+  start: function () { this.started = true; }
+};
 window.PW.fallbackStart = function () {
   if (window.PW.fallback) return;
   window.PW.fallback = true;
@@ -601,6 +659,62 @@ window.PW.fallbackStart = function () {
   })();
 };
 setTimeout(function () { if (!window.PW.ready) window.PW.fallbackStart(); }, 8000);
+
+/* ── load veil: counts up, lifts, then hands off to the 3D intro ── */
+(function () {
+  var veil = document.getElementById('veil');
+  var bar = document.getElementById('veilBar');
+  var num = document.getElementById('veilNum');
+  if (!veil || !bar || !num) return;
+
+  var reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce) {
+    veil.classList.add('gone');
+    window.PW.start();
+    document.body.classList.add('loaded');
+    return;
+  }
+
+  document.body.classList.add('loading');
+
+  var fonts = false;
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(function () { fonts = true; });
+  } else { fonts = true; }
+
+  var shown = 0, done = false, t0 = performance.now();
+
+  (function tick() {
+    var elapsed = performance.now() - t0;
+    var forced = elapsed > 6500;
+    /* hold the veil briefly even on a warm cache, so the lift reads */
+    var gate = (fonts && window.PW.ready) && elapsed > 950;
+    var cap = (gate || forced) ? 100 : 90;
+    shown += (cap - shown) * 0.07;
+    if (cap === 100 && shown > 99) shown = 100;
+
+    bar.style.width = shown.toFixed(2) + '%';
+    var v = Math.round(shown);
+    num.textContent = v < 10 ? '0' + v : '' + v;
+
+    if (shown >= 99.5) { finish(); return; }
+    requestAnimationFrame(tick);
+  })();
+
+  function finish() {
+    if (done) return;
+    done = true;
+    bar.style.width = '100%';
+    num.textContent = '100';
+    setTimeout(function () {
+      veil.classList.add('lift');
+      window.PW.start();                       /* 3D assembly starts here */
+      document.body.classList.remove('loading');
+      document.body.classList.add('loaded');
+      setTimeout(function () { veil.classList.add('gone'); }, 1150);
+    }, 280);
+  }
+})();
 </script>
 
 <script type="importmap">
@@ -872,7 +986,7 @@ function build() {
     a.node.position.set(Math.cos(na) * 3.0, Math.sin(na * 0.7) * 0.5, Math.sin(na) * 3.0);
 
     /* assembly */
-    a.core.scale.setScalar(0.15 + 0.85 * outBack(seg(intro, 0.0, 1.25)));
+    a.core.scale.setScalar(outBack(seg(intro, 0.0, 1.25)));
     a.wire.scale.copy(a.core.scale);
     a.wire.material.opacity = (a === A ? 0.3 : 0.3 * 0.14) * seg(intro, 0.55, 0.95);
     a.cage.scale.setScalar(0.55 + 0.45 * out3(seg(intro, 0.38, 1.3)));
@@ -890,7 +1004,9 @@ function build() {
   /* ── loop ─────────────────────────────────────────────────── */
   const cta = document.getElementById('cta');
   const clock = new THREE.Clock();
-  let running = true, spin = 0, intro = 0;
+  let running = true, spin = 0;
+  /* assembly timeline only starts once the load veil begins to lift */
+  let introT0 = window.PW.started ? clock.elapsedTime : -1;
   document.addEventListener('visibilitychange', function () {
     running = !document.hidden;
     if (running) { clock.getDelta(); loop(); }
@@ -901,7 +1017,8 @@ function build() {
     requestAnimationFrame(loop);
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.elapsedTime;
-    intro = t; /* assembly timeline in seconds */
+    if (introT0 < 0 && window.PW.started) introT0 = t;
+    const intro = introT0 < 0 ? -10 : t - introT0;
 
     ptr.x += (ptr.tx - ptr.x) * 0.035;
     ptr.y += (ptr.ty - ptr.y) * 0.035;
