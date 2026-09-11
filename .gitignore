@@ -18,3 +18,5 @@ context/
 logo.ico.bk
 logo.png.bk
 docs/
+*.bak
+.workbuddy-ai/
