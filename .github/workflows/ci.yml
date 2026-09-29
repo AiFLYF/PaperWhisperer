@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  backend:
+    name: Backend (lint + test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Lint
+        run: python -m ruff check .
+
+      - name: Test
+        run: python -m pytest tests/ -q --tb=short
+
+  frontend:
+    name: Frontend (module syntax + structure)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # These check ongoing invariants, not the one-off migration diff. The
+      # pre-split originals live in .parity/, which is intentionally not
+      # committed, so `make parity` stays a local check.
+      - name: Parse every ES module
+        run: node --experimental-vm-modules tools/check_js_syntax.mjs templates/static/js
+
+      - name: Check references, cascade order and import cycles
+        run: python tools/check_frontend.py

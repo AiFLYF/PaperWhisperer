@@ -1,0 +1,22 @@
+# Normalise line endings in the repository so a checkout matches what was
+# committed, regardless of each developer's core.autocrlf setting.
+#
+# Without this, Windows clones silently rewrite LF to CRLF, which contradicts
+# .editorconfig (end_of_line = lf) and makes "the file on disk" differ from
+# "the file in git" depending on who cloned it.
+
+* text=auto eol=lf
+
+# Binary assets must never be touched by line-ending normalisation.
+*.ico   binary
+*.jpg   binary
+*.jpeg  binary
+*.png   binary
+*.gif   binary
+*.webp  binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.eot   binary
