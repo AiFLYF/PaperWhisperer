@@ -1,23 +1,52 @@
-docs
-__pycache__
-.trae
-*.pyc
-*.pyo
-*.log
+# --- secrets -------------------------------------------------------------
 .env
 .env.local
+.env.*.local
+
+# --- local notes (planning docs, not part of the app) --------------------
+docs/
+
+# --- runtime folders (regenerated on every run) --------------------------
 uploads/
 output/
 context/
-.claude/*.lock
-.ipynb_checkpoints/
-.CLAUDE.md
+
+# --- Python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.benchmarks/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- editors / agent tooling --------------------------------------------
+.trae
 .claude/
-.pytest_cache
-.gitignore
+.claude/*.lock
+.CLAUDE.md
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# --- local verification workspace ----------------------------------------
+# Holds the pre-split originals and the parity checkers used to prove the
+# frontend/backend split was behaviour-preserving. Development scaffolding,
+# not part of the application.
+.parity/
+
+# --- evaluation corpus (about 79 MB; the build script and manifest stay) --
+eval/
+
+# --- misc ---------------------------------------------------------------
+*.log
 logo.ico.bk
 logo.png.bk
-docs/
-*.bak
+.workbuddy/
 .workbuddy-ai/
-.workbuddy

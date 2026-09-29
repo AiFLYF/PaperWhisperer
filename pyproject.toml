@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paperwhisperer"
+version = "0.9.0"
+description = "AI research workspace for reading papers and long technical documents."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "openai>=1.0.0",
+    "pypdf>=4.0.0",
+    "python-docx>=1.1.0",
+    "python-pptx>=0.6.23",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+    "jinja2>=3.1.0",
+    "python-dotenv>=1.0.0",
+    "certifi>=2024.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "httpx>=0.27.0",
+    "ruff>=0.6.0",
+]
+
+[project.scripts]
+paperwhisperer = "web_app:main"
+
+[tool.setuptools]
+packages = ["paperwhisperer", "paperwhisperer.core", "paperwhisperer.documents",
+            "paperwhisperer.llm", "paperwhisperer.analysis", "paperwhisperer.search",
+            "paperwhisperer.sessions", "paperwhisperer.remote", "paperwhisperer.api"]
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+filterwarnings = ["error::DeprecationWarning:paperwhisperer.*"]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".parity", "eval", "assets"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "UP",   # pyupgrade
+    "SIM",  # flake8-simplify
+    "RET",  # flake8-return
+]
+ignore = [
+    "B008",  # FastAPI dependency defaults are idiomatic
+    "SIM105",# contextlib.suppress is not always clearer here
+    "RET504",# named return values aid readability in long functions
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+# These files hold prompt and report prose. Ruff counts East Asian characters as
+# two columns, so a 70-character Chinese sentence reads as 118 columns and trips
+# E501. Wrapping mid-sentence would break the prompt text, so the limit is
+# dropped for prose carriers only.
+"paperwhisperer/llm/prompts.py" = ["E501"]
+"paperwhisperer/analysis/orchestrator.py" = ["E501"]
+"paperwhisperer/analysis/sections.py" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["paperwhisperer"]
