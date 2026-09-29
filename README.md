@@ -88,10 +88,23 @@ uvicorn web_app:app --host 0.0.0.0 --port 5000
 ### 4. 运行测试
 
 ```bash
-python -m py_compile web_app.py
-node --check templates/static/js/app.js
-python -m pytest tests/test_security_regressions.py
+python -m pip install -e ".[dev]"
+
+make check          # ruff + pytest + 前端结构检查
+make test           # 只跑 pytest
+make lint           # 只跑 ruff
+make check-frontend # 只跑前端结构检查
 ```
+
+`make` 不是必需设施，等价命令是 `python -m pytest tests/ -q`、`python -m ruff check .`、
+`node --experimental-vm-modules tools/check_js_syntax.mjs templates/static/js` 和
+`python tools/check_frontend.py`。
+
+前端结构检查不依赖任何参考副本，会拦下三类回归：`index.html` 引用了不存在的文件、
+层叠顺序被改乱（`tokens.css` 必须最先加载）、以及模块之间出现循环依赖。
+
+`make parity` 是另一回事：它拿 `.parity/` 里的拆分前原件做行为比对，用来验证当初那次
+前端拆分确实无损。该目录不进版本库，只在本地保留。
 
 ## 环境变量
 
@@ -339,23 +352,44 @@ data: {"answer":"完整答案"}
 
 ## 项目结构
 
+后端按职责分层，模块之间只往下依赖：
+
 ```text
 .
-├── web_app.py                  # FastAPI 应用、文档处理、LLM 编排、API 路由
+├── web_app.py                  # 入口：装配 app 并启动服务
+├── paperwhisperer/
+│   ├── app.py                  # FastAPI 实例、静态资源挂载、路由注册
+│   ├── config.py               # 配置读取（向后兼容 re-export）
+│   ├── core/
+│   │   ├── config.py           # 环境变量解析、路径与限额、密钥解析
+│   │   ├── text.py             # 文本工具、会话与文件的安全清理
+│   │   └── errors.py           # 统一错误响应、SSE 事件构造
+│   ├── documents/              # 上传落盘、格式校验、文本抽取与分块
+│   ├── llm/                    # OpenAI 客户端（重试/流式）、prompt 与模式定义
+│   ├── analysis/               # 编排器、section 定义、结果持久化服务
+│   ├── search/                 # Semantic Scholar / arXiv 检索与 HTTP 层
+│   ├── sessions/               # session 读写、token 校验与过期清理
+│   ├── remote/                 # 远程下载与 SSRF 校验
+│   └── api/                    # 路由（documents / qa / papers / health）与共享依赖
 ├── paper_whisperer_demo.py     # CLI Demo
+├── pyproject.toml              # 依赖、pytest 与 ruff 配置
 ├── requirements.txt            # Python 依赖
 ├── .env.example                # 环境变量模板
 ├── templates/
-│   ├── index.html              # Web 页面结构
+│   ├── index.html              # Web 页面结构，按层序引入 CSS 与入口模块
 │   └── static/
-│       ├── css/style.css       # 页面样式
-│       └── js/app.js           # 前端交互逻辑
-├── tests/
-│   └── test_security_regressions.py
+│       ├── css/                # 11 个分层样式：tokens → base → layout → ...
+│       └── js/                 # 20 个 ES module，main.js 为唯一入口
+├── assets/                     # 落地页（根 index.html）自有资源
+├── tools/                      # 前端结构检查脚本（CI 使用）
+├── tests/                      # pytest 行为测试
 ├── uploads/                    # 运行时上传目录，默认忽略
 ├── context/                    # session JSON，默认忽略
 └── output/                     # Markdown 分析报告，默认忽略
 ```
+
+前端同样按职责拆分：`main.js` 只负责装配，各模块（`state` / `api` / `sanitize` / `mermaid` /
+`chat` / `papers` / `export` 等）之间无循环依赖。
 
 ## 已知限制
 
@@ -369,12 +403,17 @@ data: {"answer":"完整答案"}
 
 ### 当前版本重点
 
-- 新增 Deep Research Brief 深度阅读简报。
-- 新增 Reading Queue 阅读队列和 `/api/reading-queue`。
-- 新增 Evidence / Explain / Critique / Reproduce 追问模式。
-- 增强 Session Export，包含分析、阅读队列、搜索轨迹、推荐结果、Q&A 模式和 Mermaid 资源。
-- 强化前端可访问性：状态 live region、错误 alert 聚焦、上传区域无效状态、分析进度当前步骤、追问模式 radio 语义与方向键/Home/End 导航、智能建议区域 live region、可选结果卡 hidden 语义同步、主题/图谱工具图标装饰语义、快捷键元数据、禁用/忙碌控件语义、语义化折叠区域和减少动效滚动。
+- 后端从单文件 `web_app.py` 拆为 `paperwhisperer/` 分层包，模块只往下依赖，配置与错误处理各自收敛到单一来源。
+- 前端从 2690 行单体 `app.js` 拆为 20 个 ES module，样式从单文件拆为 11 层 CSS；拆分行为由 85 项等价探针与 CSS 规则比对保证无损。
+- 测试从字符串断言改为行为测试，测试替身只替换真正会触网的边界（LLM 传输层与远程下载层），运行时目录全部重定向到临时目录。
+- 修复流式分析阻塞事件循环：阻塞式生成器改由工作线程驱动，SSE 消费端保持全异步。
+- 修复流式重试重复吐字：探针缓冲区扣留 1 个 chunk，只有在尚未吐出任何内容时才允许重放。
+- 修复关闭任一可选分析项时 `/api/analyze` 抛 `KeyError` 变成 500 的问题。
+- 修复 Mermaid 闭合围栏残留在图表源码里导致渲染失败的问题。
+- 修复流式路径缺失 HTML 响应检测，代理登录页不再被当作正文吐给前端。
+- 修复清理函数在 `finally` 中抛出时掀翻流式响应的问题。
 - 强化安全与稳定性：上传、远程下载、JSON、session、阅读队列、问答模式、临时资源清理日志、生成内容 URL 白名单、状态卡 DOM 文本节点渲染、格式化内容集中替换和前端动态内容硬化。
+- 工程化设施：`pyproject.toml`、`.editorconfig`、`Makefile` 与 GitHub Actions（后端 lint + 测试、前端等价校验）。
 
 ## License
 

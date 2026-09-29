@@ -1,0 +1,423 @@
+/* ============================================================
+   PaperWhisperer — 8. Form controls
+   ============================================================
+Interactive controls: inputs, drop zone, file meta,
+checkboxes, primary button.
+   ============================================================ */
+
+/* ---------- 8. Form controls ---------- */
+.card-intro {
+    color: var(--text-secondary);
+    font-size: 14.5px;
+    margin-bottom: 24px;
+    line-height: 1.7;
+}
+
+.shortcut-hints {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: -10px 0 24px;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.shortcut-hints span {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 6px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    background: var(--surface-highlight);
+}
+
+.shortcut-hints kbd {
+    min-width: 22px;
+    padding: 2px 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-card);
+    color: var(--primary-color);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 800;
+    text-align: center;
+    box-shadow: 0 1px 0 var(--border-color);
+}
+
+.form-group { margin-bottom: 26px; }
+
+.form-group label {
+    display: block;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+input[type="text"],
+input[type="password"],
+input[type="search"],
+input[type="file"] {
+    width: 100%;
+    padding: 14px 18px;
+    background-color: var(--input-bg);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    font-size: 15.5px;
+    color: var(--text-primary);
+    transition: var(--transition);
+    font-family: inherit;
+    min-height: 50px;
+}
+
+input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
+
+input::placeholder { color: var(--text-faint); }
+
+input[type="file"] { padding: 12px; cursor: pointer; }
+
+input[type="file"]::file-selector-button {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    padding: 8px 14px;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    cursor: pointer;
+    margin-right: 14px;
+    font-weight: 600;
+    transition: var(--transition);
+}
+
+input[type="file"]::file-selector-button:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+input:focus {
+    outline: none;
+    background-color: var(--bg-card);
+    border-color: var(--primary-color);
+    box-shadow: var(--ring-focus);
+}
+
+/* ---------- 9. Drop zone ---------- */
+.drop-zone {
+    position: relative;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 18px;
+    min-height: 124px;
+    padding: 22px;
+    border-radius: var(--radius-lg);
+    border: 1.5px dashed var(--primary-strong);
+    background: linear-gradient(135deg, rgba(14, 125, 110, 0.07), rgba(31, 111, 139, 0.05));
+    cursor: pointer;
+    transition: var(--transition);
+    overflow: hidden;
+}
+
+.drop-zone::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(circle at 30% 20%, rgba(14, 125, 110, 0.12), transparent 60%);
+    opacity: 0.6;
+    transition: opacity 0.4s var(--ease-out);
+    pointer-events: none;
+}
+
+.drop-zone:hover,
+.drop-zone:focus-visible,
+.drop-zone:focus-within,
+.drop-zone.drag-over {
+    border-color: var(--primary-color);
+    background: linear-gradient(135deg, rgba(14, 125, 110, 0.14), rgba(31, 111, 139, 0.10));
+    box-shadow: var(--shadow-medium), 0 0 0 4px rgba(14, 125, 110, 0.12);
+    transform: translateY(-2px);
+}
+
+.drop-zone:hover::before,
+.drop-zone.drag-over::before { opacity: 1; }
+
+.drop-zone.has-file {
+    border-style: solid;
+    border-color: var(--primary-color);
+    background: linear-gradient(135deg, rgba(45, 138, 79, 0.12), rgba(14, 125, 110, 0.10));
+}
+
+.drop-zone.has-error {
+    border-style: solid;
+    border-color: rgba(196, 62, 26, 0.6);
+    background: linear-gradient(135deg, rgba(196, 62, 26, 0.10), rgba(196, 106, 22, 0.06));
+}
+
+.drop-zone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+}
+
+.drop-zone-icon {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    display: grid;
+    place-items: center;
+    border-radius: 18px;
+    background: var(--bg-elevated);
+    color: var(--primary-color);
+    box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    transition: var(--transition);
+    overflow: hidden;
+}
+
+.drop-zone-icon::before {
+    content: "";
+    position: absolute;
+    inset: -50%;
+    background: conic-gradient(from 180deg, rgba(14, 125, 110, 0), rgba(14, 125, 110, 0.18), rgba(14, 125, 110, 0));
+    animation: dropZoneSpin 6s linear infinite;
+    opacity: 0.7;
+}
+
+@keyframes dropZoneSpin {
+    to { transform: rotate(360deg); }
+}
+
+.drop-zone.has-file .drop-zone-icon { color: var(--success-color); }
+.drop-zone.has-error .drop-zone-icon { color: var(--error-color); }
+
+.drop-zone-svg {
+    position: relative;
+    width: 26px;
+    height: 26px;
+    transition: opacity 0.3s var(--ease-out), transform 0.3s var(--ease-out);
+}
+
+.drop-zone-svg-check,
+.drop-zone-svg-alert { position: absolute; opacity: 0; transform: scale(0.6); }
+
+.drop-zone.has-file .drop-zone-svg-upload,
+.drop-zone.has-error .drop-zone-svg-upload {
+    opacity: 0;
+    transform: scale(0.6);
+}
+.drop-zone.has-file .drop-zone-svg-check { opacity: 1; transform: scale(1); }
+.drop-zone.has-error .drop-zone-svg-alert { opacity: 1; transform: scale(1); }
+
+.drop-zone-title {
+    font-size: 16.5px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 5px;
+    letter-spacing: -0.2px;
+}
+
+.drop-zone-hint {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+/* ---------- 10. File meta ---------- */
+.file-meta {
+    display: grid;
+    gap: 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-top: 14px;
+    padding: 14px 16px;
+    border-radius: var(--radius-md);
+    background: rgba(14, 125, 110, 0.06);
+    border: 1px dashed rgba(14, 125, 110, 0.20);
+    transition: var(--transition);
+}
+
+.file-meta-ready {
+    border-style: solid;
+    border-color: rgba(14, 125, 110, 0.32);
+    background: rgba(14, 125, 110, 0.10);
+}
+
+.file-meta-error {
+    border-style: solid;
+    border-color: rgba(196, 62, 26, 0.42);
+    background: rgba(196, 62, 26, 0.08);
+}
+
+.file-meta-summary,
+.file-meta-details {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+.file-meta-status,
+.file-meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    background: var(--surface-highlight);
+}
+
+.file-meta-status {
+    color: var(--primary-color);
+    font-weight: 800;
+}
+
+.file-meta-error .file-meta-status {
+    color: var(--error-color);
+}
+
+.file-meta-label {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.file-meta-name strong {
+    max-width: min(420px, 68vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ---------- 11. Checkboxes ---------- */
+.options-group {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 32px;
+    flex-wrap: wrap;
+}
+
+.checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--text-primary);
+    user-select: none;
+    flex: 1 1 280px;
+    padding: 16px 18px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: var(--surface-highlight);
+    min-height: 52px;
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.checkbox-label:hover {
+    border-color: var(--primary-strong);
+    background: rgba(14, 125, 110, 0.06);
+    transform: translateY(-1px);
+}
+
+.checkbox-label:has(input:checked) {
+    border-color: var(--primary-color);
+    background: rgba(14, 125, 110, 0.08);
+    box-shadow: inset 0 0 0 1px var(--primary-soft);
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 20px;
+    height: 20px;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+/* ---------- 12. Primary button ---------- */
+.btn {
+    background: var(--gradient-primary);
+    color: #ffffff;
+    border: none;
+    border-radius: var(--radius-pill);
+    padding: 15px 26px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    width: 100%;
+    transition: var(--transition);
+    letter-spacing: -0.1px;
+    box-shadow: var(--shadow-primary), var(--shadow-soft);
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.btn::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), transparent 55%);
+    opacity: 0;
+    transition: opacity 0.3s var(--ease-out);
+    z-index: 0;
+}
+
+.btn::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -120%;
+    width: 80%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.34), transparent);
+    transform: skewX(-18deg);
+    transition: left 0.7s var(--ease-out);
+    z-index: 0;
+}
+
+.btn > * { position: relative; z-index: 1; }
+
+.btn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 22px 40px rgba(14, 125, 110, 0.30), var(--shadow-medium);
+}
+
+.btn:hover:not(:disabled)::before { opacity: 1; }
+.btn:hover:not(:disabled)::after { left: 130%; }
+
+.btn:active:not(:disabled) { transform: translateY(0); }
+
+.btn:disabled {
+    background: linear-gradient(135deg, #c2c8d0 0%, #b5bcc6 100%);
+    color: #ffffff;
+    cursor: not-allowed;
+    opacity: 0.7;
+    box-shadow: none;
+}
+
+[data-theme="dark"] .btn:disabled {
+    background: linear-gradient(135deg, #3a4150 0%, #2c3340 100%);
+}
+
+.btn.is-busy {
+    cursor: wait;
+    background-size: 200% 100%;
+    animation: busySweep 1.6s linear infinite;
+}
+
+@keyframes busySweep {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+}
+
+.action-btn.is-busy { cursor: wait; }

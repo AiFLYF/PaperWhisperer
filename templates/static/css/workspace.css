@@ -1,0 +1,255 @@
+/* ============================================================
+   PaperWhisperer — 16. Result section
+   ============================================================
+Analysis workspace: result section, Mermaid canvas,
+markdown content, per-section state.
+   ============================================================ */
+
+/* ---------- 16. Result section ---------- */
+.result-section { display: none; opacity: 0; transition: opacity 0.5s var(--ease-out); }
+.result-section.active {
+    display: block;
+    opacity: 1;
+    animation: revealUp 0.55s var(--ease-out) both;
+}
+.is-hidden { display: none !important; }
+
+/* ---------- 17. Mermaid canvas ---------- */
+.canvas-toolbar {
+    display: flex;
+    gap: 8px;
+}
+
+.tool-btn {
+    background: var(--input-bg);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    width: 38px;
+    height: 38px;
+    border-radius: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+    padding: 7px;
+    box-shadow: var(--shadow-soft);
+}
+
+.tool-btn:hover {
+    background: var(--bg-card);
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-medium);
+}
+
+.tool-btn svg { width: 100%; height: 100%; }
+
+.mermaid-wrapper {
+    width: 100%;
+    height: 520px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background:
+        repeating-linear-gradient(0deg, transparent, transparent 27px, rgba(125, 132, 144, 0.05) 28px),
+        repeating-linear-gradient(90deg, transparent, transparent 27px, rgba(125, 132, 144, 0.05) 28px),
+        radial-gradient(circle at 50% 50%, rgba(14, 125, 110, 0.04), transparent 60%),
+        var(--canvas-bg);
+    position: relative;
+    cursor: grab;
+    touch-action: none;
+    overscroll-behavior: contain;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.mermaid-wrapper:active { cursor: grabbing; }
+.mermaid-container { width: 100%; height: 100%; }
+.mermaid-container svg,
+.mermaid-svg-fit { width: 100% !important; height: 100% !important; }
+.mermaid-svg-fit { max-width: none !important; }
+
+.mermaid-fallback-message { padding: 22px; }
+.mermaid-error-message {
+    color: var(--error-color);
+    font-size: 14px;
+    padding: 22px;
+}
+.mermaid-raw-fallback {
+    margin: 22px;
+    text-align: left;
+    white-space: pre-wrap;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+/* ---------- 18. Markdown content ---------- */
+.content { font-size: 15px; line-height: 1.7; color: var(--text-primary); }
+.content p { margin-bottom: 1.2em; }
+.content h1, .content h2, .content h3, .content h4 {
+    font-weight: 700;
+    margin: 1.5em 0 0.7em;
+    letter-spacing: -0.3px;
+    color: var(--text-primary);
+}
+.content h1 { font-size: 1.6em; }
+.content h2 { font-size: 1.35em; }
+.content h3 { font-size: 1.15em; }
+.content h4 { font-size: 1em; }
+.content ul, .content ol { padding-left: 22px; margin-bottom: 1.2em; }
+.content li { margin-bottom: 0.45em; }
+.content li::marker { color: var(--primary-color); }
+.content a {
+    color: var(--primary-color);
+    text-decoration: underline;
+    text-decoration-color: var(--primary-strong);
+    text-underline-offset: 3px;
+    text-decoration-thickness: 1.5px;
+    transition: var(--transition);
+}
+.content a:hover {
+    color: var(--primary-hover);
+    text-decoration-color: var(--primary-color);
+}
+.content code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+    background: var(--input-bg);
+    padding: 0.2em 0.45em;
+    border-radius: 5px;
+    border: 1px solid var(--border-soft);
+    word-break: break-word;
+    color: var(--accent-color);
+}
+.content pre {
+    background: var(--code-bg);
+    color: #f5f5f7;
+    padding: 18px 20px;
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+    margin-bottom: 1.2em;
+    font-size: 0.9em;
+    white-space: pre-wrap;
+    word-break: break-word;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 4px 18px rgba(0, 0, 0, 0.18);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.content pre code {
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    border: 0;
+    word-break: break-word;
+}
+.content blockquote {
+    border-left: 3px solid var(--quote-border);
+    color: var(--text-secondary);
+    margin-bottom: 1.2em;
+    background: var(--quote-bg);
+    padding: 14px 18px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    font-style: italic;
+    box-shadow: var(--shadow-soft);
+}
+.content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 1.2em;
+    display: block;
+    overflow-x: auto;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-color);
+}
+.content th, .content td {
+    border-bottom: 1px solid var(--border-soft);
+    padding: 10px 12px;
+    text-align: left;
+}
+.content th {
+    background: var(--surface-highlight);
+    font-weight: 700;
+    color: var(--text-primary);
+}
+.content tr:last-child td { border-bottom: 0; }
+.content hr {
+    border: 0;
+    border-top: 1px solid var(--border-color);
+    margin: 1.5em 0;
+}
+.content .prompt-block {
+    border: 1px solid var(--border-color);
+    background: var(--surface-highlight);
+    border-radius: var(--radius-md);
+    padding: 16px 18px;
+    margin-bottom: 1.2em;
+    box-shadow: var(--shadow-soft);
+}
+.content .prompt-block-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--primary-color);
+    font-weight: 800;
+    margin-bottom: 10px;
+}
+.content .prompt-block-body {
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.empty-state {
+    color: var(--text-secondary);
+    font-style: italic;
+    padding: 8px 4px;
+}
+
+/* ---------- 19. Section state (loading / error blocks for sections) ---------- */
+.section-state {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 14px;
+    align-items: flex-start;
+    padding: 18px 20px;
+    border: 1px dashed rgba(14, 125, 110, 0.26);
+    border-radius: var(--radius-md);
+    background: rgba(14, 125, 110, 0.05);
+}
+
+.section-state-error {
+    border-style: solid;
+    border-color: rgba(196, 62, 26, 0.32);
+    background: var(--error-soft);
+}
+
+.section-state-icon {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--bg-card);
+    color: var(--primary-color);
+    font-weight: 800;
+    box-shadow: var(--shadow-soft);
+}
+
+.section-state-error .section-state-icon { color: var(--error-color); }
+
+.section-state-title {
+    margin: 0 0 5px;
+    color: var(--text-primary);
+    font-weight: 700;
+    font-size: 14.5px;
+}
+
+.section-state-detail {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+}

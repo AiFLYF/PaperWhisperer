@@ -1,0 +1,252 @@
+/* ============================================================
+   PaperWhisperer — 22. Ask section
+   ============================================================
+Question input and the streaming chat transcript.
+   ============================================================ */
+
+/* ---------- 22. Ask section ---------- */
+.ask-section { margin-top: 40px; }
+
+.answer-mode-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 8px 0 14px;
+}
+
+.mode-chip {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    background: var(--input-bg);
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    min-height: 40px;
+    padding: 8px 16px 8px 32px;
+    transition: var(--transition);
+    touch-action: manipulation;
+    position: relative;
+}
+
+.mode-chip::before {
+    content: "";
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    transform: translateY(-50%);
+    background-color: currentColor;
+    -webkit-mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    -webkit-mask-size: contain;
+    mask-position: center;
+    mask-repeat: no-repeat;
+    mask-size: contain;
+    opacity: 0.7;
+    transition: opacity 0.25s var(--ease-out);
+}
+
+.mode-chip[data-mode-icon="evidence"]::before {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M22 11.08V12a10 10 0 1 1-5.93-9.14'/><polyline points='22 4 12 14.01 9 11.01'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M22 11.08V12a10 10 0 1 1-5.93-9.14'/><polyline points='22 4 12 14.01 9 11.01'/></svg>");
+}
+
+.mode-chip[data-mode-icon="explain"]::before {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='16' x2='12' y2='12'/><line x1='12' y1='8' x2='12.01' y2='8'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='10'/><line x1='12' y1='16' x2='12' y2='12'/><line x1='12' y1='8' x2='12.01' y2='8'/></svg>");
+}
+
+.mode-chip[data-mode-icon="critique"]::before {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M9 12l2 2 4-4'/><path d='M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c2.5 0 4.76 1.02 6.4 2.66'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M9 12l2 2 4-4'/><path d='M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9c2.5 0 4.76 1.02 6.4 2.66'/></svg>");
+}
+
+.mode-chip[data-mode-icon="reproduce"]::before {
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><polyline points='23 4 23 10 17 10'/><polyline points='1 20 1 14 7 14'/><path d='M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15'/></svg>");
+            mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><polyline points='23 4 23 10 17 10'/><polyline points='1 20 1 14 7 14'/><path d='M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15'/></svg>");
+}
+
+.mode-chip:hover,
+.mode-chip.active {
+    border-color: var(--primary-color);
+    background: var(--primary-soft);
+    color: var(--primary-color);
+}
+
+.mode-chip.active {
+    box-shadow: inset 0 0 0 1px var(--primary-soft), 0 0 0 4px rgba(14, 125, 110, 0.08);
+}
+
+.mode-chip.active::before { opacity: 1; }
+
+.answer-mode-hint {
+    margin: -6px 0 16px;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.ask-input-group {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 18px;
+    align-items: stretch;
+}
+
+.ask-input-group input { flex: 1; }
+.ask-input-group .btn { width: auto; padding: 0 28px; }
+
+.smart-prompts,
+.next-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 14px;
+}
+
+.next-actions { margin-bottom: 24px; }
+
+.prompt-chip,
+.next-action-btn {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    background: var(--input-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 1.4;
+    padding: 10px 16px;
+    min-height: 44px;
+    transition: var(--transition);
+    touch-action: manipulation;
+    font-weight: 500;
+}
+
+.prompt-chip:hover,
+.next-action-btn:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    transform: translateY(-1px);
+    background: var(--primary-soft);
+    box-shadow: var(--shadow-soft);
+}
+
+.next-action-btn {
+    background: var(--primary-soft);
+    color: var(--primary-color);
+    border-color: var(--primary-strong);
+    font-weight: 600;
+}
+
+/* ---------- 23. Chat history ---------- */
+.chat-history {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.chat-item {
+    max-width: 85%;
+    padding: 16px 20px;
+    border-radius: var(--radius-lg);
+    font-size: 15px;
+    line-height: 1.6;
+    position: relative;
+    box-shadow: var(--shadow-soft);
+    animation: chatBubbleIn 0.35s var(--ease-out) both;
+}
+
+@keyframes chatBubbleIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.chat-question {
+    background: var(--chat-user);
+    align-self: flex-end;
+    border-bottom-right-radius: 6px;
+    color: var(--text-primary);
+    border: 1px solid var(--primary-strong);
+}
+
+.chat-answer {
+    background: var(--chat-assistant);
+    align-self: flex-start;
+    border-bottom-left-radius: 6px;
+    border: 1px solid var(--border-color);
+    width: 100%;
+    max-width: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+.chat-answer::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 3px;
+    background: var(--gradient-primary);
+    border-top-left-radius: var(--radius-lg);
+    border-top-right-radius: var(--radius-lg);
+    opacity: 0.85;
+}
+
+.chat-error {
+    border-color: rgba(196, 62, 26, 0.30);
+    background: var(--error-soft);
+}
+
+.chat-error::before {
+    background: linear-gradient(135deg, var(--error-color), var(--warning-color));
+}
+
+.chat-header {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    letter-spacing: 0.02em;
+}
+
+.chat-text { white-space: pre-wrap; word-break: break-word; }
+
+.answer-content { overflow-wrap: anywhere; }
+.answer-content > *:last-child { margin-bottom: 0; }
+
+.answer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border-color);
+}
+
+.mini-action-btn {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    background: transparent;
+    color: var(--primary-color);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    transition: var(--transition);
+}
+
+.mini-action-btn:hover {
+    border-color: var(--primary-color);
+    background: var(--primary-soft);
+    transform: translateY(-1px);
+}

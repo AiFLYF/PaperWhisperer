@@ -16,7 +16,19 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer referrerpolicy="strict-origin-when-cross-origin"></script>
     <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js" defer referrerpolicy="strict-origin-when-cross-origin"></script>
     
-    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Layered stylesheets. The order below is the cascade order:
+         tokens first (every layer reads those custom properties), responsive last. -->
+    <link rel="stylesheet" href="/static/css/tokens.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
+    <link rel="stylesheet" href="/static/css/controls.css">
+    <link rel="stylesheet" href="/static/css/feedback.css">
+    <link rel="stylesheet" href="/static/css/workspace.css">
+    <link rel="stylesheet" href="/static/css/papers.css">
+    <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/export.css">
+    <link rel="stylesheet" href="/static/css/chrome.css">
+    <link rel="stylesheet" href="/static/css/responsive.css">
 </head>
 <body>
     <nav class="skip-links" aria-label="Skip links">
@@ -274,6 +286,6 @@
         </footer>
     </div>
     
-    <script src="/static/js/app.js" defer></script>
+    <script type="module" src="/static/js/main.js"></script>
 </body>
 </html>

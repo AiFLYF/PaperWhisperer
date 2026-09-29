@@ -1,0 +1,142 @@
+/* ============================================================
+   PaperWhisperer — 24. Export preview / workspace guidance
+   ============================================================
+Export preview, workspace guidance and the action button.
+   ============================================================ */
+
+/* ---------- 24. Export preview / workspace guidance ---------- */
+.export-preview-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.export-preview-card {
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    background:
+        linear-gradient(180deg, var(--surface-highlight), transparent),
+        var(--bg-card);
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.export-preview-card::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 0 12px 12px 0;
+    border-color: transparent var(--primary-soft) transparent transparent;
+}
+
+.export-preview-card:hover {
+    transform: translateY(-2px);
+    border-color: var(--primary-strong);
+    box-shadow: var(--shadow-soft);
+}
+
+.export-preview-card span,
+.export-preview-card small {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.export-preview-card strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 16.5px;
+    font-weight: 800;
+    margin: 4px 0;
+    letter-spacing: -0.3px;
+    font-family: var(--font-mono);
+}
+
+.workspace-guidance {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.workspace-guidance-item {
+    border: 1px solid var(--primary-strong);
+    border-radius: var(--radius-sm);
+    padding: 14px;
+    background: linear-gradient(135deg, var(--primary-soft), var(--cool-soft));
+    transition: var(--transition);
+    position: relative;
+}
+
+.workspace-guidance-item:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-soft);
+}
+
+.workspace-guidance-item span,
+.workspace-guidance-item small {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.workspace-guidance-item strong {
+    display: block;
+    margin: 4px 0;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.export-preview-note {
+    color: var(--text-secondary);
+    font-size: 13px;
+    margin-bottom: 0;
+    line-height: 1.55;
+}
+
+/* ---------- 25. Action button ---------- */
+.action-btn {
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    border-radius: var(--radius-pill);
+    padding: 7px 14px;
+    font-family: inherit;
+}
+
+.action-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+    background: var(--surface-highlight);
+}
+
+.action-btn.action-success {
+    border-color: var(--success-color);
+    color: var(--success-color);
+    background: var(--success-soft);
+}
+
+.action-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.action-btn:disabled:hover {
+    color: var(--text-secondary);
+    border-color: var(--border-color);
+    background: transparent;
+}

@@ -1,9 +1,9 @@
+import concurrent.futures
 import os
 import re
 import sys
-import time
 import threading
-import concurrent.futures
+import time
 from datetime import datetime
 
 from env_loader import load_project_env
@@ -112,7 +112,7 @@ class TextChunker:
 class DocumentLoader:
     @staticmethod
     def load_txt(file_path):
-        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+        with open(file_path, encoding="utf-8", errors="ignore") as f:
             return f.read()
 
     @staticmethod
@@ -189,7 +189,9 @@ class DocumentLoader:
         }
         loader = loaders.get(ext)
         if not loader:
-            raise ValueError(f"Unsupported file type. Please use one of: {SUPPORTED_FILE_TYPES_TEXT}")
+            raise ValueError(
+                f"Unsupported file type. Please use one of: {SUPPORTED_FILE_TYPES_TEXT}"
+            )
         raw_text = loader(file_path)
         return clean_extracted_text(raw_text)
 
@@ -201,7 +203,9 @@ class PaperWhisperer:
         self.api_key = os.getenv("OPENAI_API_KEY", "").strip()
         self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip()
         self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
-        self.request_timeout = parse_int_env("OPENAI_REQUEST_TIMEOUT_SECONDS", default=60, min_value=5, max_value=600)
+        self.request_timeout = parse_int_env(
+            "OPENAI_REQUEST_TIMEOUT_SECONDS", default=60, min_value=5, max_value=600
+        )
         self.max_retries = parse_int_env("OPENAI_MAX_RETRIES", default=3, min_value=1, max_value=10)
         self.max_concurrency = MAX_LLM_CONCURRENCY
         self.chunk_workers = min(3, self.max_concurrency)
@@ -297,10 +301,14 @@ class PaperWhisperer:
 
         worker_count = self._get_worker_count(len(chunks), self.chunk_workers)
         if worker_count == 1:
-            chunk_summaries = [summary for summary in map(self._generate_summary_chunk, chunks) if summary]
+            chunk_summaries = [
+                summary for summary in map(self._generate_summary_chunk, chunks) if summary
+            ]
         else:
             with concurrent.futures.ThreadPoolExecutor(max_workers=worker_count) as executor:
-                chunk_summaries = list(filter(None, executor.map(self._generate_summary_chunk, chunks)))
+                chunk_summaries = list(
+                    filter(None, executor.map(self._generate_summary_chunk, chunks))
+                )
 
         merged = self._merge_summaries(chunk_summaries)
         return merged or self._fallback_summary()
@@ -406,7 +414,9 @@ class PaperWhisperer:
 
         ext = os.path.splitext(file_path)[1].lower()
         if ext not in ALLOWED_EXTENSIONS:
-            raise ValueError(f"Unsupported file type. Please use one of: {SUPPORTED_FILE_TYPES_TEXT}")
+            raise ValueError(
+                f"Unsupported file type. Please use one of: {SUPPORTED_FILE_TYPES_TEXT}"
+            )
 
         content = DocumentLoader.load(file_path)
         if not content.strip():

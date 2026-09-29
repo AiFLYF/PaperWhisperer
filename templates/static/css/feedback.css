@@ -1,0 +1,148 @@
+/* ============================================================
+   PaperWhisperer — 13. Loading / spinner
+   ============================================================
+Progress and error surfaces: loading, error block, file info.
+   ============================================================ */
+
+/* ---------- 13. Loading / spinner ---------- */
+.loading,
+.error { display: none; margin-bottom: 24px; }
+
+.loading.active {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 56px 22px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-medium);
+    backdrop-filter: blur(16px);
+}
+
+.spinner {
+    width: 28px;
+    height: 28px;
+    border: 2.5px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-right-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 0.9s var(--ease-in-out) infinite;
+    margin-bottom: 18px;
+}
+
+.inline-spinner {
+    width: 16px;
+    height: 16px;
+    border-width: 2px;
+    margin: 8px 0 0;
+    display: inline-block;
+}
+
+.loading-text {
+    font-size: 14.5px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.progress-steps {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 20px;
+    position: relative;
+}
+
+.progress-step {
+    padding: 7px 14px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    position: relative;
+    transition: var(--transition);
+}
+
+.progress-step.active {
+    border-color: var(--primary-strong);
+    color: var(--primary-color);
+    background: var(--primary-soft);
+    box-shadow: 0 0 0 4px rgba(14, 125, 110, 0.08);
+}
+
+.progress-step.active::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: inherit;
+    border: 1px solid var(--primary-color);
+    opacity: 0.4;
+    animation: progressPulse 1.6s var(--ease-out) infinite;
+    pointer-events: none;
+}
+
+@keyframes progressPulse {
+    0% { transform: scale(1); opacity: 0.4; }
+    100% { transform: scale(1.15); opacity: 0; }
+}
+
+.progress-step.done {
+    border-color: rgba(45, 138, 79, 0.40);
+    color: var(--success-color);
+    background: var(--success-soft);
+    padding-left: 28px;
+}
+
+.progress-step.done::before {
+    content: "";
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    width: 10px;
+    height: 6px;
+    border-left: 2px solid var(--success-color);
+    border-bottom: 2px solid var(--success-color);
+    transform: translateY(-65%) rotate(-45deg);
+}
+
+/* ---------- 14. Error block ---------- */
+.error {
+    background: var(--error-soft);
+    color: var(--error-color);
+    padding: 18px 20px;
+    border: 1px solid rgba(196, 62, 26, 0.22);
+    border-radius: var(--radius-md);
+    font-size: 14px;
+    font-weight: 500;
+    display: flex;
+    box-shadow: var(--shadow-soft);
+}
+
+/* ---------- 15. File info ---------- */
+.file-info {
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 24px;
+    padding: 18px 22px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+    align-items: center;
+    box-shadow: var(--shadow-soft);
+}
+
+.file-info-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
