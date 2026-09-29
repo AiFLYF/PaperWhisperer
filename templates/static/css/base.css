@@ -1,0 +1,152 @@
+/* ============================================================
+   PaperWhisperer — 2. Reset & base
+   ============================================================
+Reset, element defaults and accessibility helpers.
+   ============================================================ */
+
+/* ---------- 2. Reset & base ---------- */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+    font-family: var(--font-stack);
+    background:
+        radial-gradient(1100px 600px at 10% -10%, rgba(196, 106, 22, 0.18), transparent 60%),
+        radial-gradient(900px 540px at 110% -10%, rgba(14, 125, 110, 0.16), transparent 60%),
+        radial-gradient(700px 400px at 50% 105%, rgba(31, 111, 139, 0.10), transparent 65%),
+        linear-gradient(180deg, #fbf7ee 0%, var(--bg-body) 45%, #e7dfd0 100%);
+    color: var(--text-primary);
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    transition: background-color 0.4s var(--ease-out);
+    padding: 40px 22px 56px;
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+}
+
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background-image:
+        linear-gradient(rgba(28, 34, 48, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(28, 34, 48, 0.04) 1px, transparent 1px);
+    background-size: 48px 48px;
+    -webkit-mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.7), transparent 80%);
+            mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.7), transparent 80%);
+}
+
+body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+        radial-gradient(1px 1px at 18% 22%, rgba(14, 125, 110, 0.20), transparent 50%),
+        radial-gradient(1px 1px at 72% 18%, rgba(196, 106, 22, 0.20), transparent 50%),
+        radial-gradient(1.2px 1.2px at 36% 78%, rgba(31, 111, 139, 0.18), transparent 50%),
+        radial-gradient(1px 1px at 86% 64%, rgba(14, 125, 110, 0.14), transparent 50%);
+    opacity: 0.65;
+}
+
+body[data-theme="dark"] {
+    background:
+        radial-gradient(1100px 600px at 10% -10%, rgba(244, 185, 105, 0.08), transparent 60%),
+        radial-gradient(900px 540px at 110% -10%, rgba(95, 224, 191, 0.12), transparent 60%),
+        radial-gradient(700px 400px at 50% 105%, rgba(110, 197, 232, 0.06), transparent 65%),
+        linear-gradient(180deg, #0a0e14 0%, var(--bg-body) 45%, #07090d 100%);
+}
+
+body[data-theme="dark"]::before {
+    background-image:
+        linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+}
+
+body[data-theme="dark"]::after {
+    background:
+        radial-gradient(1px 1px at 18% 22%, rgba(95, 224, 191, 0.40), transparent 50%),
+        radial-gradient(1px 1px at 72% 18%, rgba(244, 185, 105, 0.30), transparent 50%),
+        radial-gradient(1.2px 1.2px at 36% 78%, rgba(110, 197, 232, 0.30), transparent 50%),
+        radial-gradient(1px 1px at 86% 64%, rgba(95, 224, 191, 0.24), transparent 50%);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: var(--radius-pill);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); background-clip: padding-box; }
+
+::selection { background: rgba(14, 125, 110, 0.22); color: var(--text-primary); }
+[data-theme="dark"] ::selection { background: rgba(95, 224, 191, 0.28); }
+
+/* ---------- 3. A11y helpers ---------- */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.clipboard-fallback-field {
+    position: fixed;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.skip-links {
+    position: fixed;
+    top: 14px;
+    left: 14px;
+    z-index: 100;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    pointer-events: none;
+}
+
+.skip-links a {
+    position: absolute;
+    transform: translateY(-180%);
+    padding: 10px 16px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-pill);
+    background: var(--bg-elevated);
+    color: var(--primary-color);
+    box-shadow: var(--shadow-strong);
+    font-weight: 700;
+    text-decoration: none;
+    transition: var(--transition);
+    pointer-events: auto;
+}
+
+.skip-links a:focus-visible {
+    position: static;
+    transform: translateY(0);
+    box-shadow: var(--shadow-strong), var(--ring-focus);
+    outline: none;
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+    outline: none;
+    box-shadow: var(--ring-focus);
+}

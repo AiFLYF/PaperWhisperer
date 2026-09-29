@@ -1,0 +1,160 @@
+/* ============================================================
+   PaperWhisperer — 26. Animations
+   ============================================================
+Keyframes, footer and the back-to-top control.
+   ============================================================ */
+
+/* ---------- 26. Animations ---------- */
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@keyframes revealUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes heartbeat {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.18); }
+}
+
+/* ---------- 27. Footer ---------- */
+.site-footer {
+    margin-top: 64px;
+    padding: 28px 0;
+    border-top: 1px solid var(--border-color);
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 13px;
+    letter-spacing: 0.4px;
+    transition: var(--transition);
+}
+
+.footer-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.site-footer span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.site-footer strong { color: var(--text-primary); font-weight: 700; }
+.site-footer .heart { color: #ff3b30; animation: heartbeat 2s infinite; }
+
+.site-footer .author-link {
+    color: var(--text-primary);
+    font-weight: 700;
+    text-decoration: none;
+    border-bottom: 1px dashed transparent;
+    transition: var(--transition);
+}
+
+.site-footer .author-link:hover {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+.site-footer .ai-toggle {
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border-radius: var(--radius-pill);
+    padding: 5px 12px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: var(--transition);
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+}
+
+.site-footer .ai-toggle:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+    transform: translateY(-1px);
+}
+
+.site-footer .ai-toggle .arrow {
+    display: inline-block;
+    font-size: 10px;
+    line-height: 1;
+    transition: transform 0.25s var(--ease-out);
+}
+
+.site-footer .ai-toggle[aria-expanded="true"] .arrow {
+    transform: rotate(180deg);
+}
+
+.site-footer .ai-list {
+    margin-top: 6px;
+    display: none;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.site-footer .ai-list.show {
+    display: inline-flex;
+    animation: revealUp 0.3s var(--ease-out) both;
+}
+
+.site-footer .ai-pill {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-pill);
+    padding: 5px 12px;
+    font-size: 12px;
+    background: var(--surface-highlight);
+    color: var(--text-secondary);
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.site-footer .ai-pill:hover {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+/* ---------- 28. Back to top ---------- */
+.back-to-top {
+    position: fixed;
+    right: 28px;
+    bottom: 28px;
+    z-index: 20;
+    width: 48px;
+    height: 48px;
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    background: var(--bg-elevated);
+    color: var(--primary-color);
+    box-shadow: var(--shadow-medium);
+    cursor: pointer;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(12px);
+    transition: var(--transition);
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.back-to-top.show {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+}
+
+.back-to-top:hover {
+    border-color: var(--primary-color);
+    background: var(--primary-soft);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-strong);
+}

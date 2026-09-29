@@ -1,0 +1,169 @@
+/* ============================================================
+   PaperWhisperer — 29. Reduced motion
+   ============================================================
+Reduced-motion, coarse-pointer and breakpoint rules.
+Loaded last so its overrides win.
+   ============================================================ */
+
+/* ---------- 29. Reduced motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+    }
+
+    .btn:hover,
+    .paper-card:hover,
+    .result-card:hover,
+    .queue-item:hover,
+    .tool-btn:hover,
+    .prompt-chip:hover,
+    .next-action-btn:hover,
+    .checkbox-label:hover,
+    .site-footer .ai-toggle:hover,
+    .back-to-top:hover,
+    .theme-toggle:hover,
+    .github-link:hover {
+        transform: none;
+    }
+
+    body::after,
+    .brand-pulse,
+    .status-chip::before,
+    .progress-step.active::after,
+    .drop-zone-icon::before,
+    .paper-state.loading-state::after {
+        animation: none !important;
+    }
+}
+
+/* ---------- 30. Coarse pointer ---------- */
+@media (pointer: coarse) {
+    .btn,
+    .action-btn,
+    .mode-chip,
+    .prompt-chip,
+    .next-action-btn,
+    .paper-link,
+    .tool-btn {
+        min-height: 44px;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .paper-card:hover,
+    .result-card:hover,
+    .queue-item:hover,
+    .prompt-chip:hover,
+    .next-action-btn:hover {
+        transform: none;
+    }
+}
+
+/* ---------- 31. Responsive ---------- */
+@media (max-width: 900px) {
+    .nav-header { padding: 24px 26px; }
+    .logo { font-size: 30px; }
+    .export-preview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 768px) {
+    body { padding: 24px 16px 40px; }
+
+    .nav-header {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 22px;
+        gap: 18px;
+    }
+
+    .nav-actions { justify-content: flex-start; }
+    .hero-stats { gap: 8px; }
+    .hero-stats span { flex: 1 1 100%; justify-content: space-between; }
+    .brand { align-items: center; }
+    .brand-mark,
+    .brand-mark-wrap { width: 50px; height: 50px; }
+    .logo { font-size: 26px; }
+    .logo span { font-size: 11px; }
+    .hero-copy { font-size: 14.5px; }
+
+    .card, .result-card { padding: 22px; }
+
+    .section-header {
+        align-items: flex-start;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .section-header .action-btn { min-width: 92px; }
+
+    .paper-actions { flex-direction: column; }
+    .paper-actions input,
+    .paper-actions .btn { width: 100%; min-width: 0; }
+
+    .paper-card,
+    .queue-item { padding: 16px; }
+
+    .paper-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .paper-link { width: 100%; }
+
+    .workspace-guidance { grid-template-columns: 1fr 1fr; }
+
+    .ask-input-group { flex-direction: column; }
+    .ask-input-group .btn { width: 100%; padding: 14px 0; }
+
+    .chat-item { max-width: 95%; }
+    .mermaid-wrapper { height: 360px; }
+}
+
+@media (max-width: 520px) {
+    body { padding: 18px 12px 32px; }
+
+    .nav-header { padding: 18px; border-radius: var(--radius-lg); }
+    .brand { align-items: flex-start; gap: 14px; }
+    .brand-mark,
+    .brand-mark-wrap { width: 44px; height: 44px; border-radius: 14px; }
+    .logo { font-size: 22px; }
+    .logo span { font-size: 10px; letter-spacing: 0.1em; }
+    .hero-copy { font-size: 13.5px; line-height: 1.6; }
+
+    .nav-actions { gap: 8px; }
+    .status-chip { width: 100%; justify-content: center; padding-left: 32px; }
+    .theme-toggle, .github-link { width: 44px; height: 44px; }
+
+    .card, .result-card { padding: 18px; border-radius: var(--radius-lg); }
+
+    .section-header .action-btn { flex: 1 1 auto; }
+
+    .options-group { gap: 10px; margin-bottom: 24px; }
+    .checkbox-label { flex-basis: 100%; padding: 14px; }
+
+    .canvas-toolbar {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+    }
+    .tool-btn { width: 100%; }
+
+    .mermaid-wrapper { height: 320px; }
+
+    .export-preview-grid,
+    .workspace-guidance { grid-template-columns: 1fr; }
+    .paper-links { grid-template-columns: 1fr; }
+
+    .answer-mode-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .mode-chip { width: 100%; padding-left: 36px; }
+    .mode-chip::before { left: 14px; }
+
+    .chat-item { max-width: 100%; padding: 14px 16px; }
+
+    .prompt-chip,
+    .next-action-btn { width: 100%; justify-content: center; }
+
+    .back-to-top { right: 18px; bottom: 18px; width: 44px; height: 44px; }
+
+    .site-footer { margin-top: 40px; }
+}
