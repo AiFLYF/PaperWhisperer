@@ -23,6 +23,65 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Docling pulls in the torch chain and downloads models on first run, so it stays
+# out of the base install. Personal deployments that only need legacy parsing do
+# not pay for it; docling-serve containers are the alternative to inprocess mode.
+parse = [
+    "docling>=2.0",
+]
+# The Hosted tier. Kept out of the base install because the personal tier is
+# the default and must run with no external service and no database driver --
+# but a Hosted deployment that starts, serves /api/health, and only then fails
+# on the first read is a bad failure, because the health check touches neither
+# the store nor the database. Anything that brings up the Hosted tier installs
+# this.
+hosted = [
+    "psycopg[binary]>=3.1",
+    "numpy>=1.26",
+]
+# PDF page rendering for the T3.3 evidence viewer: the reader gets a picture of
+# the page the citation points at instead of a layout rebuilt from the parse's
+# coordinates. Deliberately an extra and not part of the base install, because
+# the personal tier's defining constraint is the smallest footprint it can run
+# with, and this is a rendering nicety rather than core: every citation still
+# resolves, still carries its passage, and still names its page and box on a
+# build without this.
+#
+# `pypdfium2` is the rasteriser — a compiled wheel with no system poppler
+# dependency, which is what makes it installable without a second package
+# manager on a personal machine. `pillow` is the PNG encoder and is declared
+# here rather than relied upon transitively: pdfium hands back a raw BGR buffer,
+# and an undeclared encoder would make "has the extra" and "can render" two
+# different questions on a machine where something else happened to pull Pillow
+# in.
+#
+# Without this extra the evidence route answers 501 and the payload's
+# `page_image.renderer` reads "none", so a deployment that skipped it shows the
+# schematic rather than a broken image.
+render = [
+    "pypdfium2>=4.30.0",
+    "pillow>=10.0.0",
+]
+# A local, offline embedding provider, and the first extra the *retrieval* path
+# has. Deliberately not in the base install, and not a replacement for the
+# OpenAI-compatible endpoint that is this product's default: decision D3
+# specifies API providers for LLM/embedding/rerank and explicitly rules out a
+# local BGE-M3, so this exists for the three cases the default cannot serve --
+# a deployment with no network and no API key, a test that must exercise the
+# real embedding chain offline, and a bake-off comparing two providers over one
+# document. `EMBEDDING_LOCAL_ENABLED=0` is the default and no code path imports
+# this package unless an operator turns it on.
+#
+# `fastembed` rather than `onnxruntime` + `transformers` directly, for two
+# reasons that are the same reason: it is ONNX with no torch in the dependency
+# tree (torch alone is several hundred MB and a multi-minute install), and it
+# ships a registry that declares each model's native vector width. That registry
+# is what lets `llm/embeddings_local.py` refuse a configured dimension that
+# disagrees with the weights, instead of producing vectors the search path
+# cannot compare.
+local-embeddings = [
+    "fastembed>=0.4.0",
+]
 dev = [
     "pytest>=8.0.0",
     "httpx>=0.27.0",
@@ -33,9 +92,22 @@ dev = [
 paperwhisperer = "web_app:main"
 
 [tool.setuptools]
+# `env_loader` is a top-level module, not a package, and `core/config.py`
+# imports it at module scope. Without `py-modules`, a non-editable install
+# dies with ModuleNotFoundError on the very first import of config -- and an
+# editable install hides it completely, which is how it survived this long.
+py-modules = ["env_loader"]
+# Listed explicitly rather than auto-discovered so that the wheel contains
+# exactly these packages. `paperwhisperer.ingestion.adapters` must be spelled
+# out: a non-editable install copies only the packages named here, so omitting
+# a subpackage ships a parser gateway that raises ImportError on its first
+# real document instead of failing at build time.
 packages = ["paperwhisperer", "paperwhisperer.core", "paperwhisperer.documents",
             "paperwhisperer.llm", "paperwhisperer.analysis", "paperwhisperer.search",
-            "paperwhisperer.sessions", "paperwhisperer.remote", "paperwhisperer.api"]
+            "paperwhisperer.sessions", "paperwhisperer.remote", "paperwhisperer.api",
+            "paperwhisperer.ingestion", "paperwhisperer.ingestion.adapters",
+            "paperwhisperer.rag", "paperwhisperer.infra",
+            "paperwhisperer.infra.stores"]
 
 # ---------------------------------------------------------------------------
 # pytest

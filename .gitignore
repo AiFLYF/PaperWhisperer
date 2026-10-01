@@ -4,7 +4,12 @@
 .env.*.local
 
 # --- local notes (planning docs, not part of the app) --------------------
-docs/
+# docs/ IS tracked. The plan, the deployment guide and the routing
+# decision record are the project's specification -- an untracked spec is
+# a spec that disappears on a fresh clone, and a build nobody can repeat.
+# Only generated output under docs/ is ignored.
+docs/_build/
+docs/_site/
 
 # --- runtime folders (regenerated on every run) --------------------------
 uploads/
@@ -41,8 +46,16 @@ htmlcov/
 # not part of the application.
 .parity/
 
-# --- evaluation corpus (about 79 MB; the build script and manifest stay) --
-eval/
+# --- evaluation corpus ---------------------------------------------------
+# eval/ is tracked *except* for its binary payload. The tooling
+# (build_manifest.py, make_*.py, download_arxiv.sh, README.md), the generated
+# manifest.yaml and the ground_truth/ text are all small and required to
+# re-verify or rebuild the corpus from a fresh clone, so they belong in git.
+# What stays out is the ~82 MB of binaries, because it is reproducible by
+# running eval/download_arxiv.sh and the three make_*.py scripts -- that is
+# exactly what the `corpus_version` field in manifest.yaml pins down.
+eval/corpus/
+eval/_assets/
 
 # --- misc ---------------------------------------------------------------
 *.log
