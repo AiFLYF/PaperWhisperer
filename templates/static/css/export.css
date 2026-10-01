@@ -8,14 +8,14 @@ Export preview, workspace guidance and the action button.
 .export-preview-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
 }
 
 .export-preview-card {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
-    padding: 14px;
+    padding: var(--space-4);
     background:
         linear-gradient(180deg, var(--surface-highlight), transparent),
         var(--bg-card);
@@ -46,16 +46,16 @@ Export preview, workspace guidance and the action button.
 .export-preview-card small {
     display: block;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.45;
 }
 
 .export-preview-card strong {
     display: block;
     color: var(--text-primary);
-    font-size: 16.5px;
+    font-size: var(--text-lg);
     font-weight: 800;
-    margin: 4px 0;
+    margin: var(--space-1) 0;
     letter-spacing: -0.3px;
     font-family: var(--font-mono);
 }
@@ -63,14 +63,14 @@ Export preview, workspace guidance and the action button.
 .workspace-guidance {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 12px;
-    margin-bottom: 14px;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
 }
 
 .workspace-guidance-item {
     border: 1px solid var(--primary-strong);
     border-radius: var(--radius-sm);
-    padding: 14px;
+    padding: var(--space-4);
     background: linear-gradient(135deg, var(--primary-soft), var(--cool-soft));
     transition: var(--transition);
     position: relative;
@@ -85,21 +85,21 @@ Export preview, workspace guidance and the action button.
 .workspace-guidance-item small {
     display: block;
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-sm);
     line-height: 1.45;
 }
 
 .workspace-guidance-item strong {
     display: block;
-    margin: 4px 0;
+    margin: var(--space-1) 0;
     color: var(--text-primary);
-    font-size: 14px;
+    font-size: var(--text-base);
     font-weight: 700;
 }
 
 .export-preview-note {
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: var(--text-ui);
     margin-bottom: 0;
     line-height: 1.55;
 }
@@ -109,12 +109,12 @@ Export preview, workspace guidance and the action button.
     background: transparent;
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-weight: 600;
     cursor: pointer;
     transition: var(--transition);
     border-radius: var(--radius-pill);
-    padding: 7px 14px;
+    padding: var(--space-2) var(--space-4);
     font-family: inherit;
 }
 
@@ -124,11 +124,10 @@ Export preview, workspace guidance and the action button.
     background: var(--surface-highlight);
 }
 
-.action-btn.action-success {
-    border-color: var(--success-color);
-    color: var(--success-color);
-    background: var(--success-soft);
-}
+/* .action-btn.action-success is a run state and is defined once in states.css
+   §8.6, which also gives it the confirmFlash acknowledgement. It was duplicated
+   here without the animation, so a successful copy flashed in one part of the
+   page and did not in another. */
 
 .action-btn:disabled {
     opacity: 0.4;
@@ -140,3 +139,16 @@ Export preview, workspace guidance and the action button.
     border-color: var(--border-color);
     background: transparent;
 }
+
+/* ---------- Export format control (T3.5) ----------
+   Namespaced under .export-* like everything else in this block, for
+   the same reason: this <style> loads after the shared cascade and
+   static/css/ is not this task's to edit. */
+.export-controls { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.export-format-label { font-size: var(--text-xs); color: var(--text-faint); }
+#exportFormat {
+    background: var(--input-bg); color: var(--text-primary);
+    border: 1px solid var(--border-color); border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-2); font-size: var(--text-sm); font-family: inherit;
+}
+.export-hint { margin: 0 0 var(--space-3); font-size: var(--text-xs); line-height: 1.55; color: var(--text-faint); }

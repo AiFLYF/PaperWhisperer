@@ -1,4 +1,5 @@
 import { escapeHtml, sanitizeGeneratedHtml } from './sanitize.js';
+import { t } from './i18n.js';
 
 if (window.marked) {
     marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
@@ -37,7 +38,7 @@ function renderMath(element) {
 
 function formatContent(content, fallbackText) {
     if (!content) {
-        return `<p class="empty-state">${escapeHtml(fallbackText || 'No content available.')}</p>`;
+        return `<p class="empty-state">${escapeHtml(fallbackText || t('content.none_available'))}</p>`;
     }
 
     let processedContent = String(content).replace(/\r\n/g, '\n');

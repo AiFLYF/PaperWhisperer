@@ -7,19 +7,19 @@ Paper search, recommendations and the reading queue.
 /* ---------- 20. Paper search / recommendations ---------- */
 .paper-actions {
     display: flex;
-    gap: 12px;
+    gap: var(--space-3);
     align-items: stretch;
     flex-wrap: wrap;
-    margin-bottom: 18px;
+    margin-bottom: var(--space-5);
 }
 
 .paper-actions input { flex: 1 1 320px; }
 .paper-actions .btn { width: auto; min-width: 184px; }
 
 .paper-meta {
-    font-size: 13px;
+    font-size: var(--text-ui);
     color: var(--text-secondary);
-    margin-bottom: 14px;
+    margin-bottom: var(--space-4);
     line-height: 1.55;
 }
 
@@ -27,8 +27,9 @@ Paper search, recommendations and the reading queue.
 .question-starter-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin: -4px 0 18px;
+    gap: var(--space-2);
+    /* A negative optical offset: the chips belong to the field above them. */
+    margin: calc(-1 * var(--space-2)) 0 var(--space-5);
 }
 
 .example-query-chips button,
@@ -39,10 +40,10 @@ Paper search, recommendations and the reading queue.
     color: var(--text-secondary);
     cursor: pointer;
     font-family: inherit;
-    font-size: 12.5px;
+    font-size: var(--text-sm);
     font-weight: 700;
     min-height: 36px;
-    padding: 7px 13px;
+    padding: var(--space-2) var(--space-3);
     transition: var(--transition);
 }
 
@@ -56,22 +57,22 @@ Paper search, recommendations and the reading queue.
     transform: translateY(-1px);
 }
 
-.paper-list { display: grid; gap: 16px; }
+.paper-list { display: grid; gap: var(--space-4); }
 
 .paper-state {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 14px;
+    gap: var(--space-4);
     align-items: flex-start;
-    padding: 18px 20px;
-    border: 1px dashed rgba(14, 125, 110, 0.26);
+    padding: var(--space-5) var(--space-5);
+    border: 1px dashed var(--primary-strong);
     border-radius: var(--radius-md);
-    background: rgba(14, 125, 110, 0.05);
+    background: var(--primary-tint-subtle);
 }
 
 .paper-state.loading-state {
     border-style: solid;
-    background: linear-gradient(135deg, rgba(14, 125, 110, 0.10), rgba(31, 111, 139, 0.08));
+    background: linear-gradient(135deg, var(--primary-soft), var(--cool-tint-subtle));
     position: relative;
     overflow: hidden;
 }
@@ -80,7 +81,7 @@ Paper search, recommendations and the reading queue.
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+    background: linear-gradient(90deg, transparent, var(--sheen-soft), transparent);
     transform: translateX(-100%);
     animation: shimmer 1.8s linear infinite;
     pointer-events: none;
@@ -91,7 +92,7 @@ Paper search, recommendations and the reading queue.
 }
 
 [data-theme="dark"] .paper-state.loading-state::after {
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent);
+    background: linear-gradient(90deg, transparent, var(--sheen-faint), transparent);
 }
 
 .paper-state-icon {
@@ -107,15 +108,15 @@ Paper search, recommendations and the reading queue.
 }
 
 .paper-state-title {
-    margin: 0 0 5px;
-    font-size: 14.5px;
+    margin: 0 0 var(--space-1);
+    font-size: var(--text-base);
     font-weight: 700;
     color: var(--text-primary);
 }
 
 .paper-state-body {
     margin: 0;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 1.65;
     color: var(--text-secondary);
 }
@@ -124,9 +125,9 @@ Paper search, recommendations and the reading queue.
     position: relative;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    padding: 20px 22px;
+    padding: var(--space-5) var(--space-6);
     background:
-        linear-gradient(180deg, var(--surface-highlight), rgba(255, 255, 255, 0.05) 50%),
+        linear-gradient(180deg, var(--surface-highlight), var(--sheen-faint) 50%),
         var(--bg-card);
     transition: var(--transition);
     box-shadow: var(--shadow-soft);
@@ -154,9 +155,9 @@ Paper search, recommendations and the reading queue.
 .paper-card:hover::before { opacity: 1; }
 
 .paper-card-title {
-    font-size: 16.5px;
+    font-size: var(--text-lg);
     font-weight: 700;
-    margin-bottom: 10px;
+    margin-bottom: var(--space-3);
     line-height: 1.45;
     letter-spacing: -0.2px;
 }
@@ -169,7 +170,7 @@ Paper search, recommendations and the reading queue.
     background-repeat: no-repeat;
     background-size: 0 1.5px;
     transition: background-size 0.3s var(--ease-out), color 0.25s var(--ease-out);
-    padding-bottom: 2px;
+    padding-bottom: var(--space-0);
 }
 
 .paper-card-title a:hover {
@@ -180,19 +181,19 @@ Paper search, recommendations and the reading queue.
 .paper-card-tags {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 12px;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
 }
 
 .paper-tag {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 4px 11px;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-3);
     border-radius: var(--radius-pill);
     border: 1px solid var(--border-color);
     color: var(--text-secondary);
-    font-size: 11.5px;
+    font-size: var(--text-xs);
     font-weight: 600;
     background: var(--bg-card);
     letter-spacing: 0.02em;
@@ -208,48 +209,56 @@ Paper search, recommendations and the reading queue.
 }
 
 .paper-card .paper-card-tags .paper-tag:nth-child(3n+1) { color: var(--primary-color); border-color: var(--primary-strong); background: var(--primary-soft); }
-.paper-card .paper-card-tags .paper-tag:nth-child(3n+2) { color: var(--cool-color); border-color: rgba(31, 111, 139, 0.28); background: var(--cool-soft); }
+.paper-card .paper-card-tags .paper-tag:nth-child(3n+2) { color: var(--cool-color); border-color: var(--cool-tint-deep); background: var(--cool-soft); }
 .paper-card .paper-card-tags .paper-tag:nth-child(3n+3) { color: var(--accent-color); border-color: var(--accent-strong); background: var(--accent-soft); }
 
-.paper-authors,
-.paper-abstract,
-.paper-reason {
-    font-size: 14px;
-    margin-bottom: 10px;
-    color: var(--text-primary);
-    line-height: 1.7;
+/* The author list is metadata, not prose: compact and sans. The abstract IS
+   prose — it is the one long block a search result carries — so it is set by
+   reading.css on the reading serif and the measure, alongside every other
+   paragraph in the product. It used to be styled here as 14px body text in
+   the sans face, which meant a paper's abstract looked nothing like the
+   abstract of the paper you had just analysed. */
+.paper-authors {
+    font-size: var(--text-base);
+    margin-bottom: var(--space-3);
+    color: var(--text-secondary);
+    line-height: var(--leading-relaxed);
 }
 
-.paper-authors,
-.paper-abstract { color: var(--text-secondary); }
+.paper-reason {
+    font-size: var(--text-base);
+    margin-bottom: var(--space-3);
+    color: var(--text-primary);
+    line-height: var(--leading-relaxed);
+}
 
 .paper-reason {
     background: var(--primary-soft);
     border-left: 3px solid var(--primary-color);
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
-    padding: 10px 14px;
-    font-size: 13.5px;
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-ui);
 }
 
 .paper-links {
     display: flex;
-    gap: 10px;
+    gap: var(--space-3);
     flex-wrap: wrap;
-    margin-top: 14px;
+    margin-top: var(--space-4);
 }
 
 .paper-link {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
-    padding: 10px 16px;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
     min-height: 42px;
     border-radius: var(--radius-pill);
     border: 1px solid var(--border-color);
     color: var(--primary-color);
     text-decoration: none;
-    font-size: 13px;
+    font-size: var(--text-ui);
     font-weight: 600;
     background: transparent;
     cursor: pointer;
@@ -273,20 +282,20 @@ button.paper-link:disabled {
 }
 
 /* ---------- 21. Reading queue ---------- */
-.reading-queue-card { margin-bottom: 24px; }
+.reading-queue-card { margin-bottom: var(--space-6); }
 
-.reading-queue { display: grid; gap: 12px; }
+.reading-queue { display: grid; gap: var(--space-3); }
 
 .queue-item {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: 16px;
+    gap: var(--space-4);
     align-items: flex-start;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    padding: 18px;
+    padding: var(--space-5);
     background:
-        linear-gradient(180deg, var(--surface-highlight), rgba(255, 255, 255, 0.04)),
+        linear-gradient(180deg, var(--surface-highlight), var(--sheen-faint)),
         var(--bg-card);
     transition: var(--transition);
     box-shadow: var(--shadow-soft);
@@ -305,21 +314,21 @@ button.paper-link:disabled {
     place-items: center;
     border-radius: 13px;
     background: var(--gradient-primary);
-    color: #ffffff;
+    color: var(--text-on-accent-fill);
     font-family: var(--font-mono);
-    font-size: 14px;
+    font-size: var(--text-base);
     font-weight: 800;
-    box-shadow: 0 8px 18px rgba(14, 125, 110, 0.30);
+    box-shadow: 0 8px 18px var(--primary-tint-deep);
     letter-spacing: -0.5px;
 }
 
 .queue-body { min-width: 0; }
 
 .queue-title {
-    font-size: 15px;
+    font-size: var(--text-md);
     font-weight: 700;
     line-height: 1.45;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-2);
     letter-spacing: -0.2px;
 }
 
@@ -333,15 +342,104 @@ button.paper-link:disabled {
 
 .queue-details {
     display: grid;
-    gap: 4px;
+    gap: var(--space-1);
     color: var(--text-secondary);
-    font-size: 13px;
-    margin-bottom: 12px;
+    font-size: var(--text-ui);
+    margin-bottom: var(--space-3);
     line-height: 1.5;
 }
 
 .queue-actions {
     display: flex;
-    gap: 10px;
+    gap: var(--space-3);
     flex-wrap: wrap;
 }
+
+/* ---------- Multi-signal recommendations (T3.2) ----------
+   The whole point of the .signal-* block is that `unavailable` and
+   `empty` cannot look alike. They are separate states with separate
+   copy in config.js; these rules give each a distinct tone on top of
+   that, so even a glance separates "we could not check this" from
+   "there is genuinely nothing here". `data-status` is the state, never
+   a count, so a 0 on an unavailable signal cannot borrow the styling
+   of a 0 on an empty one. */
+.signal-host, .duplicate-host { margin-bottom: var(--space-4); }
+.signal-host[hidden], .duplicate-host[hidden] { display: none; }
+.signal-heading, .duplicate-heading {
+    margin: 0 0 var(--space-2); font-size: var(--text-ui); font-weight: 600; color: var(--text-primary);
+}
+.signal-list, .duplicate-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-2); }
+.signal-row {
+    border-left: 3px solid var(--border-strong);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: var(--surface-frost);
+    padding: var(--space-3) var(--space-4);
+}
+.signal-row[data-status="ok"] { border-left-color: var(--success-color); }
+.signal-row[data-status="empty"] { border-left-color: var(--border-color); }
+.signal-row[data-status="unavailable"] { border-left-color: var(--warning-color); background: var(--warning-soft); }
+.signal-row[data-status="skipped"] { border-left-color: var(--text-faint); }
+.signal-row-head { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.signal-row-label { font-size: var(--text-ui); font-weight: 700; color: var(--text-primary); }
+.signal-row-status {
+    font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.03em;
+    padding: var(--space-0) var(--space-2); border-radius: 999px;
+    border: 1px solid currentColor;
+}
+.signal-row-status[data-tone="ok"] { color: var(--success-color); }
+.signal-row-status[data-tone="empty"] { color: var(--text-secondary); }
+.signal-row-status[data-tone="unavailable"] { color: var(--warning-color); }
+.signal-row-status[data-tone="skipped"] { color: var(--text-faint); }
+.signal-row-count { margin-left: auto; font-size: var(--text-sm); color: var(--text-secondary); }
+.signal-row-summary { margin: var(--space-2) 0 0; font-size: var(--text-sm); line-height: 1.55; color: var(--text-secondary); }
+.signal-row-reason { margin: var(--space-1) 0 0; font-size: var(--text-sm); line-height: 1.5; color: var(--text-faint); }
+
+.duplicate-panel {
+    border: 1px dashed var(--warning-color); border-radius: var(--radius-sm);
+    background: var(--warning-soft); padding: var(--space-3) var(--space-4);
+}
+.duplicate-policy { margin: 0 0 var(--space-2); font-size: var(--text-sm); line-height: 1.6; color: var(--text-primary); }
+.duplicate-pair { font-size: var(--text-sm); line-height: 1.55; }
+.duplicate-titles { margin: 0 0 var(--space-0); color: var(--text-primary); }
+.duplicate-title { font-weight: 600; }
+
+/* The arrow between a suspected pair. It is aria-hidden, so it must not be
+   the only thing that says "these two are the same paper" — the heading and
+   the dashed panel already do. */
+.duplicate-separator { color: var(--accent-color); padding: 0 var(--space-1); }
+.duplicate-basis { margin: 0; color: var(--text-secondary); }
+.duplicate-note { margin: var(--space-0) 0 0; color: var(--text-faint); }
+
+/* Per-card provenance. The reasons block sits with the card chrome, and
+   the duplicate badge is what stops a reader scrolling only the cards
+   from seeing one row of a suspected pair as an ordinary result. */
+.paper-reasons { margin: var(--space-3) 0 0; }
+.paper-reasons-heading { margin: 0 0 var(--space-2); font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-faint); }
+.paper-reason-list { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--space-2); }
+.paper-reason-item {
+    display: grid; gap: var(--space-0);
+    border-left: 3px solid var(--primary-color);
+    background: var(--primary-soft);
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    padding: var(--space-2) var(--space-3);
+}
+.paper-reason-label { font-size: var(--text-sm); font-weight: 700; color: var(--primary-color); }
+.paper-reason-text { font-size: var(--text-ui); line-height: 1.55; color: var(--text-primary); }
+.paper-reason-meta { font-size: var(--text-xs); color: var(--text-faint); }
+.paper-duplicate-note {
+    display: grid; gap: var(--space-0); margin-top: var(--space-3);
+    border: 1px dashed var(--warning-color); border-radius: var(--radius-sm);
+    background: var(--warning-soft); padding: var(--space-2) var(--space-3);
+}
+.paper-duplicate-badge {
+    justify-self: start; font-size: var(--text-2xs); font-weight: 700; letter-spacing: 0.04em;
+    padding: var(--space-0) var(--space-2); border-radius: 999px;
+    border: 1px solid var(--warning-color); color: var(--warning-color);
+}
+.paper-duplicate-text { font-size: var(--text-sm); line-height: 1.5; color: var(--text-primary); }
+
+/* The evidence panel's keyframes (evidence-slide-in, evidence-fade,
+   evidence-sheet-in) belong to the panel, not to a paper card. They are
+   declared once, in the template's <style>, alongside the rules that test
+   against them; they were carried here by accident when the inline block was
+   split up. */

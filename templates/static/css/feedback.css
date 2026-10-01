@@ -1,148 +1,117 @@
 /* ============================================================
-   PaperWhisperer — 13. Loading / spinner
+   PaperWhisperer — 3. File identity strip
    ============================================================
-Progress and error surfaces: loading, error block, file info.
+   What is loaded, and what the reader can do about it.
+
+   The loading block, the error banner and the status chip used
+   to live here. They are run states rather than document
+   surfaces, and they are now defined once in states.css with
+   the rest of the state vocabulary, so that a "loading" means
+   the same thing everywhere it appears.
+
+   Loaded after workspace.css; see the cascade map in
+   docs/FRONTEND_DESIGN.md.
    ============================================================ */
 
-/* ---------- 13. Loading / spinner ---------- */
-.loading,
-.error { display: none; margin-bottom: 24px; }
-
-.loading.active {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 56px 22px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-medium);
-    backdrop-filter: blur(16px);
-}
-
-.spinner {
-    width: 28px;
-    height: 28px;
-    border: 2.5px solid var(--border-color);
-    border-top-color: var(--primary-color);
-    border-right-color: var(--primary-color);
-    border-radius: 50%;
-    animation: spin 0.9s var(--ease-in-out) infinite;
-    margin-bottom: 18px;
-}
-
-.inline-spinner {
-    width: 16px;
-    height: 16px;
-    border-width: 2px;
-    margin: 8px 0 0;
-    display: inline-block;
-}
-
-.loading-text {
-    font-size: 14.5px;
-    color: var(--text-secondary);
-    font-weight: 500;
-}
-
-.progress-steps {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 10px;
-    margin-top: 20px;
-    position: relative;
-}
-
-.progress-step {
-    padding: 7px 14px;
-    border-radius: var(--radius-pill);
-    border: 1px solid var(--border-color);
-    color: var(--text-secondary);
-    background: var(--bg-card);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.02em;
-    position: relative;
-    transition: var(--transition);
-}
-
-.progress-step.active {
-    border-color: var(--primary-strong);
-    color: var(--primary-color);
-    background: var(--primary-soft);
-    box-shadow: 0 0 0 4px rgba(14, 125, 110, 0.08);
-}
-
-.progress-step.active::after {
-    content: "";
-    position: absolute;
-    inset: -3px;
-    border-radius: inherit;
-    border: 1px solid var(--primary-color);
-    opacity: 0.4;
-    animation: progressPulse 1.6s var(--ease-out) infinite;
-    pointer-events: none;
-}
-
-@keyframes progressPulse {
-    0% { transform: scale(1); opacity: 0.4; }
-    100% { transform: scale(1.15); opacity: 0; }
-}
-
-.progress-step.done {
-    border-color: rgba(45, 138, 79, 0.40);
-    color: var(--success-color);
-    background: var(--success-soft);
-    padding-left: 28px;
-}
-
-.progress-step.done::before {
-    content: "";
-    position: absolute;
-    left: 11px;
-    top: 50%;
-    width: 10px;
-    height: 6px;
-    border-left: 2px solid var(--success-color);
-    border-bottom: 2px solid var(--success-color);
-    transform: translateY(-65%) rotate(-45deg);
-}
-
-/* ---------- 14. Error block ---------- */
-.error {
-    background: var(--error-soft);
-    color: var(--error-color);
-    padding: 18px 20px;
-    border: 1px solid rgba(196, 62, 26, 0.22);
-    border-radius: var(--radius-md);
-    font-size: 14px;
-    font-weight: 500;
-    display: flex;
-    box-shadow: var(--shadow-soft);
-}
-
-/* ---------- 15. File info ---------- */
+/* ---------- File info ---------- */
 .file-info {
-    font-size: 13px;
-    color: var(--text-secondary);
-    margin-bottom: 24px;
-    padding: 18px 22px;
-    border: 1px solid var(--border-color);
-    border-radius: var(--radius-md);
-    background: var(--bg-card);
     display: flex;
     justify-content: space-between;
-    gap: 14px;
-    flex-wrap: wrap;
     align-items: center;
+    gap: var(--space-5);
+    flex-wrap: wrap;
+    margin-bottom: var(--space-7);
+    padding: var(--space-5) var(--space-6);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: var(--bg-card);
     box-shadow: var(--shadow-soft);
+    font-family: var(--font-stack);
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+    color: var(--text-secondary);
 }
+
+.file-info strong { color: var(--text-primary); font-weight: var(--weight-semibold); }
 
 .file-info-actions {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-3);
     flex-wrap: wrap;
 }
+
+/* ---------- Parse status (T3.4) ---------- */
+.parse-summary { margin: 0 0 var(--space-3); font-size: var(--text-base); color: var(--text-primary); }
+.parse-facts { display: grid; gap: var(--space-2); }
+.parse-fact { display: flex; gap: var(--space-3); font-size: var(--text-ui); }
+.parse-fact-label { flex: 0 0 96px; color: var(--text-faint); }
+.parse-fact-value { color: var(--text-primary); word-break: break-word; }
+.parse-fact-value[data-tone="warn"] { color: var(--warning-color); }
+.parse-fact-value[data-tone="fail"] { color: var(--error-color); }
+.parse-notice {
+    margin: var(--space-3) 0 0;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-ui);
+    line-height: 1.55;
+    border-left: 3px solid var(--border-strong);
+    background: var(--surface-frost);
+    color: var(--text-secondary);
+}
+.parse-notice[data-tone="cloud"] { border-left-color: var(--error-color); background: var(--error-soft); color: var(--text-primary); }
+.parse-notice[data-tone="warn"] { border-left-color: var(--warning-color); background: var(--warning-soft); }
+.parse-notice[data-tone="fail"] { border-left-color: var(--error-color); background: var(--error-soft); }
+.parse-notice[data-tone="local"] { border-left-color: var(--success-color); background: var(--success-soft); }
+.parse-warning-list, .parse-quality-flags { margin: var(--space-3) 0 0; padding-left: var(--space-5); font-size: var(--text-ui); color: var(--text-secondary); }
+.parse-quality-heading { margin: var(--space-3) 0 0; font-size: var(--text-ui); font-weight: 600; color: var(--text-primary); }
+.parse-quality-heading[data-tone="warn"] { color: var(--warning-color); }
+.parse-quality-heading[data-tone="fail"] { color: var(--error-color); }
+.parse-quality-rule { font-family: var(--font-mono); font-size: var(--text-sm); color: var(--text-faint); margin-right: var(--space-2); }
+
+/* The rule id is the machine name of the check and the message is what it
+   found. They sit on one line, so the message must be allowed to wrap
+   under itself rather than pushing the card wide. */
+.parse-quality-message { font-size: var(--text-ui); line-height: 1.55; color: var(--text-secondary); }
+.parse-quality-flags li[data-severity="fail"] { color: var(--error-color); }
+.parse-quality-flags li[data-severity="warn"] { color: var(--warning-color); }
+.parse-quality-clean { margin: var(--space-2) 0 0; font-size: var(--text-ui); color: var(--text-faint); }
+
+.reparse-controls[hidden] { display: none; }
+.reparse-fieldset { border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: var(--space-4); margin: var(--space-4) 0 0; }
+.reparse-fieldset legend { font-size: var(--text-ui); font-weight: 600; padding: 0 var(--space-2); }
+.reparse-field { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-4); }
+.reparse-field label { font-size: var(--text-ui); color: var(--text-secondary); }
+.reparse-field select {
+    font: inherit; font-size: var(--text-base); padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm); border: 1px solid var(--border-color);
+    background: var(--input-bg); color: var(--text-primary);
+}
+.reparse-field-check { flex-direction: row; align-items: center; gap: var(--space-3); }
+.reparse-field-check label { color: var(--text-primary); }
+.reparse-warning[hidden] { display: none; }
+.reparse-warning-item {
+    margin: 0 0 var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
+    font-size: var(--text-ui); line-height: 1.55;
+    border-left: 3px solid var(--warning-color); background: var(--warning-soft);
+}
+.reparse-warning[data-leaves-machine="true"] .reparse-warning-item {
+    border-left-color: var(--error-color); background: var(--error-soft); color: var(--text-primary);
+}
+.reparse-actions {
+    display: flex;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+    margin-top: var(--space-4);
+}
+
+/* The submit button is full width so it reads as the one thing to press in a
+   form that also holds two controls which do nothing until a parser is
+   chosen. */
+.reparse-actions .btn { flex: 1 1 220px; }
+
+.reparse-result { margin-top: var(--space-3); font-size: var(--text-ui); }
+.reparse-result[hidden] { display: none; }
+.reparse-result p { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--surface-frost); color: var(--text-secondary); }
+.reparse-result[data-tone="fail"] p { background: var(--error-soft); color: var(--text-primary); }
+.reparse-result[data-tone="pass"] p { background: var(--success-soft); color: var(--text-primary); }

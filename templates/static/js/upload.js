@@ -1,5 +1,6 @@
 import { MAX_UPLOAD_BYTES, SUPPORTED_UPLOAD_EXTENSIONS } from './config.js';
 import { hideError, showError } from './dom.js';
+import { t } from './i18n.js';
 
 /** File picking, drag-and-drop, upload validation and the file info bar. */
 
@@ -12,10 +13,15 @@ function initializeUploadDropZone() {
         if (event.target !== fileInput) fileInput.click();
     });
     dropZone.addEventListener('keydown', event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            fileInput.click();
-        }
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        // The file input is a child of the drop zone, so a key pressed while the
+        // input itself has focus bubbles here. The input already opens the
+        // picker for Enter and Space, and `event.target !== fileInput` guards
+        // only the click handler — so without this a single keypress opened two
+        // file dialogs, the second on top of the first.
+        if (event.target === fileInput) return;
+        event.preventDefault();
+        fileInput.click();
     });
     ['dragenter', 'dragover'].forEach(type => {
         dropZone.addEventListener(type, event => {
@@ -103,7 +109,16 @@ function updateFileMeta(validationError = '') {
     fileMeta.replaceChildren();
 
     if (!file) {
-        fileMeta.textContent = 'No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.';
+        // Through the catalogue rather than the bare literal this used to carry.
+        // `initialize()` calls `updateFileMeta()` at startup, so the English
+        // sentence was written straight over the element's translated
+        // `data-i18n="upload.file_meta_empty"` text on first paint — the upload
+        // card's own description of itself, in the wrong language, before the
+        // reader had done anything.
+        const emptyKey = 'upload.file_meta_empty';
+        fileMeta.textContent = t(emptyKey) === emptyKey
+            ? 'No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.'
+            : t(emptyKey);
         dropZone?.classList.remove('has-file', 'has-error');
         dropZone?.setAttribute('aria-invalid', 'false');
         return;

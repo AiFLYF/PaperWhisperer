@@ -180,8 +180,57 @@ function sanitizeRenderedSvg(svgMarkup) {
 }
 
 
+const TABLE_ALLOWED_TAGS = new Set(['TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'CAPTION']);
+
+// `data-cell` is what makes a cell addressable: the citation verifier reports
+// which cell a quote landed in as `R2C3`, and without this attribute in the
+// markup the viewer can only highlight a cell by counting rows. `sanitizeGeneratedHtml`
+// strips it, because that allowlist is for model output, so the evidence panel
+// needs its own — and a narrower one.
+const TABLE_ALLOWED_ATTRIBUTES = new Set(['data-cell', 'data-cited', 'colspan', 'rowspan', 'scope']);
+
+/**
+ * Sanitize the table HTML the Evidence API returns.
+ *
+ * A separate, far narrower pass than `sanitizeGeneratedHtml`, for two reasons.
+ * First, the general allowlist does not carry `data-cell` / `data-cited`, so
+ * routing the API's table through it would strip the very attributes that make
+ * a cited cell identifiable. Second, the threat model differs: this is markup
+ * the *server* built from `Table.to_markdown`'s own cells with every value run
+ * through `html.escape`, not model output — so the job here is to keep the
+ * addressable structure intact while still refusing anything executable, rather
+ * than to strip to a flat set of prose tags.
+ *
+ * Text content is never re-escaped or re-parsed. Every tag outside the
+ * allowlist is unwrapped to its text content, which is what the rest of the
+ * file does, so a table cell containing the literal text `<script>` is
+ * displayed as that text rather than executed.
+ */
+function sanitizeTableHtml(html) {
+    const template = document.createElement('template');
+    template.innerHTML = String(html || '');
+
+    template.content.querySelectorAll('*').forEach(node => {
+        if (!TABLE_ALLOWED_TAGS.has(node.tagName)) {
+            node.replaceWith(document.createTextNode(node.textContent || ''));
+            return;
+        }
+        Array.from(node.attributes).forEach(attribute => {
+            if (!TABLE_ALLOWED_ATTRIBUTES.has(attribute.name.toLowerCase())) {
+                node.removeAttribute(attribute.name);
+            }
+        });
+    });
+
+    const container = document.createElement('div');
+    container.appendChild(template.content.cloneNode(true));
+    return container.innerHTML;
+}
+
+
 export { escapeHtml };
 export { sanitizeGeneratedHtml };
 export { sanitizeImageUrl };
 export { sanitizeRenderedSvg };
+export { sanitizeTableHtml };
 export { sanitizeUrl };

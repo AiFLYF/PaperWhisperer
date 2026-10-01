@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { focusWorkspaceTarget, scrollWindowTo, updateStatus } from './dom.js';
+import { t } from './i18n.js';
 
 /**
  * Accessibility affordances: the back-to-top control and the Alt+U / Alt+S /
@@ -13,15 +14,15 @@ function handleWorkspaceShortcut(event) {
     event.preventDefault();
     if (key === 'u') {
         focusWorkspaceTarget('uploadWorkspace', '#dropZone');
-        updateStatus('Upload shortcut focused document source', 'idle');
+        updateStatus(t('a11y.shortcut_upload'), 'idle');
     } else if (key === 's') {
         focusWorkspaceTarget('paperSearchTitle', null);
         document.getElementById('paperSearchInput')?.focus({ preventScroll: true });
-        updateStatus('Search shortcut focused paper search', 'idle');
+        updateStatus(t('a11y.shortcut_search'), 'idle');
     } else {
         focusWorkspaceTarget('askQuestionsTitle', null);
         document.getElementById('questionInput')?.focus({ preventScroll: true });
-        updateStatus('Ask shortcut focused question input', 'idle');
+        updateStatus(t('a11y.shortcut_ask'), 'idle');
     }
 }
 

@@ -8,25 +8,26 @@ checkboxes, primary button.
 /* ---------- 8. Form controls ---------- */
 .card-intro {
     color: var(--text-secondary);
-    font-size: 14.5px;
-    margin-bottom: 24px;
+    font-size: var(--text-base);
+    margin-bottom: var(--space-6);
     line-height: 1.7;
 }
 
 .shortcut-hints {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin: -10px 0 24px;
+    gap: var(--space-2);
+    /* A negative optical offset, so the block sits tight under the intro it follows. */
+    margin: calc(-1 * var(--space-3)) 0 var(--space-6);
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-sm);
 }
 
 .shortcut-hints span {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
-    padding: 6px 10px;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-pill);
     background: var(--surface-highlight);
@@ -34,26 +35,26 @@ checkboxes, primary button.
 
 .shortcut-hints kbd {
     min-width: 22px;
-    padding: 2px 6px;
+    padding: var(--space-0) var(--space-2);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     background: var(--bg-card);
     color: var(--primary-color);
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 800;
     text-align: center;
     box-shadow: 0 1px 0 var(--border-color);
 }
 
-.form-group { margin-bottom: 26px; }
+.form-group { margin-bottom: var(--space-6); }
 
 .form-group label {
     display: block;
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 700;
     color: var(--text-secondary);
-    margin-bottom: 10px;
+    margin-bottom: var(--space-3);
     text-transform: uppercase;
     letter-spacing: 0.08em;
 }
@@ -63,11 +64,11 @@ input[type="password"],
 input[type="search"],
 input[type="file"] {
     width: 100%;
-    padding: 14px 18px;
+    padding: var(--space-4) var(--space-5);
     background-color: var(--input-bg);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-md);
-    font-size: 15.5px;
+    font-size: var(--text-md);
     color: var(--text-primary);
     transition: var(--transition);
     font-family: inherit;
@@ -78,16 +79,16 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 
 input::placeholder { color: var(--text-faint); }
 
-input[type="file"] { padding: 12px; cursor: pointer; }
+input[type="file"] { padding: var(--space-3); cursor: pointer; }
 
 input[type="file"]::file-selector-button {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
-    padding: 8px 14px;
+    padding: var(--space-2) var(--space-4);
     border-radius: var(--radius-sm);
     color: var(--text-primary);
     cursor: pointer;
-    margin-right: 14px;
+    margin-right: var(--space-4);
     font-weight: 600;
     transition: var(--transition);
 }
@@ -110,12 +111,12 @@ input:focus {
     display: grid;
     grid-template-columns: auto 1fr;
     align-items: center;
-    gap: 18px;
+    gap: var(--space-5);
     min-height: 124px;
-    padding: 22px;
+    padding: var(--space-6);
     border-radius: var(--radius-lg);
     border: 1.5px dashed var(--primary-strong);
-    background: linear-gradient(135deg, rgba(14, 125, 110, 0.07), rgba(31, 111, 139, 0.05));
+    background: linear-gradient(135deg, var(--primary-tint-subtle), var(--cool-tint-subtle));
     cursor: pointer;
     transition: var(--transition);
     overflow: hidden;
@@ -126,7 +127,7 @@ input:focus {
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background: radial-gradient(circle at 30% 20%, rgba(14, 125, 110, 0.12), transparent 60%);
+    background: radial-gradient(circle at 30% 20%, var(--primary-soft), transparent 60%);
     opacity: 0.6;
     transition: opacity 0.4s var(--ease-out);
     pointer-events: none;
@@ -137,8 +138,8 @@ input:focus {
 .drop-zone:focus-within,
 .drop-zone.drag-over {
     border-color: var(--primary-color);
-    background: linear-gradient(135deg, rgba(14, 125, 110, 0.14), rgba(31, 111, 139, 0.10));
-    box-shadow: var(--shadow-medium), 0 0 0 4px rgba(14, 125, 110, 0.12);
+    background: linear-gradient(135deg, var(--primary-tint), var(--cool-soft));
+    box-shadow: var(--shadow-medium), 0 0 0 4px var(--primary-soft);
     transform: translateY(-2px);
 }
 
@@ -148,13 +149,13 @@ input:focus {
 .drop-zone.has-file {
     border-style: solid;
     border-color: var(--primary-color);
-    background: linear-gradient(135deg, rgba(45, 138, 79, 0.12), rgba(14, 125, 110, 0.10));
+    background: linear-gradient(135deg, var(--success-soft), var(--primary-soft));
 }
 
 .drop-zone.has-error {
     border-style: solid;
-    border-color: rgba(196, 62, 26, 0.6);
-    background: linear-gradient(135deg, rgba(196, 62, 26, 0.10), rgba(196, 106, 22, 0.06));
+    border-color: var(--error-tint-deep);
+    background: linear-gradient(135deg, var(--error-soft), var(--accent-tint-subtle));
 }
 
 .drop-zone input[type="file"] {
@@ -175,7 +176,7 @@ input:focus {
     border-radius: 18px;
     background: var(--bg-elevated);
     color: var(--primary-color);
-    box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    box-shadow: var(--shadow-soft), inset 0 1px 0 var(--sheen);
     transition: var(--transition);
     overflow: hidden;
 }
@@ -184,7 +185,7 @@ input:focus {
     content: "";
     position: absolute;
     inset: -50%;
-    background: conic-gradient(from 180deg, rgba(14, 125, 110, 0), rgba(14, 125, 110, 0.18), rgba(14, 125, 110, 0));
+    background: conic-gradient(from 180deg, var(--transparent), var(--primary-tint), var(--transparent));
     animation: dropZoneSpin 6s linear infinite;
     opacity: 0.7;
 }
@@ -215,42 +216,42 @@ input:focus {
 .drop-zone.has-error .drop-zone-svg-alert { opacity: 1; transform: scale(1); }
 
 .drop-zone-title {
-    font-size: 16.5px;
+    font-size: var(--text-lg);
     font-weight: 700;
     color: var(--text-primary);
-    margin-bottom: 5px;
+    margin-bottom: var(--space-1);
     letter-spacing: -0.2px;
 }
 
 .drop-zone-hint {
-    font-size: 13px;
+    font-size: var(--text-ui);
     color: var(--text-secondary);
 }
 
 /* ---------- 10. File meta ---------- */
 .file-meta {
     display: grid;
-    gap: 12px;
-    font-size: 13px;
+    gap: var(--space-3);
+    font-size: var(--text-ui);
     color: var(--text-secondary);
-    margin-top: 14px;
-    padding: 14px 16px;
+    margin-top: var(--space-4);
+    padding: var(--space-4) var(--space-4);
     border-radius: var(--radius-md);
-    background: rgba(14, 125, 110, 0.06);
-    border: 1px dashed rgba(14, 125, 110, 0.20);
+    background: var(--primary-tint-subtle);
+    border: 1px dashed var(--primary-strong);
     transition: var(--transition);
 }
 
 .file-meta-ready {
     border-style: solid;
-    border-color: rgba(14, 125, 110, 0.32);
-    background: rgba(14, 125, 110, 0.10);
+    border-color: var(--primary-tint-deep);
+    background: var(--primary-soft);
 }
 
 .file-meta-error {
     border-style: solid;
-    border-color: rgba(196, 62, 26, 0.42);
-    background: rgba(196, 62, 26, 0.08);
+    border-color: var(--error-tint-deep);
+    background: var(--error-tint-subtle);
 }
 
 .file-meta-summary,
@@ -258,15 +259,15 @@ input:focus {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
 }
 
 .file-meta-status,
 .file-meta-item {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-pill);
     background: var(--surface-highlight);
@@ -283,7 +284,7 @@ input:focus {
 
 .file-meta-label {
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--text-xs);
     font-weight: 800;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -299,21 +300,21 @@ input:focus {
 /* ---------- 11. Checkboxes ---------- */
 .options-group {
     display: flex;
-    gap: 14px;
-    margin-bottom: 32px;
+    gap: var(--space-4);
+    margin-bottom: var(--space-8);
     flex-wrap: wrap;
 }
 
 .checkbox-label {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     cursor: pointer;
-    font-size: 14px;
+    font-size: var(--text-base);
     color: var(--text-primary);
     user-select: none;
     flex: 1 1 280px;
-    padding: 16px 18px;
+    padding: var(--space-4) var(--space-5);
     border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
     background: var(--surface-highlight);
@@ -325,13 +326,13 @@ input:focus {
 
 .checkbox-label:hover {
     border-color: var(--primary-strong);
-    background: rgba(14, 125, 110, 0.06);
+    background: var(--primary-tint-subtle);
     transform: translateY(-1px);
 }
 
 .checkbox-label:has(input:checked) {
     border-color: var(--primary-color);
-    background: rgba(14, 125, 110, 0.08);
+    background: var(--primary-tint-subtle);
     box-shadow: inset 0 0 0 1px var(--primary-soft);
 }
 
@@ -346,11 +347,11 @@ input:focus {
 /* ---------- 12. Primary button ---------- */
 .btn {
     background: var(--gradient-primary);
-    color: #ffffff;
+    color: var(--text-on-accent-fill);
     border: none;
     border-radius: var(--radius-pill);
-    padding: 15px 26px;
-    font-size: 15px;
+    padding: var(--space-4) var(--space-6);
+    font-size: var(--text-md);
     font-weight: 700;
     cursor: pointer;
     width: 100%;
@@ -366,7 +367,7 @@ input:focus {
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.16), transparent 55%);
+    background: linear-gradient(135deg, var(--sheen-faint), transparent 55%);
     opacity: 0;
     transition: opacity 0.3s var(--ease-out);
     z-index: 0;
@@ -379,7 +380,7 @@ input:focus {
     left: -120%;
     width: 80%;
     height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.34), transparent);
+    background: linear-gradient(90deg, transparent, var(--sheen-faint), transparent);
     transform: skewX(-18deg);
     transition: left 0.7s var(--ease-out);
     z-index: 0;
@@ -389,7 +390,7 @@ input:focus {
 
 .btn:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 22px 40px rgba(14, 125, 110, 0.30), var(--shadow-medium);
+    box-shadow: 0 22px 40px var(--primary-tint-deep), var(--shadow-medium);
 }
 
 .btn:hover:not(:disabled)::before { opacity: 1; }
@@ -398,26 +399,16 @@ input:focus {
 .btn:active:not(:disabled) { transform: translateY(0); }
 
 .btn:disabled {
-    background: linear-gradient(135deg, #c2c8d0 0%, #b5bcc6 100%);
-    color: #ffffff;
+    background: var(--btn-disabled-bg);
+    color: var(--btn-disabled-ink);
     cursor: not-allowed;
     opacity: 0.7;
     box-shadow: none;
 }
 
-[data-theme="dark"] .btn:disabled {
-    background: linear-gradient(135deg, #3a4150 0%, #2c3340 100%);
-}
 
-.btn.is-busy {
-    cursor: wait;
-    background-size: 200% 100%;
-    animation: busySweep 1.6s linear infinite;
-}
-
-@keyframes busySweep {
-    from { background-position: 200% 0; }
-    to { background-position: -200% 0; }
-}
-
-.action-btn.is-busy { cursor: wait; }
+/* The busy treatment of a button is a run state, not a control style, and is
+   defined once in states.css §8.6 together with its @keyframes busySweep and
+   the matching .action-btn.is-busy. The copies that were here set a different
+   cursor and a faster sweep, so the two files disagreed about what "working"
+   looks like and cascade order picked the winner. */

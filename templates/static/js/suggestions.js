@@ -1,6 +1,7 @@
 import { ANSWER_MODE_DETAILS, ANSWER_MODE_LABELS } from './config.js';
 import { state } from './state.js';
 import { updateStatus } from './dom.js';
+import { t } from './i18n.js';
 
 /**
  * Follow-up affordances: answer-mode selection, starter questions and the
@@ -45,7 +46,18 @@ function setAnswerMode(mode) {
         button.tabIndex = selected ? 0 : -1;
     });
     const hint = document.getElementById('answerModeHint');
-    if (hint) hint.textContent = ANSWER_MODE_DETAILS[state.currentAnswerMode];
+    // Through the catalogue rather than `ANSWER_MODE_DETAILS`, which holds the
+    // *English* locale's sentences. Writing it here overwrote the translated
+    // `data-i18n="mode.detail.evidence"` text on the very first call —
+    // `initialize()` calls this at startup — so a Chinese-default interface
+    // showed one English line here from the moment it loaded, above a page that
+    // was otherwise Chinese.
+    if (hint) {
+        const detail = t(`mode.detail.${state.currentAnswerMode}`);
+        hint.textContent = detail === `mode.detail.${state.currentAnswerMode}`
+            ? ANSWER_MODE_DETAILS[state.currentAnswerMode]
+            : detail;
+    }
 }
 
 function handleAnswerModeKeydown(event) {
@@ -73,17 +85,42 @@ function handleAnswerModeKeydown(event) {
     nextChip.focus({ preventScroll: true });
 }
 
+/**
+ * Put a prompt in the composer without destroying what is already there.
+ *
+ * Every chip on this page — starter questions, the server's suggested
+ * questions, the next-action buttons — routes through here. It used to assign
+ * unconditionally, so a reader who had typed half a question and then clicked a
+ * chip to *compare* the two lost their draft with no warning and no undo. A
+ * question is the most expensive field in this interface to retype, and losing
+ * one to a click that was not asking to replace it is a bug, not a shortcut.
+ *
+ * So the draft wins. The chip's prompt is not shown instead, because there is
+ * nowhere to show it without another surface and silently doing nothing is
+ * worse than the status line naming what happened: the reader is told the chip
+ * did not apply and why, and their own text is still in front of them.
+ */
 function fillQuestionInput(prompt) {
     const questionInput = document.getElementById('questionInput');
-    if (!questionInput) return;
+    if (!questionInput || !prompt) return;
+    const draft = questionInput.value.trim();
+    if (draft && draft !== prompt) {
+        updateStatus('Your question was left as you typed it — clear it to use this suggestion', 'idle');
+        questionInput.focus();
+        return;
+    }
     questionInput.value = prompt;
     questionInput.focus();
+    updateStatus('Question loaded into the box — edit it or send it as is', 'idle');
 }
 
 function useStarterQuestion(question) {
     if (!question) return;
+    // No status update here: `fillQuestionInput` already acknowledged the load,
+    // or explained why it declined to. Reporting "Starter question loaded" on
+    // top of that would overwrite the explanation with a statement that is
+    // false — the starter question is precisely what did *not* get loaded.
     fillQuestionInput(question);
-    updateStatus('Starter question loaded', 'idle');
 }
 
 function renderSmartPrompts(questions = state.currentSuggestedQuestions) {
@@ -116,6 +153,14 @@ function renderNextActions(actions = state.currentNextActions) {
         button.type = 'button';
         button.textContent = action.label;
         button.title = action.prompt;
+        // The prompt — the question this button will actually ask — was
+        // reachable only through `title`, which is a hover affordance. A
+        // keyboard or screen-reader user gets a name that is just the label
+        // ("Review the methodology") and no way to find out what is about to be
+        // asked before they press it, which is the whole content of the control.
+        // This is the same argument `queue.js` makes for putting the
+        // consequence in an `aria-label` rather than a `title`.
+        button.setAttribute('aria-label', `${action.label} — asks: ${action.prompt}`);
         button.addEventListener('click', () => fillQuestionInput(action.prompt));
         container.appendChild(button);
     });

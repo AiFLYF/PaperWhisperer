@@ -1,57 +1,306 @@
 /* ============================================================
    PaperWhisperer — 1. Design tokens
    ============================================================
-Design tokens: palette, spacing, type scale, shadows.
-Loaded first because every later layer reads these custom properties.
+   THE SYSTEM. Everything visible in the product resolves to a value
+   in this file. If a colour or a size appears in another stylesheet
+   that is not reachable from a token here, it is a bug.
+
+   Reading order:
+     1.1 Space        — a 4px-based scale; every gap, pad, inset
+     1.2 Type         — one ramp, plus the measure it is set to
+     1.3 Colour       — surface / text / border / accent / state
+     1.4 Radii        — 5 steps and a pill
+     1.5 Elevation    — 4 steps, plus one inset highlight
+     1.6 Focus        — the ring, in both themes
+     1.7 Motion       — 4 durations, 2 easings, one transition
+     1.8 Layout       — the two numbers that must agree with JS
+
+   Dark theme is a re-declaration of the same roles, not an
+   inversion: the hue families are identical and only the lightness
+   moves, so "teal" means the same thing in both. Every colour below
+   was measured against its own surface; the ratios are recorded in
+   docs/FRONTEND_DESIGN.md.
+
+   Loaded first because every later layer reads these properties.
    ============================================================ */
 
-/* ---------- 1. Design tokens ---------- */
 :root {
-    /* Surfaces */
-    --bg-body: #f1ece1;
+    /* ========================================================
+       1.1 Space — 4px base
+       -------------------------------------------------------
+       Steps, not sizes: a layout picks "two steps" or "three
+       steps", never 26px. Ad-hoc values are what make a
+       codebase drift, so anything not on this ramp is a bug.
+
+       The rhythm that matters for this product is inside a
+       reading column, where --space-flow drives the gap
+       between successive block elements (see reading.css).
+       ======================================================== */
+    --space-0: 0;
+    --space-1: 2px;      /* hairline offsets, icon nudges      */
+    --space-2: 4px;      /* inside a pill, badge padding      */
+    --space-3: 8px;      /* chip gaps, icon-to-label          */
+    --space-4: 12px;     /* dense control padding             */
+    --space-5: 16px;     /* the default component gutter      */
+    --space-6: 20px;     /* card padding at desktop           */
+    --space-7: 24px;     /* between siblings inside a card    */
+    --space-8: 32px;     /* between cards                     */
+    --space-9: 40px;     /* between page regions              */
+    --space-10: 48px;    /* large breathing room              */
+    --space-11: 64px;    /* section separation                */
+    --space-12: 80px;    /* page-scale separation             */
+
+    /* The measure of a prose column. Long-form academic text
+       stops being readable much past 70 characters; the reading
+       surfaces are capped to this and centred. */
+    --measure: 68ch;
+
+    /* ========================================================
+       1.2 Type — one ramp, two voices
+       -------------------------------------------------------
+       The product has two jobs and they should not share a
+       typeface. The workbench (chrome, controls, labels, meta)
+       is a sans and stays compact. The reading surface — the
+       analysis, the Q&A answers, the cited passage, the
+       abstract — is set in a book serif, because that is what
+       the output actually is: an academic paper being read.
+
+       --font-reading leads with Newsreader so that a browser
+       which already has it (the landing page self-hosts it)
+       shows the same letterforms the marketing site does. It is
+       not a dependency: it is not fetched here, and the stack
+       falls through to the system serif everywhere else. That
+       is deliberate — assets/fonts/ is not mounted by the app
+       server, so a @font-face pointing at it would be a 404.
+       ======================================================== */
+    --font-stack: "IBM Plex Sans", "Noto Sans SC", "Inter", "Segoe UI", sans-serif;
+    --font-reading: "Newsreader", "Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", Georgia, serif;
+    --font-mono: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+
+    /* Size ramp. Ratios are ~1.2 in the small steps, widening
+       above the body size where headings need to read as
+       headings rather than as slightly-larger body. */
+    --text-2xs: 10.5px;  /* the "非原始渲染图" badge: a stamp  */
+    --text-xs: 11.5px;   /* meta labels, captions, figure notes */
+    --text-sm: 12.5px;   /* dense rows, chips, toolbars        */
+    --text-ui: 13.5px;   /* control labels                     */
+    --text-base: 14px;   /* secondary UI body                  */
+    --text-md: 15px;     /* primary UI body                    */
+    --text-lg: 16.5px;   /* card titles, chat headers          */
+    --text-xl: 19px;     /* section titles                     */
+    --text-2xl: 23px;    /* page-level heading                 */
+    --text-3xl: 30px;    /* display                            */
+    --text-4xl: 36px;    /* the wordmark                       */
+
+    /* Leading. Tight above 20px, open below it, and looser
+       still for prose: 1.75 is the low end of comfortable for
+       a serif at reading size. */
+    --leading-tight: 1.15;
+    --leading-snug: 1.35;
+    --leading-normal: 1.55;
+    --leading-relaxed: 1.7;
+    --leading-prose: 1.78;
+
+    /* Tracking. Negative as size grows (large type needs to be
+         pulled together), positive on small caps labels. */
+    --tracking-tight: -0.02em;
+    --tracking-display: -0.035em;
+    --tracking-normal: 0;
+    --tracking-wide: 0.03em;
+    --tracking-caps: 0.08em;
+
+    /* Weight. Four is enough; a fifth is how a ramp stops
+       being a ramp. */
+    --weight-regular: 400;
+    --weight-medium: 500;
+    --weight-semibold: 600;
+    --weight-bold: 700;
+
+    /* ========================================================
+       1.3 Colour — roles
+       -------------------------------------------------------
+       Five families. A colour belongs to exactly one.
+
+         surface  what you can see through to / sit on
+         text     what you read, ranked
+         border   where one surface ends
+         accent   the product's own voice (teal), the second
+                  voice (amber), and the cool third (blue)
+         state    success / warning / danger / info — the four
+                  that mean something about the run, not the page
+
+       A state colour is never used for decoration and an accent
+       colour is never used for state. That single rule is what
+       lets a reader trust a red banner.
+       ======================================================== */
+
+    /* --- Surfaces --- */
+    --bg-body: #f1ece1;                       /* the desk the paper sits on */
     --bg-soft: #f7f2e8;
-    --bg-card: rgba(255, 252, 246, 0.94);
-    --bg-elevated: rgba(255, 252, 246, 0.98);
+    --bg-card: rgba(255, 252, 246, 0.94);     /* a sheet of paper          */
+    --bg-elevated: rgba(255, 252, 246, 0.98); /* raised above the sheet    */
     --surface-highlight: rgba(255, 255, 255, 0.55);
     --surface-frost: rgba(255, 255, 255, 0.32);
-    --canvas-bg: #fffdf7;
+    --surface-sunken: rgba(28, 34, 48, 0.04);  /* wells: code, table header */
+    --canvas-bg: #fffdf7;                     /* the diagram canvas        */
     --code-bg: #0f172a;
 
-    /* Text */
-    --text-primary: #1c2230;
-    --text-secondary: #5a6371;
-    --text-faint: #8b94a3;
+    /* --- Text ---
+       Light values below are the measured ones. The previous
+       --text-faint (#8B94A3) measured 2.99:1 and --warning-color
+       (#B87616) 3.64:1, both failures at the sizes they are
+       actually used at. See docs/FRONTEND_DESIGN.md §Contrast. */
+    --text-primary: #1c2230;   /* 15.53:1 on card — AAA */
+    --text-secondary: #5a6371; /*  5.93:1 — AA          */
+    --text-faint: #6b7280;     /*  4.72:1 — AA (was 2.99) */
+    --text-on-accent: #ffffff; /* on a filled accent surface */
 
-    /* Brand palette — moss teal & warm amber, cooler than before */
-    --primary-color: #0e7d6e;
-    --primary-hover: #0b6359;
-    --primary-soft: rgba(14, 125, 110, 0.10);
-    --primary-strong: rgba(14, 125, 110, 0.28);
-    --accent-color: #c46a16;
-    --accent-soft: rgba(196, 106, 22, 0.12);
-    --accent-strong: rgba(196, 106, 22, 0.34);
-    --cool-color: #1f6f8b;
-    --cool-soft: rgba(31, 111, 139, 0.12);
-    --success-color: #2d8a4f;
-    --success-soft: rgba(45, 138, 79, 0.10);
-    --error-color: #c43e1a;
-    --error-soft: rgba(196, 62, 26, 0.10);
-    --warning-color: #b87616;
-    --warning-soft: rgba(184, 118, 22, 0.12);
-
-    /* Lines */
+    /* --- Borders --- */
     --border-color: rgba(28, 34, 48, 0.10);
     --border-soft: rgba(28, 34, 48, 0.06);
     --border-strong: rgba(28, 34, 48, 0.18);
+
+    /* --- Accent: the product's own voice ---
+       Teal is "this is ours". Deepened from #0E7D6E to #0A6A5D
+       so that links and labels on the body background clear
+       4.5:1 (4.27:1 -> 5.51:1) — the old value only passed
+       against the card, and most of the UI sits on the body. */
+    --primary-color: #0a6a5d;
+    --primary-hover: #085549;
+    --primary-soft: rgba(10, 106, 93, 0.10);
+    --primary-strong: rgba(10, 106, 93, 0.28);
+    --accent-color: #a6530c;   /* the second voice. 5.31:1, was 3.78 */
+    --accent-soft: rgba(166, 83, 12, 0.12);
+    --accent-strong: rgba(166, 83, 12, 0.34);
+    --cool-color: #1f6f8b;
+    --cool-soft: rgba(31, 111, 139, 0.12);
+    --info-color: #1f6f8b;
+    --info-soft: rgba(31, 111, 139, 0.12);
+
+    /* --- State: meaning about the run, never decoration --- */
+    --success-color: #1f7a43;  /* 5.23:1 — AA (was 4.22) */
+    --success-soft: rgba(31, 122, 67, 0.10);
+    --warning-color: #8a5d0b;  /* 5.62:1 — AA (was 3.64) */
+    --warning-soft: rgba(138, 93, 11, 0.12);
+    --error-color: #c43e1a;    /* 5.06:1 — AA */
+    --error-soft: rgba(196, 62, 26, 0.10);
+
+    /* --- Tint ramp ---
+       A tint is an accent hue at low alpha. It is the product's most
+       used effect and it used to be written inline as
+       rgba(14, 125, 110, 0.14) and thirty variations on it, spread across
+       six files. Worse, 14,125,110 was the teal BEFORE §1.3 was darkened
+       for contrast, so those literals were not even the colour the tokens
+       name: the product was running two teals at once, and a glow drawn
+       from the old one sat next to a button filled with the new.
+
+       So tints get a ramp, four steps, declared once per hue here. Every
+       layer reaches for one of these instead of inventing an alpha.
+
+         subtle  a wash. Backgrounds and rules.
+         soft    the default fill for a selected or tinted surface.
+         tint    a marked or hovered edge.
+         strong  emphasis and glow.
+
+       The four alphas are deliberately fixed: an ad-hoc 0.18 is not a
+       decision anyone can defend, and it is how two files end up
+       disagreeing about what "highlighted" looks like. */
+    --primary-tint-subtle: rgba(10, 106, 93, 0.06);
+    --primary-tint: rgba(10, 106, 93, 0.16);
+    --primary-tint-deep: rgba(10, 106, 93, 0.26);
+
+    --accent-tint-subtle: rgba(166, 83, 12, 0.08);
+    --accent-tint: rgba(166, 83, 12, 0.18);
+    --accent-tint-deep: rgba(166, 83, 12, 0.28);
+
+    --cool-tint-subtle: rgba(31, 111, 139, 0.07);
+    --cool-tint: rgba(31, 111, 139, 0.16);
+    --cool-tint-deep: rgba(31, 111, 139, 0.28);
+
+    --error-tint-subtle: rgba(196, 62, 26, 0.08);
+    --error-tint: rgba(196, 62, 26, 0.16);
+    --error-tint-deep: rgba(196, 62, 26, 0.30);
+
+    --success-tint-subtle: rgba(31, 122, 67, 0.08);
+    --success-tint: rgba(31, 122, 67, 0.16);
+    --success-tint-deep: rgba(31, 122, 67, 0.28);
+
+    /* A white or black wash at low alpha. Not an accent: this is a
+       highlight or a shadow, and it has to work over any hue, so it is
+       expressed as its own neutral rather than tinted. */
+    --sheen: rgba(255, 255, 255, 0.55);
+    --sheen-soft: rgba(255, 255, 255, 0.18);
+    --sheen-faint: rgba(255, 255, 255, 0.06);
+    --scrim: rgba(0, 0, 0, 0.42);
+    --transparent: rgba(0, 0, 0, 0);
+
+    /* The four state tones as one vocabulary, so a "degraded"
+       note in the parse card and a "degraded" banner in the
+       evidence panel are the same object, not two lookalikes. */
+    --tone-success: var(--success-color);
+    --tone-warning: var(--warning-color);
+    --tone-error: var(--error-color);
+    --tone-info: var(--cool-color);
+    --tone-neutral: var(--text-secondary);
+
+    /* --- Chrome ---
+       --paper-solid is the one fully opaque card colour in the
+       system. It exists for the focus ring's inner edge, which
+       has to be opaque to stay legible on top of a translucent
+       card sitting on a gradient; a translucent gap there reads
+       as a smudge rather than as separation. */
+    --paper-solid: #fffcf6;
     --input-bg: rgba(255, 255, 255, 0.72);
 
-    /* Chat & quotes */
-    --quote-bg: rgba(14, 125, 110, 0.06);
+        /* --- Chat & quotes --- */
+    --quote-bg: rgba(10, 106, 93, 0.06);
     --quote-border: var(--primary-color);
-    --chat-user: linear-gradient(135deg, rgba(14, 125, 110, 0.14), rgba(31, 111, 139, 0.10));
+    --chat-user: linear-gradient(135deg, rgba(10, 106, 93, 0.14), rgba(31, 111, 139, 0.10));
     --chat-assistant: rgba(255, 252, 246, 0.96);
 
-    /* Radius */
+    /* --- The last few, which had no home ---
+       Each of these was a raw literal sitting in one layer, which is how a
+       value ends up unreachable from the vocabulary and therefore
+       impossible to change for a theme or a contrast fix. */
+
+    /* Text on a code block. Code is the one place the product is always
+       dark, in both themes, so this is a fixed pair rather than a role:
+       it cannot be --text-primary, which flips with the theme. */
+    --text-on-code: #e8ecf4;
+    --text-on-accent-fill: #ffffff;
+
+    /* A disabled primary button. A filled button that is merely faded
+       still reads as "press me", so a disabled one changes surface as
+       well as opacity. */
+    --btn-disabled-bg: linear-gradient(135deg, #c2c8d0 0%, #b5bcc6 100%);
+    --btn-disabled-ink: #ffffff;
+
+    /* The page's own background wash, as three stops rather than two
+       colours, so the desk under the paper can be tuned without editing
+       base.css. */
+    --desk-top: #fbf7ee;
+    --desk-bottom: #e7dfd0;
+
+    /* Faint grid lines: the page's graph paper in light, the diagram
+       canvas's grid in both. A rule, not a fill, so it belongs to the
+       border family at its quietest. */
+    --rule-faint: rgba(28, 34, 48, 0.04);
+    --rule-faint-invert: rgba(255, 255, 255, 0.025);
+    --canvas-grid: rgba(125, 132, 144, 0.05);
+
+    /* The one decorative colour in the product. It is a heart in a
+       footer and means nothing, which is exactly why it is named and
+       quarantined instead of being left as a literal to be copied into
+       something that does mean something. */
+    --decor-heart: #ff3b30;
+
+    /* ========================================================
+       1.4 Radii — 5 steps and a pill
+       -------------------------------------------------------
+       A rule of thumb the cascade follows: nested elements use
+       a smaller step than their container, never the same one.
+       A card at --radius-lg holds a control at --radius-sm.
+       ======================================================== */
     --radius-xs: 6px;
     --radius-sm: 10px;
     --radius-md: 16px;
@@ -59,38 +308,82 @@ Loaded first because every later layer reads these custom properties.
     --radius-xl: 30px;
     --radius-pill: 999px;
 
-    /* Elevation */
+    /* ========================================================
+       1.5 Elevation
+       -------------------------------------------------------
+       Light shadows are warm-black on paper, not neutral grey.
+       The inset highlight is a separate token because "a top
+       edge catch of light" is the one effect that makes a pale
+       surface read as a physical object rather than a fill.
+       ======================================================== */
     --shadow-soft: 0 4px 12px rgba(28, 34, 48, 0.06);
     --shadow-medium: 0 12px 28px rgba(28, 34, 48, 0.08);
     --shadow-strong: 0 22px 52px rgba(28, 34, 48, 0.12);
     --shadow-elevated: 0 32px 68px rgba(28, 34, 48, 0.16);
     --shadow: var(--shadow-strong);
-    --shadow-primary: 0 18px 36px rgba(14, 125, 110, 0.22);
+    --shadow-primary: 0 18px 36px rgba(10, 106, 93, 0.22);
+    --edge-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 
-    /* Focus ring */
-    --ring-focus: 0 0 0 4px rgba(14, 125, 110, 0.22);
-    --ring-focus-strong: 0 0 0 5px rgba(14, 125, 110, 0.32);
+    /* ========================================================
+       1.6 Focus
+       -------------------------------------------------------
+       One ring, always the same width, always drawn outside
+       the element so it is never clipped by an overflow:hidden
+       ancestor. A control must be identifiable as focused while
+       it is also :disabled or :checked, which is why the ring
+       is a box-shadow and not an outline.
+       ======================================================== */
+    --ring-focus: 0 0 0 2px var(--paper-solid), 0 0 0 4px var(--primary-color);
+    --ring-focus-strong: 0 0 0 2px var(--paper-solid), 0 0 0 5px var(--primary-color);
+    --ring-width: 2px;
 
-    /* Gradients */
-    --gradient-primary: linear-gradient(135deg, #0e7d6e 0%, #1d9a86 50%, #c46a16 100%);
-    --gradient-accent: linear-gradient(135deg, #c46a16 0%, #d9842b 100%);
-    --gradient-cool: linear-gradient(135deg, #1f6f8b 0%, #0e7d6e 100%);
-    --gradient-text: linear-gradient(135deg, #0e7d6e 0%, #1f6f8b 50%, #c46a16 100%);
-    --gradient-glow: radial-gradient(circle, rgba(14, 125, 110, 0.22), transparent 70%);
-    --gradient-stroke: linear-gradient(135deg, rgba(14, 125, 110, 0.42), rgba(196, 106, 22, 0.32) 60%, rgba(31, 111, 139, 0.28));
+    /* ========================================================
+       1.7 Motion
+       -------------------------------------------------------
+       Four durations and one easing vocabulary. Anything that
+       moves a large surface (a panel, a sheet) uses --motion-slow;
+       anything that changes colour uses --motion-fast. A 0ms
+       step means "the reader asked for no motion" and
+       responsive.css collapses all four.
+       ======================================================== */
+    --motion-instant: 0ms;
+    --motion-fast: 120ms;   /* hover, focus, colour             */
+    --motion-base: 220ms;   /* small state changes              */
+    --motion-slow: 320ms;   /* panels, sheets, large reflow      */
+    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);      /* decelerate */
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);  /* symmetric  */
+    --transition: color var(--motion-base) var(--ease-out),
+        background-color var(--motion-base) var(--ease-out),
+        border-color var(--motion-base) var(--ease-out),
+        box-shadow var(--motion-slow) var(--ease-out),
+        transform var(--motion-base) var(--ease-out),
+        opacity var(--motion-base) var(--ease-out);
 
-    /* Typography */
-    --font-stack: "IBM Plex Sans", "Noto Sans SC", "Inter", "Segoe UI", sans-serif;
-    --font-mono: "IBM Plex Mono", "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-
-    /* Motion */
-    --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
-    --transition: color 0.25s var(--ease-out), background-color 0.25s var(--ease-out),
-        border-color 0.25s var(--ease-out), box-shadow 0.3s var(--ease-out),
-        transform 0.25s var(--ease-out), opacity 0.25s var(--ease-out);
+    /* ========================================================
+       1.8 Layout — the numbers that must agree with JS
+       -------------------------------------------------------
+       --evidence-sheet-breakpoint is mirrored by
+       EVIDENCE_SHEET_MEDIA_QUERY in config.js. The JS matches
+       on that query to decide whether to trap focus and whether
+       to set aria-modal; if the two ever disagree the sheet
+       traps focus inside a column the reader can still read
+       past, or the column claims to be modal when it is not.
+       They are asserted to agree in tests/test_frontend_evidence.py.
+       ======================================================== */
+    --evidence-panel-width: 380px;
+    --evidence-sheet-height: 82dvh;
+    --layout-max: 1080px;      /* .container */
+    --reading-max: 1080px;
 }
 
+/* ============================================================
+   Dark theme — the same roles, re-declared
+   ============================================================
+   Not an inversion. Hues are held, lightness moves: the teal
+   becomes a luminous mint, the paper becomes a dark desk. Text
+   contrast is measured against --bg-card in this theme, not the
+   light one, so the muted tone is lifted from 3.58:1 to 4.92:1.
+   ============================================================ */
 [data-theme="dark"] {
     --bg-body: #0c1117;
     --bg-soft: #121822;
@@ -98,12 +391,20 @@ Loaded first because every later layer reads these custom properties.
     --bg-elevated: rgba(28, 35, 46, 0.98);
     --surface-highlight: rgba(255, 255, 255, 0.04);
     --surface-frost: rgba(255, 255, 255, 0.03);
+    --surface-sunken: rgba(0, 0, 0, 0.28);
     --canvas-bg: #11161e;
     --code-bg: #060a14;
 
-    --text-primary: #ecf0f6;
-    --text-secondary: #aab2c0;
-    --text-faint: #6b7382;
+    --text-primary: #ecf0f6;   /* 14.95:1 — AAA */
+    --text-secondary: #aab2c0; /*  8.01:1 — AAA */
+    --text-faint: #828a99;     /*  4.92:1 — AA (was 3.58) */
+    --text-on-accent: #06110f; /* a light fill needs dark text     */
+
+    --border-color: rgba(255, 255, 255, 0.10);
+    --border-soft: rgba(255, 255, 255, 0.06);
+    --border-strong: rgba(255, 255, 255, 0.20);
+    --paper-solid: #161c26;
+    --input-bg: rgba(255, 255, 255, 0.05);
 
     --primary-color: #5fe0bf;
     --primary-hover: #84ead2;
@@ -114,31 +415,76 @@ Loaded first because every later layer reads these custom properties.
     --accent-strong: rgba(244, 185, 105, 0.34);
     --cool-color: #6ec5e8;
     --cool-soft: rgba(110, 197, 232, 0.14);
+    --info-color: #6ec5e8;
+    --info-soft: rgba(110, 197, 232, 0.14);
+
     --success-color: #7ad8a0;
     --success-soft: rgba(122, 216, 160, 0.12);
-    --error-color: #ff9b73;
-    --error-soft: rgba(255, 155, 115, 0.12);
     --warning-color: #f4c069;
     --warning-soft: rgba(244, 192, 105, 0.14);
+    --error-color: #ff9b73;
+    --error-soft: rgba(255, 155, 115, 0.12);
 
-    --border-color: rgba(255, 255, 255, 0.10);
-    --border-soft: rgba(255, 255, 255, 0.06);
-    --border-strong: rgba(255, 255, 255, 0.20);
-    --input-bg: rgba(255, 255, 255, 0.05);
+    /* The tint ramp again, at the dark theme's hues. A tint that reads
+       as a wash on paper has to be lighter on a dark desk or it vanishes;
+       the step names and their order are the same, so nothing in the
+       layers below has to know which theme is active. */
+    --primary-tint-subtle: rgba(95, 224, 191, 0.08);
+    --primary-tint: rgba(95, 224, 191, 0.18);
+    --primary-tint-deep: rgba(95, 224, 191, 0.32);
+
+    --accent-tint-subtle: rgba(244, 185, 105, 0.10);
+    --accent-tint: rgba(244, 185, 105, 0.20);
+    --accent-tint-deep: rgba(244, 185, 105, 0.34);
+
+    --cool-tint-subtle: rgba(110, 197, 232, 0.09);
+    --cool-tint: rgba(110, 197, 232, 0.18);
+    --cool-tint-deep: rgba(110, 197, 232, 0.32);
+
+    --error-tint-subtle: rgba(255, 155, 115, 0.10);
+    --error-tint: rgba(255, 155, 115, 0.20);
+    --error-tint-deep: rgba(255, 155, 115, 0.32);
+
+    --success-tint-subtle: rgba(122, 216, 160, 0.10);
+    --success-tint: rgba(122, 216, 160, 0.20);
+    --success-tint-deep: rgba(122, 216, 160, 0.32);
+
+    --sheen: rgba(255, 255, 255, 0.08);
+    --sheen-soft: rgba(255, 255, 255, 0.04);
+    --sheen-faint: rgba(255, 255, 255, 0.02);
+    --scrim: rgba(0, 0, 0, 0.58);
+    --transparent: rgba(0, 0, 0, 0);
 
     --quote-bg: rgba(95, 224, 191, 0.08);
     --chat-user: linear-gradient(135deg, rgba(95, 224, 191, 0.16), rgba(110, 197, 232, 0.10));
     --chat-assistant: rgba(22, 28, 38, 0.94);
 
+    /* The dark counterparts of the surface literals. Same roles, dark
+       values — a disabled button is still a different surface, not just a
+       faded one, and the desk still has a top and a bottom. */
+    --desk-top: #0a0e14;
+    --desk-bottom: #07090d;
+    --btn-disabled-bg: linear-gradient(135deg, #3a4150 0%, #2c3340 100%);
+    --btn-disabled-ink: var(--text-secondary);
+    /* In dark the accent fill is a light mint, so white text on it would
+       sit at roughly 1.6:1. The text on a filled accent flips to near
+       black instead; this is the single place that inversion is declared,
+       and every layer inherits it by reading --text-on-accent-fill. */
+    --text-on-accent-fill: #06110f;
+
+    /* Shadows in dark are near-black and carry less of the
+       silhouette than in light; the inset edge highlight is
+       what separates a card from its background instead. */
     --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.30);
     --shadow-medium: 0 14px 32px rgba(0, 0, 0, 0.36);
     --shadow-strong: 0 24px 56px rgba(0, 0, 0, 0.42);
     --shadow-elevated: 0 36px 72px rgba(0, 0, 0, 0.48);
     --shadow: var(--shadow-strong);
     --shadow-primary: 0 18px 36px rgba(95, 224, 191, 0.20);
+    --edge-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 
-    --ring-focus: 0 0 0 4px rgba(95, 224, 191, 0.28);
-    --ring-focus-strong: 0 0 0 5px rgba(95, 224, 191, 0.40);
+    --ring-focus: 0 0 0 2px var(--paper-solid), 0 0 0 4px var(--primary-color);
+    --ring-focus-strong: 0 0 0 2px var(--paper-solid), 0 0 0 5px var(--primary-color);
 
     --gradient-primary: linear-gradient(135deg, #5fe0bf 0%, #6ec5e8 55%, #f4b969 100%);
     --gradient-accent: linear-gradient(135deg, #f4b969 0%, #ff9b73 100%);
@@ -146,4 +492,17 @@ Loaded first because every later layer reads these custom properties.
     --gradient-text: linear-gradient(135deg, #5fe0bf 0%, #6ec5e8 50%, #f4b969 100%);
     --gradient-glow: radial-gradient(circle, rgba(95, 224, 191, 0.22), transparent 70%);
     --gradient-stroke: linear-gradient(135deg, rgba(95, 224, 191, 0.42), rgba(244, 185, 105, 0.30) 60%, rgba(110, 197, 232, 0.26));
+}
+
+/* Light-theme gradients. Declared after the dark block because a
+   later [data-theme="dark"] declaration wins on equal specificity,
+   and these are the base values the dark block must be able to
+   override — so they are last to keep the two from swapping. */
+:root {
+    --gradient-primary: linear-gradient(135deg, #0a6a5d 0%, #1d9a86 50%, #c46a16 100%);
+    --gradient-accent: linear-gradient(135deg, #a6530c 0%, #d9842b 100%);
+    --gradient-cool: linear-gradient(135deg, #1f6f8b 0%, #0a6a5d 100%);
+    --gradient-text: linear-gradient(135deg, #0a6a5d 0%, #1f6f8b 50%, #a6530c 100%);
+    --gradient-glow: radial-gradient(circle, rgba(10, 106, 93, 0.22), transparent 70%);
+    --gradient-stroke: linear-gradient(135deg, rgba(10, 106, 93, 0.42), rgba(166, 83, 12, 0.32) 60%, rgba(31, 111, 139, 0.28));
 }

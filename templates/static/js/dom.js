@@ -1,4 +1,7 @@
 import { state } from './state.js';
+import { PROGRESS_STORY } from './config.js';
+import { formatElapsed, notifyFailure } from './runtime.js';
+import { t } from './i18n.js';
 
 /**
  * Low-level DOM helpers: control state, scrolling, focus management, status
@@ -71,9 +74,25 @@ function updateStatus(text, tone = 'idle') {
     chip.dataset.tone = tone;
 }
 
+/**
+ * Move the progress steps to `step`, and say how long this has taken.
+ *
+ * The step indicator is driven by what the server reported, so it cannot
+ * disagree with the server. What it deliberately does *not* do is show a
+ * percentage: the analysis stream reports which step it is on and never how far
+ * through that step it is, so any fraction here would be invented. The elapsed
+ * time is the honest progress measure, and `PROGRESS_STORY.unknownNote` says
+ * out loud that no percentage is being shown and why.
+ *
+ * A bar that guesses is worse than one that admits ignorance: a reader who
+ * watches a fabricated 60% sit still for two minutes stops trusting every
+ * number this interface shows, including the ones that are real.
+ */
 function updateAnalysisProgress(step, text) {
     const loadingText = document.getElementById('loadingText');
-    if (loadingText && text) loadingText.textContent = text;
+    if (loadingText && text) {
+        loadingText.textContent = text;
+    }
 
     const order = ['upload', 'analyze', 'render', 'ready'];
     const activeIndex = Math.max(order.indexOf(step), 0);
@@ -88,6 +107,59 @@ function updateAnalysisProgress(step, text) {
             element.removeAttribute('aria-current');
         }
     });
+
+    updateProgressElapsed();
+}
+
+/**
+ * The one knowable measure of a long run: how long it has been going.
+ *
+ * Written into its own element rather than appended to the step text, so a
+ * module that rewrites the step description does not erase the clock.
+ */
+function updateProgressElapsed() {
+    const holder = document.getElementById('loading');
+    if (!holder) return;
+    let clock = document.getElementById('progressElapsed');
+    if (!clock) {
+        clock = document.createElement('div');
+        clock.id = 'progressElapsed';
+        clock.className = 'progress-elapsed';
+        clock.setAttribute('role', 'status');
+        clock.setAttribute('aria-live', 'off');
+        holder.appendChild(clock);
+    }
+    const startedAt = Number(holder.dataset.startedAt);
+    const base = Number.isFinite(startedAt) ? startedAt : Date.now();
+    holder.dataset.startedAt = String(base);
+    clock.textContent = `${PROGRESS_STORY.elapsedLabel}：${formatElapsed(Date.now() - base)}。${PROGRESS_STORY.unknownNote}`;
+}
+
+/** Start the elapsed clock for a run that is beginning. */
+function beginProgressClock() {
+    const holder = document.getElementById('loading');
+    if (holder) holder.dataset.startedAt = String(Date.now());
+    updateProgressElapsed();
+    return holder?.dataset.startedAt || null;
+}
+
+/**
+ * Stop the clock, and say plainly that no percentage was ever shown.
+ *
+ * Called from the same `finally` that takes the spinner down, so the elapsed
+ * time is still on screen at the moment the run ends rather than vanishing with
+ * the spinner.
+ */
+function endProgressClock(note) {
+    const holder = document.getElementById('loading');
+    if (!holder) return;
+    const startedAt = Number(holder.dataset.startedAt);
+    const clock = document.getElementById('progressElapsed');
+    if (clock) {
+        const base = Number.isFinite(startedAt) ? startedAt : Date.now();
+        clock.textContent = `${PROGRESS_STORY.elapsedLabel}：${formatElapsed(Date.now() - base)}。${note || ''}`;
+    }
+    delete holder.dataset.startedAt;
 }
 
 function toggleAIList() {
@@ -98,28 +170,31 @@ function toggleAIList() {
     list.hidden = !shouldShow;
     list.classList.toggle('show', shouldShow);
     button.setAttribute('aria-expanded', String(shouldShow));
-    button.setAttribute('aria-label', shouldShow ? 'Hide AI collaborators' : 'Show AI collaborators');
+    button.setAttribute('aria-label', t(shouldShow ? 'footer.hide_ai' : 'footer.show_ai'));
 }
 
 function showError(message) {
     const errorEl = document.getElementById('error');
-    const text = String(message || 'Request failed.').trim();
-    const tips = [];
+    if (!errorEl) return;
 
-    if (/API Key|认证失败|401/i.test(text)) {
-        tips.push('Tip: check whether the API key is missing, invalid, or expired.');
-    }
-    if (/OPENAI_BASE_URL|网页内容|HTML 页面|网页地址/i.test(text)) {
-        tips.push('Tip: make sure OPENAI_BASE_URL points to the API endpoint, not a web page.');
-    }
-    if (/429|限流/i.test(text)) {
-        tips.push('Tip: slow down requests or reduce concurrency and try again later.');
-    }
+    // `message` may be a string (every existing call site) or an `ApiError`.
+    // When it is a failure, the *code* decides the whole treatment: the tip, the
+    // dismissal and the retry button all come from `runtime.js`, which is the
+    // one place a failure is described. What is left here is the legacy path for
+    // a bare string, which is a local validation message the client already
+    // knows the cause of.
+    const text = typeof message === 'string'
+        ? message.trim()
+        : String(message?.message || t('error.request_failed')).trim();
 
-    errorEl.textContent = tips.length ? `${text}\n\n${tips.join('\n')}` : text;
+    errorEl.textContent = text;
     errorEl.classList.remove('is-hidden');
     errorEl.focus({ preventScroll: true });
     scrollWindowTo({ top: 0 });
+
+    if (typeof message !== 'string' && message?.code) {
+        notifyFailure(message, { onRetry: message.onRetry });
+    }
 }
 
 function hideError() {
@@ -150,8 +225,8 @@ async function copyText(elementId, btnElement) {
     const text = (rawText || content.textContent || '').trim();
     const originalText = btnElement.textContent;
     if (!text) {
-        btnElement.textContent = 'No content';
-        updateStatus('Nothing to copy yet', 'idle');
+        btnElement.textContent = t('copy.no_content');
+        updateStatus(t('copy.nothing_yet'), 'idle');
         scheduleButtonFeedbackReset(btnElement, () => { btnElement.textContent = originalText; });
         return;
     }
@@ -175,13 +250,13 @@ async function copyText(elementId, btnElement) {
                 textarea.remove();
             }
         }
-        btnElement.textContent = 'Copied';
+        btnElement.textContent = t('copy.done');
         btnElement.classList.add('action-success');
-        updateStatus('Content copied', 'success');
+        updateStatus(t('copy.done_status'), 'success');
     } catch (error) {
         console.warn('Copy failed:', error);
-        btnElement.textContent = 'Copy failed';
-        updateStatus('Copy failed', 'error');
+        btnElement.textContent = t('copy.failed');
+        updateStatus(t('copy.failed_status'), 'error');
     }
     scheduleButtonFeedbackReset(btnElement, () => {
         btnElement.textContent = originalText;
@@ -200,7 +275,9 @@ function setOptionalCardVisible(cardId, visible) {
 
 
 export { bindClick };
+export { beginProgressClock };
 export { copyText };
+export { endProgressClock };
 export { focusAnalysisWorkspace };
 export { focusWorkspaceTarget };
 export { hideError };
@@ -214,4 +291,5 @@ export { setOptionalCardVisible };
 export { showError };
 export { toggleAIList };
 export { updateAnalysisProgress };
+export { updateProgressElapsed };
 export { updateStatus };

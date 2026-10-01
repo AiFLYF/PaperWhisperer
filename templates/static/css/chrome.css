@@ -19,12 +19,12 @@ Keyframes, footer and the back-to-top control.
 
 /* ---------- 27. Footer ---------- */
 .site-footer {
-    margin-top: 64px;
-    padding: 28px 0;
+    margin-top: var(--space-11);
+    padding: var(--space-8) 0;
     border-top: 1px solid var(--border-color);
     text-align: center;
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: var(--text-ui);
     letter-spacing: 0.4px;
     transition: var(--transition);
 }
@@ -33,19 +33,19 @@ Keyframes, footer and the back-to-top control.
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
 }
 
 .site-footer span {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     flex-wrap: wrap;
     justify-content: center;
 }
 
 .site-footer strong { color: var(--text-primary); font-weight: 700; }
-.site-footer .heart { color: #ff3b30; animation: heartbeat 2s infinite; }
+.site-footer .heart { color: var(--decor-heart); animation: heartbeat 2s infinite; }
 
 .site-footer .author-link {
     color: var(--text-primary);
@@ -65,14 +65,14 @@ Keyframes, footer and the back-to-top control.
     background: var(--bg-card);
     color: var(--text-primary);
     border-radius: var(--radius-pill);
-    padding: 5px 12px;
-    font-size: 12px;
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--text-sm);
     cursor: pointer;
     transition: var(--transition);
     font-family: inherit;
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-2);
     font-weight: 600;
 }
 
@@ -84,7 +84,7 @@ Keyframes, footer and the back-to-top control.
 
 .site-footer .ai-toggle .arrow {
     display: inline-block;
-    font-size: 10px;
+    font-size: var(--text-2xs);
     line-height: 1;
     transition: transform 0.25s var(--ease-out);
 }
@@ -94,9 +94,9 @@ Keyframes, footer and the back-to-top control.
 }
 
 .site-footer .ai-list {
-    margin-top: 6px;
+    margin-top: var(--space-2);
     display: none;
-    gap: 8px;
+    gap: var(--space-2);
     flex-wrap: wrap;
     justify-content: center;
 }
@@ -111,8 +111,8 @@ Keyframes, footer and the back-to-top control.
     align-items: center;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-pill);
-    padding: 5px 12px;
-    font-size: 12px;
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--text-sm);
     background: var(--surface-highlight);
     color: var(--text-secondary);
     font-weight: 500;
@@ -142,7 +142,7 @@ Keyframes, footer and the back-to-top control.
     pointer-events: none;
     transform: translateY(12px);
     transition: var(--transition);
-    font-size: 18px;
+    font-size: var(--text-xl);
     font-weight: 700;
 }
 
@@ -157,4 +157,61 @@ Keyframes, footer and the back-to-top control.
     background: var(--primary-soft);
     transform: translateY(-3px);
     box-shadow: var(--shadow-strong);
+}
+
+/* ---------- Language switcher (i18n) ----------
+   Scoped here for the same reason as the block above, and the design
+   agent should fold it into chrome.css alongside the other header
+   controls. Every rule is namespaced under .language-switcher.
+
+   The selected state is carried by border, weight and an inset ring —
+   not by background colour alone — because aria-checked is invisible
+   to a sighted reader and a control whose only state cue is a colour
+   is unusable in a forced-colours or high-contrast mode. */
+.language-switcher {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-0);
+    padding: var(--space-1);
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    background: var(--bg-card);
+    box-shadow: var(--shadow-soft);
+}
+
+.language-switcher .lang-option {
+    border: 1px solid transparent;
+    border-radius: 11px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-family: inherit;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    line-height: 1;
+    padding: var(--space-2) var(--space-3);
+    min-height: 36px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.language-switcher .lang-option:hover {
+    color: var(--text-primary);
+}
+
+/* The non-colour cues: an inset ring and a heavier weight. */
+.language-switcher .lang-option[data-selected="true"] {
+    color: var(--primary-color);
+    font-weight: 800;
+    border-color: var(--primary-strong);
+    box-shadow: inset 0 0 0 1px var(--primary-soft);
+    background: var(--primary-soft);
+}
+
+.language-switcher .lang-option:focus-visible {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .language-switcher .lang-option { transition: none; }
 }

@@ -31,14 +31,29 @@ Loaded last so its overrides win.
         transform: none;
     }
 
+    /* The always-on animations, named rather than left to the universal
+       rule above: this product has several permanent loops (the brand
+       pulse, the status dot, the connector sweep, the shimmer, the
+       pending-notice dot) and a reader who has asked for no motion should
+       see none of them moving. Naming them also means the list stays
+       reviewable — a new loop is a deliberate line in this file rather
+       than an accident. */
     body::after,
     .brand-pulse,
     .status-chip::before,
     .progress-step.active::after,
+    .progress-step.active::before,
+    .runtime-notice-pending::before,
     .drop-zone-icon::before,
-    .paper-state.loading-state::after {
+    .paper-state.loading-state::after,
+    .site-footer .heart {
         animation: none !important;
     }
+
+    /* The one-shot entrance animations are harmless at 0.01ms, but the
+       transforms they end on are not, so any that leave an element
+       offset are reset explicitly. */
+    .progress-step.active { box-shadow: 0 0 0 4px var(--primary-soft); }
 }
 
 /* ---------- 30. Coarse pointer ---------- */
@@ -65,36 +80,36 @@ Loaded last so its overrides win.
 
 /* ---------- 31. Responsive ---------- */
 @media (max-width: 900px) {
-    .nav-header { padding: 24px 26px; }
-    .logo { font-size: 30px; }
+    .nav-header { padding: var(--space-6) var(--space-6); }
+    .logo { font-size: var(--text-3xl); }
     .export-preview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (max-width: 768px) {
-    body { padding: 24px 16px 40px; }
+    body { padding: var(--space-6) var(--space-4) var(--space-10); }
 
     .nav-header {
         flex-direction: column;
         align-items: stretch;
-        padding: 22px;
-        gap: 18px;
+        padding: var(--space-6);
+        gap: var(--space-5);
     }
 
     .nav-actions { justify-content: flex-start; }
-    .hero-stats { gap: 8px; }
+    .hero-stats { gap: var(--space-2); }
     .hero-stats span { flex: 1 1 100%; justify-content: space-between; }
     .brand { align-items: center; }
     .brand-mark,
     .brand-mark-wrap { width: 50px; height: 50px; }
-    .logo { font-size: 26px; }
-    .logo span { font-size: 11px; }
-    .hero-copy { font-size: 14.5px; }
+    .logo { font-size: var(--text-2xl); }
+    .logo span { font-size: var(--text-xs); }
+    .hero-copy { font-size: var(--text-base); }
 
-    .card, .result-card { padding: 22px; }
+    .card, .result-card { padding: var(--space-6); }
 
     .section-header {
         align-items: flex-start;
-        gap: 12px;
+        gap: var(--space-3);
         flex-wrap: wrap;
     }
 
@@ -105,7 +120,7 @@ Loaded last so its overrides win.
     .paper-actions .btn { width: 100%; min-width: 0; }
 
     .paper-card,
-    .queue-item { padding: 16px; }
+    .queue-item { padding: var(--space-4); }
 
     .paper-links { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .paper-link { width: 100%; }
@@ -113,33 +128,33 @@ Loaded last so its overrides win.
     .workspace-guidance { grid-template-columns: 1fr 1fr; }
 
     .ask-input-group { flex-direction: column; }
-    .ask-input-group .btn { width: 100%; padding: 14px 0; }
+    .ask-input-group .btn { width: 100%; padding: var(--space-4) 0; }
 
     .chat-item { max-width: 95%; }
     .mermaid-wrapper { height: 360px; }
 }
 
 @media (max-width: 520px) {
-    body { padding: 18px 12px 32px; }
+    body { padding: var(--space-5) var(--space-3) var(--space-8); }
 
-    .nav-header { padding: 18px; border-radius: var(--radius-lg); }
-    .brand { align-items: flex-start; gap: 14px; }
+    .nav-header { padding: var(--space-5); border-radius: var(--radius-lg); }
+    .brand { align-items: flex-start; gap: var(--space-4); }
     .brand-mark,
     .brand-mark-wrap { width: 44px; height: 44px; border-radius: 14px; }
-    .logo { font-size: 22px; }
-    .logo span { font-size: 10px; letter-spacing: 0.1em; }
-    .hero-copy { font-size: 13.5px; line-height: 1.6; }
+    .logo { font-size: var(--text-2xl); }
+    .logo span { font-size: var(--text-2xs); letter-spacing: 0.1em; }
+    .hero-copy { font-size: var(--text-ui); line-height: 1.6; }
 
-    .nav-actions { gap: 8px; }
-    .status-chip { width: 100%; justify-content: center; padding-left: 32px; }
+    .nav-actions { gap: var(--space-2); }
+    .status-chip { width: 100%; justify-content: center; padding-left: var(--space-8); }
     .theme-toggle, .github-link { width: 44px; height: 44px; }
 
-    .card, .result-card { padding: 18px; border-radius: var(--radius-lg); }
+    .card, .result-card { padding: var(--space-5); border-radius: var(--radius-lg); }
 
     .section-header .action-btn { flex: 1 1 auto; }
 
-    .options-group { gap: 10px; margin-bottom: 24px; }
-    .checkbox-label { flex-basis: 100%; padding: 14px; }
+    .options-group { gap: var(--space-3); margin-bottom: var(--space-6); }
+    .checkbox-label { flex-basis: 100%; padding: var(--space-4); }
 
     .canvas-toolbar {
         width: 100%;
@@ -155,15 +170,15 @@ Loaded last so its overrides win.
     .paper-links { grid-template-columns: 1fr; }
 
     .answer-mode-group { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .mode-chip { width: 100%; padding-left: 36px; }
+    .mode-chip { width: 100%; padding-left: var(--space-10); }
     .mode-chip::before { left: 14px; }
 
-    .chat-item { max-width: 100%; padding: 14px 16px; }
+    .chat-item { max-width: 100%; padding: var(--space-4) var(--space-4); }
 
     .prompt-chip,
     .next-action-btn { width: 100%; justify-content: center; }
 
     .back-to-top { right: 18px; bottom: 18px; width: 44px; height: 44px; }
 
-    .site-footer { margin-top: 40px; }
+    .site-footer { margin-top: var(--space-10); }
 }

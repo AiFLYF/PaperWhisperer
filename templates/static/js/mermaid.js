@@ -2,6 +2,7 @@ import { state } from './state.js';
 import { getCurrentTheme } from './themeState.js';
 import { sanitizeRenderedSvg } from './sanitize.js';
 import { setOptionalCardVisible } from './dom.js';
+import { t } from './i18n.js';
 
 const MERMAID_MODULE_URL = 'https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.esm.min.mjs';
 
@@ -61,7 +62,7 @@ async function renderMermaidDiagram(source) {
     if (!instance) {
         const fallback = document.createElement('p');
         fallback.className = 'empty-state mermaid-fallback-message';
-        fallback.textContent = 'Mermaid failed to load.';
+        fallback.textContent = t('mermaid.failed_to_load');
         mermaidDiv.appendChild(fallback);
         return;
     }
@@ -95,7 +96,7 @@ async function renderMermaidDiagram(source) {
         console.error('Mermaid render failed:', error);
         const message = document.createElement('p');
         message.className = 'mermaid-error-message';
-        message.textContent = 'Structure too complex to render. Raw data fallback:';
+        message.textContent = t('mermaid.too_complex');
         const fallback = document.createElement('pre');
         fallback.className = 'mermaid-raw-fallback';
         fallback.textContent = cleanSource;

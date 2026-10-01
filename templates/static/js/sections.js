@@ -1,5 +1,6 @@
 import { SECTION_EMPTY_TEXT } from './config.js';
 import { state } from './state.js';
+import { t } from './i18n.js';
 import { replaceWithFormattedContent } from './format.js';
 import { setControlDisabled, setOptionalCardVisible } from './dom.js';
 import { normalizeSmartActions, normalizeSmartTextItems, renderNextActions, renderSmartPrompts, resetSmartSuggestions, setAnswerMode } from './suggestions.js';
@@ -9,12 +10,42 @@ import { normalizeReadingQueue, renderReadingQueue, saveReadingQueue } from './q
 import { resetPaperPanels, setRecommendEnabled } from './paperList.js';
 import { setFileInfo } from './upload.js';
 import { clearChatHistory } from './chat.js';
+import { closeEvidence } from './evidence.js';
+import { renderParseStatus, resetParseStatus } from './parseStatus.js';
+import { renderRecommendationSignals } from './recommendationSignals.js';
 
 /**
  * Result workspace: per-section rendering, applying an analysis payload, and
  * the snapshot/restore pair that protects a previous run when a new analysis
  * fails.
  */
+
+/**
+ * Show or hide the run indicator, using the design system's own `is-hidden`.
+ *
+ * The block carries a spinner, a "preparing analysis" line and the four-stage
+ * track, and `states.css` only ever styles it in the `.active` state — there is
+ * no base rule to fall back on. So between page load and the reader's first
+ * analysis, the interface showed a spinning ring, "正在准备文档分析…" and an
+ * active 上传 stage: a run indicator describing a run nobody has asked for. That
+ * is the same defect as a spinner that outlives its work, arriving at the other
+ * end of the run, and it is worse here because every reader passes through it.
+ *
+ * `is-hidden` rather than a new class because it is how this stylesheet already
+ * takes a block out of flow, and being `!important` it wins against
+ * `.loading.active` — which is what makes starting a run a single toggle rather
+ * than a pair of class writes that have to be kept in step at four call sites.
+ *
+ * `resetResultView` is *not* used for this: it tears the workspace down, and
+ * hiding the indicator is the only thing wanted here.
+ */
+function hideRunIndicator() {
+    document.getElementById('loading')?.classList.add('is-hidden');
+}
+
+function showRunIndicator() {
+    document.getElementById('loading')?.classList.remove('is-hidden');
+}
 
 function createSectionStateCard(title, detail, tone = 'empty') {
     const card = document.createElement('div');
@@ -47,11 +78,18 @@ function setSectionContent(id, value, errorMessage = '') {
         element.replaceChildren(createSectionStateCard('Section needs review', errorMessage, 'error'));
         return;
     }
+    // Through the catalogue rather than `SECTION_EMPTY_TEXT`, which is the
+    // *English* locale's values. Reading the config table directly wrote English
+    // into a Chinese-default interface, and did so on every page load:
+    // `resetResultView()` calls this for all five sections during
+    // `initialize()`. `section.empty.<id>` is the same sentence in the reader's
+    // language.
+    const emptyText = t(`section.empty.${id}`) || SECTION_EMPTY_TEXT[id];
     if (!value) {
-        element.replaceChildren(createSectionStateCard('Waiting for content', SECTION_EMPTY_TEXT[id] || 'No content available.'));
+        element.replaceChildren(createSectionStateCard('Waiting for content', emptyText));
         return;
     }
-    replaceWithFormattedContent(element, value, SECTION_EMPTY_TEXT[id]);
+    replaceWithFormattedContent(element, value, emptyText);
 }
 
 function getSectionPayload(data, sectionName) {
@@ -103,6 +141,19 @@ function finalizeAnalysisResultState(data, fileName) {
     state.currentChatTurns = [];
     state.currentSuggestedQuestions = normalizeSmartTextItems(data.suggested_questions || []);
     state.currentNextActions = normalizeSmartActions(data.next_actions || []);
+
+    // The document id addresses the Evidence API, and it is not the session id:
+    // the two are minted independently and conflating them would produce an
+    // evidence URL that 404s on a 404 the reader cannot tell from a typo.
+    // Absent a document id, the panel says so rather than guessing — see the
+    // disabled submit button in `updateReparseWarnings`.
+    state.currentDocumentId = String(data.document_id || data.parse?.document_id || '');
+
+    // T3.4: which parser read this file, and did it leave the machine. Rendered
+    // from the result payload, which carries it as `parse`.
+    state.currentParseProvenance = data.parse || null;
+    renderParseStatus(state.currentParseProvenance);
+
     renderSmartPrompts(state.currentSuggestedQuestions);
     renderNextActions(state.currentNextActions);
     renderExportPreview();
@@ -134,6 +185,52 @@ function applyAnalysisResult(data, fileName, generateEvaluation, generateMermaid
     return Promise.resolve();
 }
 
+/**
+ * Whether an analysis run finished whole, and if not, which parts did not.
+ *
+ * `analysis_status` is computed by the server from which sections actually
+ * succeeded. The workspace already renders a "Section needs review" card for
+ * each failed section, so the detail is not lost — the headline was. The status
+ * chip used to say "Analysis ready for follow-up questions" in a success tone
+ * unconditionally, on runs where a third of the analysis had failed, and a
+ * degraded state wearing the success colour is worse than no signal at all
+ * because it removes the reader's reason to look at the sections.
+ *
+ * Only a run that completed every planned section reports success. An absent
+ * `analysis_status` is not treated as success either: the server sends it on
+ * every result, so its absence means the contract moved, and the recoverable
+ * direction is to under-claim rather than to congratulate the reader on an
+ * analysis whose completeness this client cannot see.
+ *
+ * `failed_sections` carries the server's own labels ("概览", "引用片段"), so the
+ * named parts are the ones the reader can actually see on screen.
+ */
+function describeAnalysisOutcome(payload) {
+    const status = payload?.analysis_status || {};
+    const failed = Array.isArray(status.failed_sections) ? status.failed_sections.filter(Boolean) : [];
+    const quality = String(status.quality || '');
+
+    if (failed.length) {
+        return {
+            text: `Analysis finished, but ${failed.length} part${failed.length === 1 ? '' : 's'} could not be generated: ${failed.join(', ')}.`,
+            tone: 'error'
+        };
+    }
+    if (quality === 'partial') {
+        return {
+            text: 'Analysis finished with some parts incomplete. Check each section before relying on it.',
+            tone: 'error'
+        };
+    }
+    if (!quality) {
+        return {
+            text: 'Analysis finished. This build was not told which parts completed, so check each section before relying on it.',
+            tone: 'idle'
+        };
+    }
+    return { text: 'Analysis ready for follow-up questions', tone: 'success' };
+}
+
 function captureWorkspaceState() {
     return {
         currentSessionId: state.currentSessionId,
@@ -153,6 +250,11 @@ function captureWorkspaceState() {
         currentAnswerMode: state.currentAnswerMode,
         currentPaperSearchMetaText: state.currentPaperSearchMetaText,
         currentPaperRecommendationMetaText: state.currentPaperRecommendationMetaText,
+        currentRecommendationSignals: state.currentRecommendationSignals.map(entry => ({ ...entry })),
+        currentRecommendationDuplicates: state.currentRecommendationDuplicates.map(entry => ({ ...entry })),
+        currentSeedPaper: state.currentSeedPaper ? { ...state.currentSeedPaper } : null,
+        currentDocumentId: state.currentDocumentId,
+        currentParseProvenance: state.currentParseProvenance,
         html: {
             summary: document.getElementById('summary').innerHTML,
             quotes: document.getElementById('quotes').innerHTML,
@@ -164,7 +266,8 @@ function captureWorkspaceState() {
             chatHistory: document.getElementById('chatHistory').innerHTML,
             paperSearchResults: document.getElementById('paperSearchResults').innerHTML,
             paperRecommendations: document.getElementById('paperRecommendations').innerHTML,
-            mermaidChart: document.getElementById('mermaidChart').innerHTML
+            mermaidChart: document.getElementById('mermaidChart').innerHTML,
+            parseStatus: document.getElementById('parseStatus').innerHTML
         },
         ui: {
             resultActive: document.getElementById('result').classList.contains('active'),
@@ -197,6 +300,21 @@ function restoreWorkspaceState(snapshot) {
     setAnswerMode(snapshot.currentAnswerMode || 'evidence');
     state.currentPaperSearchMetaText = snapshot.currentPaperSearchMetaText;
     state.currentPaperRecommendationMetaText = snapshot.currentPaperRecommendationMetaText;
+    // Re-rendered rather than restored as raw HTML, because the signal status is
+    // derived from the stored per-signal values. Restoring markup would let a
+    // snapshot and a re-render disagree — the rows would come back from the
+    // snapshot while the status came back from a different source, which is the
+    // one thing the four-state rendering exists to prevent.
+    state.currentRecommendationSignals = Array.isArray(snapshot.currentRecommendationSignals)
+        ? snapshot.currentRecommendationSignals.map(entry => ({ ...entry }))
+        : [];
+    state.currentRecommendationDuplicates = Array.isArray(snapshot.currentRecommendationDuplicates)
+        ? snapshot.currentRecommendationDuplicates.map(entry => ({ ...entry }))
+        : [];
+    state.currentSeedPaper = snapshot.currentSeedPaper ? { ...snapshot.currentSeedPaper } : null;
+    renderRecommendationSignals(state.currentRecommendationSignals, state.currentRecommendationDuplicates);
+    state.currentDocumentId = snapshot.currentDocumentId || '';
+    state.currentParseProvenance = snapshot.currentParseProvenance || null;
 
     document.getElementById('summary').innerHTML = snapshot.html.summary;
     document.getElementById('quotes').innerHTML = snapshot.html.quotes;
@@ -210,6 +328,7 @@ function restoreWorkspaceState(snapshot) {
     document.getElementById('paperRecommendations').innerHTML = snapshot.html.paperRecommendations;
     document.getElementById('paperSearchMeta').textContent = state.currentPaperSearchMetaText;
     document.getElementById('paperRecommendationMeta').textContent = state.currentPaperRecommendationMetaText;
+    document.getElementById('parseStatus').innerHTML = snapshot.html.parseStatus || '';
     renderSmartPrompts(state.currentSuggestedQuestions);
     renderNextActions(state.currentNextActions);
     renderReadingQueue();
@@ -239,12 +358,28 @@ function resetResultView() {
     resetMermaidCard();
     resetExportState();
     resetPaperPanels();
+    // The evidence panel is an overlay over a workspace that is being torn
+    // down; leaving it open would leave it pointing at evidence from a
+    // document that is no longer on screen.
+    closeEvidence();
+    resetParseStatus();
+    state.currentDocumentId = '';
+    state.currentParseProvenance = null;
+    // The seed is the bibliographic record of the paper that was *imported*.
+    // A document uploaded from disk has no identifier set, and a new analysis
+    // replaces the workspace, so carrying the previous import DOI forward
+    // would seed the next recommendation run from a different paper than the
+    // one on screen.
+    state.currentSeedPaper = null;
 }
 
 
 export { applyAnalysisResult };
 export { applyAnalysisSection };
 export { captureWorkspaceState };
+export { describeAnalysisOutcome };
 export { getSectionPayload };
+export { hideRunIndicator };
 export { resetResultView };
 export { restoreWorkspaceState };
+export { showRunIndicator };

@@ -2,6 +2,7 @@ import { SVG_NS, THEME_ICONS } from './config.js';
 import { THEME_STORAGE_KEY, getCurrentTheme, setCurrentTheme } from './themeState.js';
 import { state } from './state.js';
 import { renderMermaidDiagram } from './mermaid.js';
+import { t } from './i18n.js';
 
 /** Theme persistence and the light/dark toggle. */
 
@@ -59,7 +60,7 @@ function applyTheme(theme) {
     if (!btn) return;
     btn.replaceChildren(createThemeIcon(isDark ? 'sun' : 'moon'));
     btn.setAttribute('aria-pressed', String(isDark));
-    btn.setAttribute('aria-label', isDark ? 'Switch to light theme' : 'Switch to dark theme');
+    btn.setAttribute('aria-label', t(isDark ? 'theme.switch_to_light' : 'theme.switch_to_dark'));
 }
 
 function toggleTheme() {

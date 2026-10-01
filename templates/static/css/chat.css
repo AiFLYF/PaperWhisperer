@@ -5,13 +5,13 @@ Question input and the streaming chat transcript.
    ============================================================ */
 
 /* ---------- 22. Ask section ---------- */
-.ask-section { margin-top: 40px; }
+.ask-section { margin-top: var(--space-10); }
 
 .answer-mode-group {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
-    margin: 8px 0 14px;
+    gap: var(--space-3);
+    margin: var(--space-2) 0 var(--space-4);
 }
 
 .mode-chip {
@@ -21,10 +21,10 @@ Question input and the streaming chat transcript.
     color: var(--text-secondary);
     cursor: pointer;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--text-ui);
     font-weight: 600;
     min-height: 40px;
-    padding: 8px 16px 8px 32px;
+    padding: var(--space-2) var(--space-4) var(--space-2) var(--space-8);
     transition: var(--transition);
     touch-action: manipulation;
     position: relative;
@@ -77,37 +77,38 @@ Question input and the streaming chat transcript.
 }
 
 .mode-chip.active {
-    box-shadow: inset 0 0 0 1px var(--primary-soft), 0 0 0 4px rgba(14, 125, 110, 0.08);
+    box-shadow: inset 0 0 0 1px var(--primary-soft), 0 0 0 4px var(--primary-tint-subtle);
 }
 
 .mode-chip.active::before { opacity: 1; }
 
 .answer-mode-hint {
-    margin: -6px 0 16px;
+    /* A negative optical offset: this hint tucks up under the paragraph above it. */
+    margin: calc(-1 * var(--space-2)) 0 var(--space-4);
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 1.6;
 }
 
 .ask-input-group {
     display: flex;
-    gap: 12px;
-    margin-bottom: 18px;
+    gap: var(--space-3);
+    margin-bottom: var(--space-5);
     align-items: stretch;
 }
 
 .ask-input-group input { flex: 1; }
-.ask-input-group .btn { width: auto; padding: 0 28px; }
+.ask-input-group .btn { width: auto; padding: 0 var(--space-8); }
 
 .smart-prompts,
 .next-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
-    margin-bottom: 14px;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
 }
 
-.next-actions { margin-bottom: 24px; }
+.next-actions { margin-bottom: var(--space-6); }
 
 .prompt-chip,
 .next-action-btn {
@@ -117,9 +118,9 @@ Question input and the streaming chat transcript.
     color: var(--text-primary);
     cursor: pointer;
     font-family: inherit;
-    font-size: 13px;
+    font-size: var(--text-ui);
     line-height: 1.4;
-    padding: 10px 16px;
+    padding: var(--space-3) var(--space-4);
     min-height: 44px;
     transition: var(--transition);
     touch-action: manipulation;
@@ -146,14 +147,14 @@ Question input and the streaming chat transcript.
 .chat-history {
     display: flex;
     flex-direction: column;
-    gap: 18px;
+    gap: var(--space-5);
 }
 
 .chat-item {
     max-width: 85%;
-    padding: 16px 20px;
+    padding: var(--space-4) var(--space-5);
     border-radius: var(--radius-lg);
-    font-size: 15px;
+    font-size: var(--text-md);
     line-height: 1.6;
     position: relative;
     box-shadow: var(--shadow-soft);
@@ -198,7 +199,7 @@ Question input and the streaming chat transcript.
 }
 
 .chat-error {
-    border-color: rgba(196, 62, 26, 0.30);
+    border-color: var(--error-tint-deep);
     background: var(--error-soft);
 }
 
@@ -207,14 +208,14 @@ Question input and the streaming chat transcript.
 }
 
 .chat-header {
-    font-size: 12px;
+    font-size: var(--text-sm);
     color: var(--text-secondary);
-    margin-bottom: 8px;
+    margin-bottom: var(--space-2);
     font-weight: 600;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-3);
     letter-spacing: 0.02em;
 }
 
@@ -226,9 +227,9 @@ Question input and the streaming chat transcript.
 .answer-actions {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 16px;
-    padding-top: 14px;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
     border-top: 1px dashed var(--border-color);
 }
 
@@ -239,9 +240,9 @@ Question input and the streaming chat transcript.
     color: var(--primary-color);
     cursor: pointer;
     font-family: inherit;
-    font-size: 12px;
+    font-size: var(--text-sm);
     font-weight: 600;
-    padding: 6px 12px;
+    padding: var(--space-2) var(--space-3);
     transition: var(--transition);
 }
 
@@ -249,4 +250,97 @@ Question input and the streaming chat transcript.
     border-color: var(--primary-color);
     background: var(--primary-soft);
     transform: translateY(-1px);
+}
+
+/* ---------- 23.1 The answer verdict ----------
+   chat.js renders, under the answer it qualifies, what the product is
+   willing to vouch for and what it retrieved to decide. `data-confidence`
+   is one of supported | partially_supported | insufficient_evidence |
+   unknown; the sentence carries the same meaning in words, so the meaning
+   survives a stylesheet that fails to load and a screen reader.
+
+   This is the honesty surface of the product and it is treated as one.
+   Two decisions are worth stating:
+
+   1. insufficient_evidence is NOT red. "This answer is not backed by the
+      document" is a true and useful answer, not a failure, and painting it
+      as an error would teach the reader that the confident answers are
+      the safe ones and this one is broken. It is quiet, because quiet is
+      what "nothing here is presented as the paper's claim" should look
+      like.
+
+   2. The four states differ in SHAPE as well as hue — a solid rule, a
+      split rule, no rule, a dashed rule — so the distinction survives a
+      monochrome print and a reader with no colour perception.
+
+   The verdict is set apart from the answer prose deliberately: it is a
+   qualification OF the answer, not part of it, and it must not be
+   mistaken for another paragraph the model wrote. That is why it is
+   sans, small and rule-bounded while the answer it sits under is serif
+   and measured. */
+.answer-verdict-host[hidden] { display: none; }
+
+.answer-verdict {
+    display: grid;
+    gap: var(--space-2);
+    margin-top: var(--space-5);
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--border-color);
+    border-left-width: 3px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    background: var(--surface-frost);
+    font-family: var(--font-stack);
+    max-width: var(--measure);
+}
+
+.answer-verdict-label {
+    margin: 0;
+    font-size: var(--text-base);
+    line-height: var(--leading-relaxed);
+    color: var(--text-primary);
+    font-weight: var(--weight-medium);
+}
+
+/* How the answer was reached, as opposed to what it is worth. Always
+   quieter than the claim it follows. */
+.answer-verdict-detail {
+    margin: 0;
+    font-size: var(--text-sm);
+    line-height: var(--leading-relaxed);
+    color: var(--text-faint);
+}
+
+/* supported: the document carries every claim. Solid, green. */
+.answer-verdict[data-confidence="supported"] {
+    border-left-color: var(--tone-success);
+    background: var(--success-soft);
+}
+
+/* partially_supported: some claims are the model's, not the paper's.
+   Split rule, amber — and the detail line below is where the unsupported
+   ones are marked. */
+.answer-verdict[data-confidence="partially_supported"] {
+    border-left-color: var(--tone-warning);
+    background: var(--warning-soft);
+    border-left-style: double;
+    border-left-width: 4px;
+}
+
+/* insufficient_evidence: a true answer that must not be read as the
+   paper's. No coloured rule at all — there is nothing to be alarmed
+   about, only something to be careful with. */
+.answer-verdict[data-confidence="insufficient_evidence"] {
+    border-left-color: var(--border-strong);
+    background: var(--surface-frost);
+}
+
+/* unknown: the backend sent a confidence this build does not know. It is
+   under-claimed rather than guessed at, and it looks provisional for the
+   same reason — dashed, like the unreachable notice. */
+.answer-verdict[data-confidence="unknown"] {
+    border-style: dashed;
+    border-left-style: solid;
+    border-left-width: 3px;
+    border-left-color: var(--tone-neutral);
+    color: var(--text-secondary);
 }
