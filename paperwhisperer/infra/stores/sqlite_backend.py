@@ -134,10 +134,20 @@ class SqliteDatabase:
         self.timeout = float(timeout)
         self._local = threading.local()
         self._connections: list[sqlite3.Connection] = []
+        # The thread that opened each connection, keyed by ``id``. ``close()``
+        # needs it to tell a handle nobody can be using (its owner already
+        # finished) from one a live thread is mid-``execute()`` on, and that
+        # difference is the whole of a safe teardown. See ``close()``.
+        self._owners: dict[int, threading.Thread] = {}
         self._lock = threading.RLock()
         self._closed = False
         self._shared: sqlite3.Connection | None = None
         self._is_memory = self.path == ":memory:" or self.path.startswith("file::memory:")
+        # Keeps the single in-memory connection alive past ``close()`` so
+        # refcounting cannot free it under a thread still executing on it. At
+        # most one per database, so this is a bounded, deliberate retention
+        # reclaimed by process exit rather than an unbounded leak.
+        self._retired: list[sqlite3.Connection] = []
 
     def _configure(self, connection: sqlite3.Connection) -> sqlite3.Connection:
         connection.execute("PRAGMA journal_mode=WAL")
@@ -180,20 +190,63 @@ class SqliteDatabase:
             self._local.connection = existing
             with self._lock:
                 self._connections.append(existing)
+                self._owners[id(existing)] = threading.current_thread()
         return existing
 
     def close(self) -> None:
-        """Close every connection this object opened. Idempotent, never raises."""
+        """Close every connection this object opened. Idempotent, never raises.
+
+        **A connection is only ever closed by the thread that is using it, or
+        after that thread has finished.** This is the difference between an
+        orderly teardown and a SIGSEGV.
+
+        ``check_same_thread=False`` means any thread may be inside
+        ``connection.execute()`` on a handle this object handed out, and
+        SQLite's C layer frees that handle the instant ``.close()`` is called.
+        Calling it from a second thread while the first is mid-``execute()`` is a
+        use-after-free, and CPython does not raise — the interpreter dies. That
+        is not hypothetical here: a :class:`~paperwhisperer.infra.jobs.JobWorker`
+        runs on its own thread, and a bounded ``stop()`` join returns while a
+        long parse is still running, so the worker can still be executing on its
+        connection when the owning bundle is torn down.
+
+        So each connection remembers which thread opened it, and ``close()``
+        splits the two cases:
+
+        * **owner finished, or is this thread** — nobody can be using it, so it
+          is closed here. This is the ordinary path and the only one that
+          releases a handle eagerly.
+        * **owner still running** — the reference is dropped but ``.close()``
+          is *not* called. The connection stays alive behind the owning thread's
+          ``threading.local``, and is reclaimed when that thread finishes and
+          its thread-local is collected. Closing it here is the crash.
+
+        The in-memory shared connection has no single owner — every thread uses
+        the same handle — so no ownership test can prove it is idle. It is moved
+        to ``_retired`` and left to process exit instead, which is bounded (one
+        per database) and always safe.
+        """
         with self._lock:
             if self._closed:
                 return
             self._closed = True
             candidates = list(self._connections)
-            if self._shared is not None:
-                candidates.append(self._shared)
             self._connections.clear()
-            self._shared = None
-        for connection in candidates:
+            shared, self._shared = self._shared, None
+            current = threading.current_thread()
+            closing: list[sqlite3.Connection] = []
+            for connection in candidates:
+                owner = self._owners.pop(id(connection), None)
+                if owner is None or owner is current or not owner.is_alive():
+                    closing.append(connection)
+                else:
+                    logger.debug(
+                        "SQLite 连接仍属于运行中的线程 %s，交由该线程回收而非在此关闭。",
+                        owner.name,
+                    )
+            if shared is not None:
+                self._retired.append(shared)
+        for connection in closing:
             try:
                 connection.close()
             except sqlite3.Error:  # pragma: no cover - close must not raise

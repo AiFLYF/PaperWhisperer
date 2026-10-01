@@ -626,3 +626,213 @@ def _run_catching(worker: J.JobWorker, failures: list[str], name: str = "worker"
         worker.tick()
     except Exception as exc:  # noqa: BLE001 - recorded and asserted on by the caller
         failures.append(f"{name}: {type(exc).__name__}: {exc}")
+
+
+class TestAWorkerOutlivingItsStore:
+    """The lifetime half of the same subsystem: a worker must not outlive its store.
+
+    The tests above pin the *transaction* the previous fix repaired — a lost
+    compare-and-set that left a transaction open and SQLite's writer lock held.
+    This class pins the defect that fix could not have found and that only shows
+    up at teardown: :meth:`JobWorker.stop` joins with a *timeout*, and a bounded
+    join that expires returns while the worker thread is still running. The
+    owner then closes the store underneath it, and from that instant the worker
+    is using a connection that no longer belongs to it.
+
+    There were two ways out of that, and both were real:
+
+    * **A use-after-free.** SQLite's C layer frees a connection the instant
+      ``.close()`` is called. Closing, from one thread, a handle another thread is
+      mid-``execute()`` on is a use-after-free and CPython does not raise — the
+      interpreter dies with a SIGSEGV. That is the "intermittent segfault in
+      infra/jobs.py" that accompanied the transaction report: intermittent
+      because it needs the close to land while the worker is inside a statement.
+    * **A hard teardown error.** Where the free happened to miss the worker's
+      active window, the worker's next store call hit the closed database and
+      raised ``RuntimeError: 数据库连接已关闭。``, which — raised from a worker
+      during the last tick of a session — is what made a full run abort during
+      teardown and print no pass/fail count at all.
+
+    So the invariant under test is **ownership of the connection, not timing**:
+    a connection is released by the thread using it, or after that thread has
+    finished — never by a second thread while the first is still running. These
+    tests reproduce both failure modes directly rather than waiting for a slow
+    parse to line up with a fixture teardown, so the regression is deterministic
+    here even though it was intermittent in the suite.
+    """
+
+    @staticmethod
+    def _harness(tmp_path):
+        return open_store(TIER_PERSONAL, tmp_path, name=f"lifetime-{uuid.uuid4().hex[:8]}.db")
+
+    def test_closing_the_database_under_a_running_worker_does_not_kill_the_process(
+        self, tmp_path
+    ):
+        """The SIGSEGV, made deterministic: close a handle a thread is using.
+
+        Asserting "it did not raise" is impossible here — a use-after-free does
+        not raise, it takes the interpreter with it, and a core dump prints
+        nothing. So the assertion *is* survival: the test process running to
+        completion after a cross-thread ``close()`` is the only honest statement
+        that the handle was not freed underneath its owner.
+        """
+        harness = self._harness(tmp_path)
+        try:
+            database = harness.bundle.database
+            harness.store.connection.execute(
+                "SELECT 1"
+            )  # warm the file and give this thread a connection
+
+            release = threading.Event()
+            failure: list[str] = []
+
+            def run_until_released() -> None:
+                # This thread's own connection, which `database.close()` is
+                # about to be told about. The loop keeps a statement in flight
+                # across the close on purpose.
+                connection = database.connection()
+                while not release.is_set():
+                    connection.execute("SELECT 1").fetchall()
+
+            thread = threading.Thread(target=run_until_released, name="store-user")
+            thread.start()
+            try:
+                # Wait until the worker thread really has a connection of its
+                # own, so the close() below has a *live foreign owner* to
+                # consider rather than racing connection creation. The main
+                # thread already holds one, so the count to wait for is two.
+                deadline = time.monotonic() + 10.0
+                while len(database._connections) < 2 and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                assert len(database._connections) >= 2, (
+                    "工作线程没有打开自己的连接，这个用例没有制造出竞争。"
+                )
+
+                # The dangerous moment: a second thread releases handles that
+                # include one the worker is actively executing on.
+                database.close()
+            finally:
+                release.set()
+                thread.join(timeout=30)
+
+            assert not thread.is_alive(), "工作线程卡死，说明 close() 与它互相等待了。"
+            assert failure == []
+            # The connection owned by the *worker* was reclaimed by the worker
+            # thread itself when its thread-local was collected; close() must
+            # not have raced it. The main thread's own connection is closed
+            # eagerly, which is the ordinary path.
+            harness.bundle.close()  # idempotent; must not raise
+        finally:
+            _quiesce_before_close(harness)
+
+    def test_a_worker_stopped_mid_step_can_have_its_store_closed_underneath_it(
+        self, tmp_path
+    ):
+        """The real shape: bounded ``stop()``, then the owner closes the store.
+
+        This is what the application lifespan does at shutdown and what the
+        session-scoped journey fixture did at teardown. A slow step outlives the
+        join timeout, so ``stop()`` returns with the thread still mid-pipeline,
+        and the bundle is closed a moment later. The worker must survive that
+        and finish on its own terms — here, by noticing it was asked to stop and
+        leaving the job recoverable — rather than by touching a dead connection.
+        """
+        harness = self._harness(tmp_path)
+        try:
+            store = harness.store
+            reached = threading.Event()
+            release = threading.Event()
+
+            def _step(context: J.JobContext) -> None:
+                # A stage that is still working when `stop()` is called, the
+                # way a multi-minute parse is.
+                reached.set()
+                release.wait(timeout=30)
+                context.heartbeat()  # a store call after the close
+
+            pipeline = J.JobPipeline(
+                kind="document_analysis",
+                steps=(J.JobStep(state=J.STATE_PARSING, run=_step, required=True),),
+            )
+            worker = J.JobWorker(store, pipeline, lease_seconds=30, poll_interval=0.01)
+            store.submit("document_analysis", {})
+            worker.start()
+            try:
+                assert reached.wait(timeout=30), "工作线程没有进入解析阶段。"
+
+                # Bounded stop, exactly as a lifespan teardown issues it. The
+                # worker is mid-step, so this returns before the thread is done.
+                worker.stop(timeout=0.2)
+                # The store is closed while the worker is still inside the step.
+                harness.bundle.close()
+            finally:
+                release.set()
+
+            # Give the orphan the time it needs to finish its step and reach the
+            # store it was told to stop using. Under the old code the handle was
+            # freed here, which either segfaulted the process or raised out of
+            # the loop; either way the suite died at teardown.
+            deadline = time.monotonic() + 30.0
+            while time.monotonic() < deadline:
+                alive = [t for t in threading.enumerate() if t.name.startswith("job-worker-")]
+                if not alive:
+                    break
+                time.sleep(0.05)
+            remaining = [t.name for t in threading.enumerate() if t.name.startswith("job-worker-")]
+            assert remaining == [], (
+                f"被 stop() 遗弃的 worker 线程仍在运行：{remaining}。"
+                "stop() 超时后线程被丢弃，没有任何东西能再让它退出。"
+            )
+            # Reaching this line at all is half the assertion: under the old
+            # code, closing the bundle under the still-running worker either
+            # freed its SQLite handle mid-execute (SIGSEGV, process gone before
+            # any summary) or raised `RuntimeError: 数据库连接已关闭。` out of the
+            # loop during this window and aborted the whole run at teardown.
+            # Surviving the window with no live worker left is the fix.
+        finally:
+            _quiesce_before_close(harness)
+
+    def test_stop_keeps_the_thread_handle_until_the_worker_really_finishes(self, tmp_path):
+        """``stop()`` must not orphan its own thread.
+
+        The obvious implementation — ``thread, self._thread = self._thread, None``
+        — forgets the handle whether or not the join actually succeeded. When the
+        timeout expires that loses the only reference to a live thread: nothing
+        can re-join it, ``start()`` believes the worker is gone and launches a
+        *second* one over the same queue, and the store it is using is torn down
+        while it still runs. The handle is dropped only once the thread is
+        actually gone.
+        """
+        harness = self._harness(tmp_path)
+        try:
+            store = harness.store
+            release = threading.Event()
+            reached = threading.Event()
+
+            def _step(context: J.JobContext) -> None:
+                reached.set()
+                release.wait(timeout=30)
+
+            pipeline = J.JobPipeline(
+                kind="document_analysis",
+                steps=(J.JobStep(state=J.STATE_PARSING, run=_step, required=True),),
+            )
+            worker = J.JobWorker(store, pipeline, lease_seconds=30, poll_interval=0.01)
+            # One job for the worker to claim, so it enters the step above.
+            store.submit("document_analysis", {})
+            worker.start()
+            try:
+                assert reached.wait(timeout=30), "工作线程没有进入解析阶段。"
+                worker.stop(timeout=0.2)  # expires: the thread is mid-step
+                assert worker._thread is not None, (
+                    "stop() 超时后丢掉了仍在运行的线程句柄；该线程成了无主线程。"
+                )
+            finally:
+                release.set()
+                worker.stop(timeout=30)
+
+            assert worker._thread is None, (
+                "线程已经结束，但句柄仍被保留。"
+            )
+        finally:
+            _quiesce_before_close(harness)

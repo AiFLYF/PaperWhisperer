@@ -3048,11 +3048,28 @@ class JobWorker:
         interrupting one. A worker stopped mid-parse leaves the job leased and
         the next worker recovers it — which is the same path a crash takes, and
         is tested as one.
+
+        **The handle is only forgotten once the thread has actually stopped.**
+        Clearing ``_thread`` unconditionally — the obvious ``thread, self._thread
+        = self._thread, None`` — orphans a worker that outlived ``timeout``: no
+        later ``stop()`` can re-join it, ``active_workers()`` reports the
+        process drained while a thread is still draining it, and a subsequent
+        :meth:`start` sees ``None`` and launches a *second* worker over the same
+        queue. An orphan is also exactly what makes teardown unsafe: it is still
+        executing on its store's connection after the owning bundle has been
+        closed underneath it, which is a use-after-free in SQLite's C layer.
+
+        So a timed-out join keeps the handle. The worker is unreachable-by-
+        reference only in the sense that its step is long, and the next
+        ``stop()`` — or the ``_loop`` itself, which re-checks ``_stop`` after the
+        step returns — finishes the job and lets the handle go.
         """
         self._stop.set()
-        thread, self._thread = self._thread, None
+        thread = self._thread
         if thread is not None and thread.is_alive():
             thread.join(timeout=timeout)
+            if not thread.is_alive():
+                self._thread = None
 
     def __enter__(self) -> JobWorker:
         self.start()
