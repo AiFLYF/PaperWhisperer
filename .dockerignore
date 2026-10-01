@@ -1,0 +1,38 @@
+# Keep the build context small and the image reproducible.
+# Without this the context carried .git plus the 82 MB eval corpus, and a
+# rebuild could pick up whatever happens to be untracked at the time.
+
+.git
+.github
+.parity
+.benchmarks
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+*.egg-info
+build
+dist
+
+# Runtime data and output. These are the user's documents, not build inputs,
+# and baking them into an image would leak one deployment's papers into the
+# next.
+context
+output
+
+# The eval corpus is 82 MB of PDFs and is never needed to build or run the app.
+# eval/*.py, manifest.yaml and ground_truth/ stay: the eval runner lives in
+# the image's own right.
+eval/corpus
+eval/_assets
+
+# Local configuration. A .env baked into an image is a secret baked into an
+# image, where anyone who can pull it can read it.
+.env
+.env.*
+!.env.example
+
+# Local artefacts
+*.log
+*.txt.bak
+eval/reports

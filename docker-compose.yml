@@ -1,0 +1,228 @@
+# The Hosted tier: PaperWhisperer plus PostgreSQL with pgvector.
+#
+#     docker compose up -d --build
+#
+# T1.1's acceptance criterion is that this comes up with one command and that
+# the *same* test suite then passes against it, so two things below are load
+# bearing rather than decorative:
+#
+# 1. **The vector extension is created before the app connects.** A Compose
+#    file that starts a PostgreSQL without pgvector is the single most common
+#    silent failure in this shape of setup: the database comes up, looks
+#    healthy, and the first insert fails with a message about a type it has
+#    never heard of. So the init SQL is mounted from docker/pg/init/, and the
+#    store's own ``initialize()`` repeats ``CREATE EXTENSION IF NOT EXISTS``
+#    idempotently -- belt and braces, because a database restored from
+#    somebody else's dump is the case where only the code-side statement is
+#    there.
+# 2. **Every value has a default.** ``docker compose up`` works on a
+#    checkout with no ``.env`` at all, because a first-run failure here would
+#    be the first impression of the tier.
+#
+# Redis and MinIO are P4 scope and are behind the ``p4`` profile, so they cost
+# nothing today. The plan's tier table has "Object store: MinIO / S3 (P4)" and
+# "Celery+Redis (P4)" in it, and putting them behind a profile is what keeps
+# that honest: the Hosted tier is app + PostgreSQL, not app + four services
+# that are mostly idle.
+#
+# The personal tier needs none of this. ``docker compose`` is not on its path,
+# and that is the point of it: see docs/DEVELOPMENT_PLAN.md section 3 and
+# docs/DEPLOYMENT.md, which documents the personal tier first for the same
+# reason.
+
+name: paperwhisperer
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL + pgvector. The only service the Hosted tier requires.
+  # ---------------------------------------------------------------------------
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-paperwhisperer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-paperwhisperer}
+      POSTGRES_DB: ${POSTGRES_DB:-paperwhisperer}
+      # The compose file lives next to the project, so relative bind mounts
+      # below resolve against this directory and not against wherever the
+      # command happened to be run from.
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      # Bound to loopback only. A published database port reachable from the
+      # network is how a development instance becomes an incident, and this
+      # tier is not a public deployment yet.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Read-only, and over the directory rather than a single file, so the
+      # postgres image's `*.sql`/`*.sh` ordering applies and a second init
+      # script can be added later by number without editing this file. This
+      # replaces the `configs:` inline form Compose v2.23+ supported: same
+      # effect, no version floor, and the SQL is in a file a reviewer can diff
+      # rather than a YAML block scalar.
+      #
+      # The image runs `/docker-entrypoint-initdb.d` only on an *empty*
+      # PGDATA. `docker compose down -v` is therefore part of "start over",
+      # and the store re-creates the extensions itself in every other case.
+      - ./docker/pg/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # `pg_isready` alone is not enough: the server accepts connections
+      # before the init scripts have finished, so the app would start, find
+      # no `vector` type, and fail on its first query instead of waiting.
+      # The second command is the one that proves the extension landed.
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U ${POSTGRES_USER:-paperwhisperer} -d ${POSTGRES_DB:-paperwhisperer}
+          && psql -U ${POSTGRES_USER:-paperwhisperer} -d ${POSTGRES_DB:-paperwhisperer}
+          -tAc "SELECT 1 FROM pg_extension WHERE extname = 'vector'" | grep -q 1
+      interval: 5s
+      timeout: 5s
+      # Generous, because the first init on a cold volume also runs
+      # `initdb`, and a short timeout would restart the container in a loop
+      # while the database is still legitimately starting.
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # The application.
+  # ---------------------------------------------------------------------------
+  app:
+    # The base target, which is the one without docling. The `parse` target in
+    # the Dockerfile adds the torch chain, and it is a build target rather than
+    # a Compose profile because what is being gated is an install, not a
+    # service. Switch it with:
+    #
+    #     PAPER_IMAGE_TARGET=parse docker compose up -d --build
+    #
+    # The default stays the slim image so a `docker compose up --build` on a
+    # laptop is not a multi-gigabyte download. See docs/DEPLOYMENT.md.
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: ${PAPER_IMAGE_TARGET:-runtime}
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # The whole point of the Hosted tier. Everything else is convention.
+      STORAGE_BACKEND: postgres
+      STORAGE_PG_DSN: >-
+        postgresql://${POSTGRES_USER:-paperwhisperer}:${POSTGRES_PASSWORD:-paperwhisperer}@db:5432/${POSTGRES_DB:-paperwhisperer}
+      STORAGE_PG_SCHEMA: ${STORAGE_PG_SCHEMA:-public}
+      # Exact vector search by default. pgvector's approximate indexes return
+      # slightly different neighbours from run to run, and a top-10 that is
+      # not a function of the data is a retrieval regression that reproduces
+      # nowhere. Flip this on once the corpus is large enough that an exact
+      # scan is the bottleneck -- it is a genuine trade, and it is a
+      # deployment decision rather than a default.
+      STORAGE_PG_ANN: ${STORAGE_PG_ANN:-false}
+      # `web_app:main` and the Dockerfile's CMD both read these. Named here as
+      # well as in the image because a compose file that invented its own
+      # port would be a second source of truth for the deployment, and the
+      # published port below is derived from the same value.
+      FASTAPI_HOST: 0.0.0.0
+      FASTAPI_PORT: 8000
+      # Passed through rather than hardcoded, because the app reads them and a
+      # Compose file that invented its own values would be a second source of
+      # truth for the deployment.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8000}:8000"
+    volumes:
+      # The whole project, bind-mounted. This is a development compose file:
+      # a code change should not need an image rebuild, and the parse
+      # adapters cache model artifacts that are far too large to bake in.
+      #
+      # The consequence is that the image's installed copy of the package is
+      # shadowed by this one, which is fine because they are the same source
+      # -- and it is also why an edit made inside the container does not
+      # survive `docker compose up --build`.
+      - .:/app
+      # Uploads and context get their own named volumes on top so a stale
+      # host bind cannot quietly delete a user's parsed documents. A Hosted
+      # deployment keeps documents in PostgreSQL; these hold the uploaded
+      # originals and the parse cache, which is the same split the personal
+      # tier has as files-plus-database.
+      - uploads:/app/uploads
+      - output:/app/output
+      - context:/app/context
+    # Defined here rather than only in the Dockerfile, because the Dockerfile's
+    # check is fixed at 8000 and the published port is `${APP_PORT}`: if an
+    # operator moves one, the health check has to follow or the container is
+    # declared unhealthy while serving perfectly well.
+    #
+    # The second command is the important one, and it is here for a reason that
+    # cost a real debugging session to find: `/api/health` reports liveness and
+    # whether the runtime folders are writable, and touches neither the store
+    # tier nor the database. An image missing its PostgreSQL driver answers
+    # `/api/health` with 200 and then raises on the first request that reads a
+    # document -- a container that compose calls healthy and that cannot serve.
+    # So the check also builds the stores, which is the only assertion that
+    # proves this deployment is on the tier it claims to be on.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS "http://127.0.0.1:8000/api/health" > /dev/null &&
+          python -c "from paperwhisperer.infra.stores import build_stores;
+          d = build_stores().describe();
+          assert d['tier'] == 'hosted' and d['backend'] == 'postgres', d"
+      interval: 10s
+      timeout: 15s
+      retries: 12
+      # Generous: the first check also creates the schema and indexes on a
+      # database that has just been handed a volume, and a short timeout here
+      # restarts the container in a loop while it is legitimately working.
+      start_period: 30s
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # P4 scope. Present so the profile exists and CI can prove it resolves, off
+  # by default so it costs nothing today.
+  # ---------------------------------------------------------------------------
+  redis:
+    profiles: ["p4"]
+    image: redis:7-alpine
+    # appendonly, because a queue that loses jobs on restart is a queue that
+    # silently drops a user's uploaded paper.
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    profiles: ["p4"]
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-paperwhisperer}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-paperwhisperer}
+    ports:
+      - "127.0.0.1:${MINIO_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  uploads:
+  output:
+  context:
+  redisdata:
+  miniodata:

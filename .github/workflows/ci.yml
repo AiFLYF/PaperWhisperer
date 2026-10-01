@@ -51,3 +51,79 @@ jobs:
 
       - name: Check references, cascade order and import cycles
         run: python tools/check_frontend.py
+
+  # T4.3: release gates in CI. Added alongside the two jobs above, not in
+  # place of them -- lint, the full test suite and the front-end structure
+  # checks are unchanged.
+  gates:
+    name: Release gates (T4.3)
+    runs-on: ubuntu-latest
+    # The Hosted tier, so the task-recovery gate exercises its PostgreSQL
+    # contract instead of skipping it. The repository already knows this
+    # variable (tests/test_jobs.py:PG_DSN_ENV) and already probes it safely:
+    # `postgres_availability()` only dials out when the variable is set, and
+    # any failure downgrades to a skip with a readable reason rather than an
+    # error. A database that is slow to start therefore costs coverage, never
+    # correctness.
+    services:
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: paperwhisperer
+          POSTGRES_PASSWORD: paperwhisperer
+          POSTGRES_DB: paperwhisperer
+        ports:
+          - '5432:5432'
+        options: >-
+          --health-cmd "pg_isready -U paperwhisperer -d paperwhisperer"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Matches docker-compose.yml's db service, so the same contract tests run
+      # against the same database locally and in CI.
+      PAPERWHISPERER_TEST_PG_DSN: >-
+        postgresql://paperwhisperer:paperwhisperer@localhost:5432/paperwhisperer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # `hosted` is required, not optional, for this job: it carries
+          # psycopg. Without the driver, tests/test_jobs.py::postgres_availability()
+          # returns "驱动不可用" and every TestJobPostgres test skips -- the
+          # service container would come up healthy, the DSN would be set, and
+          # the recovery gate would quietly measure SQLite only while the job
+          # comment claimed otherwise. A gate that reports less coverage than
+          # it says is worse than one that reports none.
+          python -m pip install -e ".[dev,hosted]"
+
+      # The gate's own tests, not the whole suite: `backend` already runs that.
+      # These are the ones that prove each gate has a threshold, that the
+      # threshold decides, and that a deliberately broken fixture goes red.
+      - name: Gate definition and threshold tests
+        run: python -m pytest tests/test_release_gates.py -q --tb=short
+
+      # Build rules, not release rules: only a gate that actually FAILED exits
+      # non-zero here. On a clean clone three corpus gates SKIP (eval/corpus/ is
+      # gitignored) and two are BLOCKED (no labelled set), and the run still
+      # exits 0 with every one of those printed and counted separately.
+      # `--release` is deliberately NOT run here -- it is a pre-release check on
+      # a machine that has the corpus and the labels, and it is expected to
+      # refuse today.
+      - name: Release gates
+        run: python -m eval.run_gates --out eval/reports
+
+      - name: Upload gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gates-report
+          path: eval/reports/release_gates.md
+          if-no-files-found: ignore

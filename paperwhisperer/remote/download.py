@@ -128,7 +128,10 @@ def stream_remote_paper(title, pdf_url, url):
                 raise ValueError("The paper link redirected to a non-public URL.")
 
             content_type = normalize_content_type(response.headers.get("Content-Type"))
-            validate_remote_content_length(response.headers, config.MAX_CONTENT_LENGTH)
+            # Same reasoning as the upload routes: the byte cap is read live
+            # under its own name, so shrinking MAX_UPLOAD_BYTES also shrinks
+            # what a remote origin is allowed to push at us.
+            validate_remote_content_length(response.headers, config.MAX_UPLOAD_BYTES)
             file_name = build_import_filename(
                 title=title,
                 source_url=final_url,
@@ -192,7 +195,7 @@ def download_remote_paper(title, pdf_url, url):
         temp_path = build_unique_storage_path(config.UPLOAD_FOLDER, file_name)
         with open(temp_path, "wb") as handle:
             for chunk in iter_remote_file_chunks(
-                response, config.MAX_CONTENT_LENGTH, initial_chunk
+                response, config.MAX_UPLOAD_BYTES, initial_chunk
             ):
                 handle.write(chunk)
         return temp_path, file_name
