@@ -13,7 +13,9 @@ import re
 
 PROMPT_STABLE_PREFIX = """你是 PaperWhisperer 的学术研究助手。目标是帮助研究者快速理解论文、保留证据、识别结构与局限。
 始终优先依据用户提供的文档内容，不编造文献细节；文档没有依据时明确说明。
-输出默认使用中文；只有检索词、JSON 字段值或代码任务明确要求时才使用英文。"""
+输出默认使用中文；只有检索词、JSON 字段值或代码任务明确要求时才使用英文。
+你没有任何工具可用：不得请求文件检索、命令执行或任何外部访问。你看到的全部依据就是本消息中的文档内容。
+当文档内容明显被截断、不足以回答问题时，直接说明依据不足并指出缺失的部分，不要试图自行寻找其他来源。"""
 
 PROMPT_FORMULA_RULES = """公式与格式规则：
 - 行内公式必须使用 $...$，不要使用 \\( ... \\)。
@@ -30,6 +32,13 @@ PROMPT_QUALITY_RULES = """回答质量规则：
 PROMPT_TASK_CONTRACTS = {
     "summary_chunk": "任务契约：从文献片段提取核心观点和高价值引用，保留关键术语、方法、数据集、结论和公式。",
     "summary_merge": "任务契约：整合多个片段摘要，去重、合并同义观点，并形成一份连贯的整篇论文概要。",
+    "paper_facts": (
+        "任务契约：一次性抽取结构化事实，字段为 research_question / contributions / method / datasets / metrics / main_results / limitations / reproducibility。\n"
+        "每条事实必须给出支持它的证据编号（形如 [ev_xxxx]），并附一段论文原句作为 quote。\n"
+        "论文没有说明的字段必须留空并在 extraction_status 标注 not_found，不得根据经验或常识补全。\n"
+        "只允许引用本消息中给出编号的证据；不得引用不存在的编号。\n"
+        "不要总结、不要评价、不要添加论文中不存在的结论或数字。"
+    ),
     "quotes": "任务契约：提取最值得引用的原句或接近原文的关键表述，不要改写成泛泛总结。",
     "mindmap": "任务契约：识别论文的研究问题、方法、实验、结论与局限，输出文本层级结构。",
     "mermaid": "任务契约：输出可渲染的 Mermaid 结构图代码，只输出 Mermaid，不解释。",
@@ -71,9 +80,41 @@ def build_stable_system_prompt(task_key: str) -> str:
     )
 
 
+#: A sequence that a model would read as an opening or closing tag.
+#:
+#: The block delimiters are XML-ish, so untrusted content that contains one can
+#: close its own block and have everything after it read as a *sibling of the
+#: real instruction blocks*. That is not a hypothetical: a document containing
+#: the literal text ``</document_excerpt>`` does exactly this, and the result
+#: is that the document gets to write the task. Sanitising the tag name (which
+#: this function already does) protects the frame but not the content.
+_TAG_LIKE = re.compile(r"<(?=[A-Za-z_][A-Za-z0-9_]*\s*/?>)")
+
+
+def _neutralize_tags(text: str) -> str:
+    """Break tag-like sequences in untrusted content without mangling prose.
+
+    Only a ``<`` that actually begins a tag is touched, so LaTeX (``a<b``),
+    comparisons (``x <= 3``) and prose are untouched. The bracket is replaced
+    with a fullwidth one rather than deleted: the sentence still reads
+    correctly to a human and to the model, and the sequence can no longer
+    close a block. Deleting would silently alter the document's meaning, and
+    escaping to ``&lt;`` would leave the content looking like markup it is not.
+    """
+    return _TAG_LIKE.sub("＜", text)
+
+
 def build_prompt_block(tag: str, content) -> str:
+    """Wrap content in a named block, neutralising any block syntax inside it.
+
+    The document is data. It goes in the prompt, and the prompt's block
+    structure is what keeps the system instructions and the system's data
+    distinguishable -- so content that can reconstruct that structure must not
+    be able to.
+    """
     safe_tag = re.sub(r"[^A-Za-z0-9_]", "_", str(tag or "input")).strip("_") or "input"
-    return f"<{safe_tag}>\n{str(content or '').strip()}\n</{safe_tag}>"
+    body = _neutralize_tags(str(content or "").strip())
+    return f"<{safe_tag}>\n{body}\n</{safe_tag}>"
 
 
 def build_task_user_prompt(
