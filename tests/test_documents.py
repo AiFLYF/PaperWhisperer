@@ -137,8 +137,14 @@ class TestDocumentLoader:
 
         text = DocumentLoader.load(str(target))
 
+        # The "[Slide 1]" prose marker is gone. The legacy loader used it as a
+        # stand-in for structure that now exists for real: the slide is a
+        # heading element with a `slide` locator, so to_full_text renders the
+        # heading instead of a bracketed prefix. Asserting the canonical form
+        # rather than deleting the check is what stops the migration silently
+        # dropping the title.
         assert "Slide title" in text
-        assert "[Slide 1]" in text
+        assert "# Slide title" in text
 
     def test_a_docx_with_a_table_keeps_the_rows(self, tmp_path):
         docx = pytest.importorskip("docx")
@@ -153,8 +159,10 @@ class TestDocumentLoader:
 
         text = DocumentLoader.load(str(target))
 
-        assert "[Table 1]" in text
+        # Same story: a table is a real Table element now, so the grid reaches
+        # the analysis layer as markdown instead of behind a "[Table 1]" tag.
         assert "Accuracy | 0.91" in text
+        assert "| Metric | Value |" in text
 
     def test_a_zip_without_the_docx_extension_is_not_loaded(self, tmp_path):
         target = tmp_path / "archive.zip"

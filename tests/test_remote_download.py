@@ -548,7 +548,9 @@ class TestDownloadRemotePaper:
         body = b"%PDF-1.7\n" + b"x" * 5000
         patch_remote_response(FakeResponse(body))
         # Shrink the cap below the body size so the chunk loop aborts mid-write.
-        monkeypatch.setattr(config, "MAX_CONTENT_LENGTH", 100)
+        # MAX_UPLOAD_BYTES is the setting; MAX_CONTENT_LENGTH is now only an
+        # alias of it, so patching the alias would no longer bound anything.
+        monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", 100)
 
         before = set(os.listdir(runtime_dirs["uploads"]))
 

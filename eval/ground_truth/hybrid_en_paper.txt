@@ -1,0 +1,41 @@
+A Study of Gradient Dynamics in Deep
+Residual Networks
+Deep residual networks have become the dominant architecture for a broad range of perception tasks. In this work we revisit the optimization geometry of residual connections and derive improved scaling rules for very d
+eep networks. We train networks of depth 50 to 200 layers on image classification benchmarks and observe consistent gains.
+1. Introduction
+Residual learning reframes the mapping problem: instead of fitting a desired underlying mapping H(x) directly, the stacked layers fit a residual F(x) = H(x) - x. This reformulation eases optimization and enables training 
+of networks that are substantially deeper than previously possible. Prior work has studied normalization and initialization; here we focus on the interaction between residual branches and learning-rate schedules.
+2. Related Work
+Highway networks introduced gated shortcut connections, while identity shortcuts were popularized by residual networks. Later analyses connected residual flows to ordinary differential equations, motivating neural OD
+E solvers. Our analysis complements this line by quantifying the variance of gradient updates across depth.
+3. Method
+y_l = x_l + F(x_l, W_l)
+x_(l+1) = lambda * x_l + mu * F(x_l, W_l)
+We introduce two scalar hyper-parameters lambda and mu that control the trade-off between the identity path and the residual branch. When lambda equals one and mu equals one we recover the standard residual block. 
+Setting lambda greater than one effectively rescales the network depth, and we prove a variance preservation condition under which gradients neither vanish nor explode.
+4. Experiments
+depth
+lambda
+top-1 err.
+params (M)
+50
+1.0
+24.7
+25.6
+101
+1.0
+23.6
+44.5
+152
+1.0
+23.0
+60.2
+152
+1.2
+22.4
+60.2
+Table 1 summarizes classification accuracy. The rescaled variant improves top-1 error by 0.6 points at identical parameter count. Training curves show that the benefit concentrates in the late phase of training, when the i
+dentity path dominates gradient flow.
+5. Conclusion
+We presented a simple reparameterization of residual networks with provable variance preservation and consistent empirical gains. The approach requires no extra parameters and composes with existing normalization sc
+hemes.

@@ -302,13 +302,15 @@ class TestFinalizeAnalysisSections:
 
 class TestAnalyze:
     @pytest.fixture
-    def document(self, tmp_path, monkeypatch):
+    def document(self, tmp_path, runtime_dirs):
+        # No monkeypatch of the loader. The analysis layer now reaches the file
+        # through DocumentLoader.load_with_outcome, and patching `load` was a
+        # no-op that left the real gateway running anyway: these tests passed
+        # only because the fixture wrote a file whose text the real parse
+        # happened to return verbatim. Letting the real path run also needs
+        # runtime_dirs, or the parse cache writes into the repo's context/.
         path = tmp_path / "paper.txt"
         path.write_text("paper body", encoding="utf-8")
-        monkeypatch.setattr(
-            "paperwhisperer.analysis.orchestrator.DocumentLoader.load",
-            staticmethod(lambda file_path: "paper body"),
-        )
         return path
 
     @staticmethod
@@ -402,13 +404,15 @@ class TestAnalyze:
 
 class TestAnalyzeStream:
     @pytest.fixture
-    def document(self, tmp_path, monkeypatch):
+    def document(self, tmp_path, runtime_dirs):
+        # No monkeypatch of the loader. The analysis layer now reaches the file
+        # through DocumentLoader.load_with_outcome, and patching `load` was a
+        # no-op that left the real gateway running anyway: these tests passed
+        # only because the fixture wrote a file whose text the real parse
+        # happened to return verbatim. Letting the real path run also needs
+        # runtime_dirs, or the parse cache writes into the repo's context/.
         path = tmp_path / "paper.txt"
         path.write_text("paper body", encoding="utf-8")
-        monkeypatch.setattr(
-            "paperwhisperer.analysis.orchestrator.DocumentLoader.load",
-            staticmethod(lambda file_path: "paper body"),
-        )
         return path
 
     def test_the_stream_ends_with_exactly_one_done_event(self, monkeypatch, document):
@@ -549,48 +553,156 @@ class TestHistoryBlock:
 
 
 class TestAnswerPrompts:
+    """The Q&A path after T1.7.
+
+    These tests used to assert that the answer prompt was built from a
+    ``document_content[: DOCUMENT_WINDOW_BUDGET["qa"]]`` prefix -- including a
+    test named ``test_the_document_window_is_truncated_to_the_qa_budget``
+    that pinned the truncation as intended behaviour. It was not intended; it
+    was the defect. On a real paper from the corpus a sentence reporting its
+    key experimental result sat at offset 12,132 against a 12,000-character
+    budget, and every section after section 3 was unreachable.
+
+    The window is gone. ``test_the_prompt_carries_retrieved_evidence_and_no_head_excerpt``
+    below is the inverted version of the old characterisation test: it fails
+    loudly if the prefix window ever comes back.
+    """
+
     @pytest.fixture
     def analyzer(self, monkeypatch):
         instance = make_analyzer(monkeypatch)
         instance.document_content = "document body"
         return instance
 
-    def test_answering_without_a_document_is_refused(self, monkeypatch):
-        instance = make_analyzer(monkeypatch)
-        instance.document_content = ""
-        with pytest.raises(ValueError, match="没有文档内容"):
-            instance._build_answer_prompts("问题")
+    @staticmethod
+    def _retrieval(*, insufficient: bool, evidence=(), empty_reason: str = ""):
+        """A stand-in for ``RetrievalResult`` covering what the answer path reads."""
 
-    def test_the_answer_mode_is_normalised_before_it_reaches_the_prompt(self, analyzer, monkeypatch):
-        captured = {}
+        # Bound to a local first: a class body does not see the enclosing
+        # function's parameters the way a comprehension would.
+        reason = empty_reason
 
-        def fake_build(**kwargs):
-            captured.update(kwargs)
-            return ("system", "user")
+        class _Record:
+            record_id = "rec-test"
+            task = "qa"
+            degradations = ()
+            plan_signature = "plan-test"
+            empty_reason = reason
 
-        monkeypatch.setattr(sections, "build_answer_prompt", fake_build)
-        analyzer._build_answer_prompts("问题", answer_mode="nonsense-mode")
-        assert captured["answer_mode"] in {"evidence", "plain", "deep"}
+        class _Result:
+            insufficient_evidence = insufficient
+            empty_reason = reason
 
-    def test_the_document_window_is_truncated_to_the_qa_budget(self, analyzer, monkeypatch):
+            def __init__(self):
+                self.evidence = tuple(evidence)
+                self.record = _Record()
+
+        return _Result()
+
+
+    def test_the_answer_mode_is_normalised_before_it_reaches_the_prompt(self, analyzer):
+        """A junk mode silently falls back to the default, not into the prompt.
+
+        The normalisation happens inside the real builder, so the test calls
+        it rather than stubbing it -- stubbing the very method that normalises
+        is how this test ended up passing while checking nothing.
+        """
+        from paperwhisperer.llm.prompts import ANSWER_MODES, DEFAULT_ANSWER_MODE
+
+        result = self._retrieval(insufficient=False)
+        _, user = analyzer._build_evidence_answer_prompts(
+            "问题", answer_mode="nonsense-mode", result=result
+        )
+        assert "nonsense-mode" not in user
+        assert ANSWER_MODES[DEFAULT_ANSWER_MODE][:12] in user
+
+    def test_the_prompt_carries_retrieved_evidence_and_no_head_excerpt(
+        self, monkeypatch
+    ):
+        """The old defect, inverted: the prefix window must not come back.
+
+        A document far larger than the Q&A budget, where the answer-bearing
+        sentence lives past the old cut, and an empty retrieval. The point is
+        that nothing in the prompt is a prefix of the document -- if the
+        window reappears, this fails.
+        """
         from paperwhisperer.core import config
 
-        analyzer.document_content = "x" * (config.DOCUMENT_WINDOW_BUDGET["qa"] + 500)
-        captured = {}
-        monkeypatch.setattr(
-            sections, "build_answer_prompt",
-            lambda **kwargs: captured.update(kwargs) or ("system", "user"),
+        instance = make_analyzer(monkeypatch)
+        instance.document_content = "x" * (config.DOCUMENT_WINDOW_BUDGET["qa"] + 500)
+        result = self._retrieval(insufficient=False)
+        _, user = instance._build_evidence_answer_prompts("问题", result=result)
+
+        assert len(user) < config.DOCUMENT_WINDOW_BUDGET["qa"], (
+            "the prompt grew to the size of the document it is supposed to "
+            "have stopped sending; the head-excerpt window is back"
         )
-        analyzer._build_answer_prompts("问题")
-        assert len(captured["document_window"]) == config.DOCUMENT_WINDOW_BUDGET["qa"]
+        assert "xxxx" not in user, "a run of document body leaked into the prompt"
 
-    def test_answering_reaches_the_client(self, analyzer):
-        assert analyzer.answer_question("问题") == "content"
-        assert analyzer.client.calls
+    def test_answering_without_evidence_never_calls_the_model(self, monkeypatch):
+        """No evidence means no model call, not a prompt with nothing in it.
 
-    def test_streaming_answer_reaches_the_client(self, analyzer):
-        assert list(analyzer.stream_answer_question("问题")) == ["content"]
-        assert analyzer.client.stream_calls
+        A post-hoc filter cannot undo an answer. The measurement that forced
+        this rule was a model that correctly refused to invent a number and
+        then fabricated the surrounding context to justify the refusal.
+        """
+        instance = make_analyzer(monkeypatch)
+        instance.document_content = "document body"
+
+        result = self._retrieval(
+            insufficient=True, empty_reason="no chunk scored above the floor"
+        )
+        monkeypatch.setattr(
+            instance, "_retrieve_for_question", lambda *_: result, raising=False
+        )
+        result = instance.answer_question("问题")
+
+        assert result.confidence == "insufficient_evidence"
+        assert not instance.client.calls, (
+            "the model was asked to answer from nothing; whatever it returned "
+            "would have to be discarded, and it might have been confabulated"
+        )
+        assert result.answer.strip()
+
+    def test_answering_returns_a_structured_result_not_a_string(self, monkeypatch):
+        from paperwhisperer.analysis.orchestrator import AnswerResult
+
+        instance = make_analyzer(monkeypatch)
+        instance.document_content = "document body"
+
+        retrieval = self._retrieval(insufficient=True)
+        monkeypatch.setattr(
+            instance, "_retrieve_for_question", lambda *_: retrieval, raising=False
+        )
+        result = instance.answer_question("问题")
+
+        assert isinstance(result, AnswerResult)
+        assert isinstance(result.to_dict(), dict)
+
+    def test_streaming_ends_with_the_result_and_only_verified_text(
+        self, monkeypatch
+    ):
+        """The pieces carry verified text; the model output is buffered.
+
+        Forwarding each streamed chunk as it arrives would be a release-gate
+        violation: the browser would have rendered an invented quote inside
+        quotation marks before anything could check it.
+        """
+        instance = make_analyzer(monkeypatch)
+        instance.document_content = "document body"
+
+        retrieval = self._retrieval(insufficient=True)
+        monkeypatch.setattr(
+            instance, "_retrieve_for_question", lambda *_: retrieval, raising=False
+        )
+        items = list(instance.stream_answer_question("问题"))
+
+        assert items, "streaming produced nothing"
+        assert hasattr(items[-1], "confidence"), (
+            "the stream must end with the structured result, not a bare string"
+        )
+        joined = "".join(str(i) for i in items[:-1])
+        assert joined == items[-1].answer
 
 
 class TestSearchRewriteAndRecommend:

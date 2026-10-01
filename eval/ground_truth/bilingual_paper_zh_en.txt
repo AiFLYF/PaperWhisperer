@@ -1,0 +1,20 @@
+多模态检索系统在企业知识库中的应用评估
+<b>Abstract.</b> We evaluate a multimodal retrieval system combining dense embedding and BM25 ranking on an enterprise knowledge base of 128,000 documents. Recall@10 improves from 0.71 to 0.86 after adding a cross-encoder reranker, while p95 latency increases by 42 ms.
+关键词：多模态检索、hybrid retrieval、reranker、企业知识库、Recall@10
+1. 引言
+企业知识库通常同时包含 PDF 研究报告、DOCX 制度文档与 PPTX 汇报材料，单一模态的检索方案难以覆盖全部内容类型。本文以 hybrid retrieval 为基线，系统评估 reranker 与 query expansion 两项技术的增量收益，并给出不同延迟预算下的配置建议。
+1.1 研究问题
+在中文为主的企业语料上，BM25 词法通道是否仍然必要？
+cross-encoder reranker 的延迟代价是否可接受？
+query expansion 在长尾 query 上的收益是否稳定？
+2. 方法
+检索流程包含四个阶段：query rewrite、dense retrieval、lexical retrieval 与 rank fusion。融合采用 reciprocal rank fusion (RRF)，其中 k 取 60。
+score(q, d) = alpha * cos(E(q), E(d)) + (1 - alpha) * BM25(q, d)
+3. 实验设置
+语料规模为 128,000 篇文档，其中中文文档占比 61%，英文文档占比 34%，中英混排文档占比 5%。Embedding 维度为 1024，chunk size 为 512 tokens，overlap 为 64 tokens。
+配置 | dense only | dense + BM25 | dense + BM25 + rerank | + query expansion :: dense only / 0.74 / 0.52 / 118 ; dense + BM25 / 0.79 / 0.57 / 134 ; dense + BM25 + rerank / 0.86 / 0.63 / 176 ; + query expansion / 0.87 / 0.64 / 198
+表 1：四种配置在测试集上的检索质量与延迟
+4. 结果分析
+在中文语料上，BM25 通道的贡献明显高于英文语料（Recall@10 提升 0.05 对 0.02），说明中文分词与 term-level 匹配仍是必要补充。Reranker 带来 0.07 的 Recall@10 提升，代价是 42 ms 的 p95 延迟增长。
+5. 结论
+对于交互式问答场景建议关闭 reranker 以控制延迟；对于离线批量分析场景建议开启。后续工作将评估 BGE-M3 sparse retrieval 替代 BM25 的可行性。

@@ -1,0 +1,17 @@
+Gradient Dynamics in Very Deep Residual Networks
+A Reproducibility Study
+Deep residual networks have become the dominant architecture for a broad range of percep
+tion tasks. In this work we revisit the optimization geometry of residual connections and de
+rive improved scaling rules for very deep networks. We train networks of depth 50 to 200 l
+ayers on image classification benchmarks and observe consistent gains across all scales tes
+ted. The analysis relies on a variance preservation condition that we prove in Section 3. E
+mpirically, the benefit concentrates in the late phase of training when the identity path do
+minates gradient flow, and the effect strengthens as depth increases beyond one hundred la
+yers.
+Residual learning reframes the mapping problem: instead of fitting a desired underlying m
+apping H(x) directly, the stacked layers fit a residual F(x) = H(x) - x. This reformulation ea
+ses optimization and enables training of networks that are substantially deeper than previo
+usly possible. Prior work has studied normalization and initialization; here we focus on the 
+interaction between residual branches and learning-rate schedules. We also quantify the va
+riance of gradient updates across depth and relate it to the effective condition number of th
+e Jacobian.

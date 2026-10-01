@@ -293,8 +293,17 @@ class TestLoadSessionPayloadNormalizesShape:
                             "title": "Valid Result",
                             "abstract": "A" * 1400,
                             "authors": ["A", "B", "C", "D", "E", "F", "G", "H", "I"],
+                            # A shared DOI, not just a shared title. Dedup is
+                            # identity-based (T3.1): two records with the same
+                            # title and different authors are two papers, and
+                            # collapsing them would be a silent false merge.
+                            "doi": "10.1000/valid-result",
                         },
-                        {"title": "Valid Result", "url": "https://example.com/dup"},
+                        {
+                            "title": "Valid Result",
+                            "url": "https://example.com/dup",
+                            "doi": "10.1000/valid-result",
+                        },
                         {"abstract": "missing title"},
                         "not a dict",
                     ]
@@ -324,8 +333,17 @@ class TestLoadSessionPayloadNormalizesShape:
                         "rewrite_model": "  " + "model " * 40,
                         "generated_at": "  " + "date " * 20,
                         "items": [
-                            {"title": "Recommended", "year": "2024", "venue": "Venue"},
-                            {"title": "Recommended", "year": "2023"},
+                            {
+                                "title": "Recommended",
+                                "year": "2024",
+                                "venue": "Venue",
+                                "doi": "10.1000/recommended",
+                            },
+                            {
+                                "title": "Recommended",
+                                "year": "2023",
+                                "doi": "10.1000/recommended",
+                            },
                             {"url": "https://example.com/no-title"},
                         ],
                         "topics": ["topic", "topic", "  ", 42],
@@ -368,8 +386,13 @@ class TestLoadSessionPayloadNormalizesShape:
                             "authors": [{"name": "Alice"}],
                             "year": "2024",
                             "url": "https://example.com/1",
+                            "doi": "10.1000/paper-one",
                         },
-                        {"title": "Paper One", "authors": ["Duplicate"]},
+                        {
+                            "title": "Paper One",
+                            "authors": ["Duplicate"],
+                            "doi": "10.1000/paper-one",
+                        },
                         {"title": ""},
                     ]
                 },
@@ -397,6 +420,15 @@ class TestLoadSessionPayloadNormalizesShape:
             "url",
             "pdf_url",
             "saved_at",
+            # Identity fields added by T3.1. A reading-queue entry that
+            # remembers which paper it is can later be enriched (a missing
+            # DOI recovered) and can be matched against a re-search without
+            # guessing from the title.
+            "doi",
+            "arxiv_id",
+            "s2_paper_id",
+            "openalex_id",
+            "identity_key",
         }
 
     def test_caps_the_reading_queue_length(self, runtime_dirs, monkeypatch):

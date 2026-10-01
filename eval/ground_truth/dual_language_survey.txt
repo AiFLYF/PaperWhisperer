@@ -1,0 +1,17 @@
+A Survey of Evidence-Grounded Document Analysis
+<b>English body with Chinese section summaries.</b> This sample exercises parsers and retrievers on documents where the primary language alternates between sections.
+1. Introduction
+Evidence-grounded analysis requires that every claim in a generated answer can be traced back to a concrete location in the source document. Early summarisation systems flattened documents into plain text and therefore lost page structure, element types and provenance.
+本节要点：证据驱动的分析要求每条结论都能回溯到原文的具体位置，早期的摘要系统把文档压平为纯文本，丢失了版面结构、元素类型与来源信息。
+2. Parsing and Provenance
+Modern parser gateways expose a canonical document model with elements, tables, figures, formulas and source locators. The locator schema differs per format: PDF pages with bounding boxes, slides for decks, element references for word processor files.
+本节要点：现代解析网关提供统一的文档模型，包含元素、表格、图片、公式与定位符。定位语义按格式而异：PDF 用页码与包围盒，演示文稿用幻灯片，文字处理文档用元素引用。
+3. Retrieval Strategies
+Hybrid retrieval combines dense semantic recall with lexical matching. For mixed Chinese and English corpora, lexical matching on Chinese text needs substring or trigram strategies rather than whitespace tokenisation alone.
+本节要点：混合检索结合稠密语义召回与词法匹配。对中英文混合语料，中文部分的词法匹配需要子串或 trigram 策略，不能只依赖空格分词。
+4. Verification
+Direct quotations must be verified programmatically against the canonical source text. Quotes that fail exact or normalised alignment are downgraded to paraphrase and must not be rendered with quotation marks.
+本节要点：直接引文必须以程序方式针对规范原文进行校验，无法逐字对齐的内容应降级为改写，且不得以引号形式呈现。
+5. Open Problems
+Remaining problems include cross-page table recovery, reading order in three-column layouts, and cost control for on-demand vision models.
+本节要点：尚未解决的问题包括跨页表格还原、三栏版式的阅读顺序恢复，以及按需视觉模型的成本控制。

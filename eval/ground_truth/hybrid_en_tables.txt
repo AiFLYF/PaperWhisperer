@@ -1,0 +1,60 @@
+Benchmark Protocol and Statistical Analysis
+of Language Model Evaluations
+We present a reproducible evaluation protocol covering twelve benchmarks, five model scales, and three decoding strategies. All runs use fixed seeds, and we report means and 95 percent confidence intervals over five re
+starts.
+1. Evaluation Suite
+benchmark
+metric
+n-shot
+seed set
+pass@1
+ARC-C
+accuracy
+0-shot
+S1-S5
+0.612
+HellaSwag
+accuracy
+10-shot
+S1-S5
+0.734
+MMLU
+accuracy
+5-shot
+S1-S5
+0.589
+GSM8K
+exact match
+8-shot
+S1-S5
+0.402
+HumanEval
+pass@1
+0-shot
+S1-S5
+0.317
+2. Variance Decomposition
+source
+variance share
+stdev
+note
+decoding
+0.41
+1.9 pts
+temp 0.0-0.8
+restarts
+0.27
+1.2 pts
+seed only
+prompt fmt
+0.19
+0.9 pts
+whitespace
+hardware
+0.13
+0.6 pts
+fp16 vs bf16
+Decoding temperature contributes the largest share of run-to-run variance, followed by random restarts. Prompt formatting effects are smaller but statistically significant across all benchmarks. We recommend reporting i
+nterval estimates rather than single-point scores.
+3. Recommendations
+Our protocol reduces reported variance by 48 percent relative to common practice. We release all prompts, seeds, and parsing code to make single-number leaderboards directly reproducible.

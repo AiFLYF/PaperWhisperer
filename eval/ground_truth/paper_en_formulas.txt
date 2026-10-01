@@ -1,0 +1,17 @@
+Functional Integral Representations
+in Quantum Field Theory
+We review the construction of functional integrals for scalar and gauge fields and derive the one-loop effective action by the background field method. Explicit computations are carried out for the O(N) model in two and
+ four dimensions.
+1. The Generating Functional
+Z[J] = integral D phi exp(i S[phi] + i integral J phi)
+S[phi] = integral d^4x (1/2 partial phi partial phi - 1/2 m^2 phi^2 - lambda/4! phi^4)
+The generating functional Z[J] formally integrates over all field configurations weighted by the exponential of the classical action. Perturbation theory arises from expanding around the stationary point of the action funct
+ional.
+2. Background Field Method
+Gamma[phi_B] = -i ln Z[J] - integral J phi_B
+d = 4 - epsilon,  lambda_R = lambda mu^epsilon Z_lambda
+Splitting the field into a classical background and a quantum fluctuation preserves gauge invariance of the effective action order by order. The divergent part of the one-loop determinant yields the beta function of the qua
+rtic coupling.
+3. Renormalization
+beta(lambda) = 3 lambda^2 / (16 pi^2) + O(lambda^3)
+The one-loop beta function shows the theory is not asymptotically free for positive lambda. We compare with exact results available in two dimensions and discuss the resummation of large logarithms.

@@ -501,15 +501,53 @@ class TestCleanupHelpers:
 class TestConfigParsers:
     def test_parse_int_env_uses_default_when_unset(self, monkeypatch):
         monkeypatch.delenv("PW_TEST_INT", raising=False)
-        assert config.parse_int_env("PW_TEST_INT", default=7) == 7
+        assert config.parse_int_env("PW_TEST_INT", default=7, max_value=100) == 7
 
     def test_parse_int_env_clamps_to_range(self, monkeypatch):
         monkeypatch.setenv("PW_TEST_INT", "9999")
         assert config.parse_int_env("PW_TEST_INT", default=5, max_value=10) == 10
 
+    def test_the_llm_token_ceiling_is_configurable_not_hardcoded(self, monkeypatch):
+        """``LLM_MAX_TOKENS`` was a bare literal, and a reasoning model broke it.
+
+        Against a reasoning-capable model a small ceiling does not truncate the
+        answer — it consumes the whole budget on reasoning and returns empty
+        content, which the client used to report as "the model returned
+        nothing". An operator had no way to raise it, because it was not
+        configurable. It reads the environment now, on every request.
+        """
+        assert config.LLM_MAX_TOKENS == 8000
+
+        monkeypatch.setenv("OPENAI_LLM_MAX_TOKENS", "16000")
+        assert config.parse_int_env(
+            "OPENAI_LLM_MAX_TOKENS", default=8000, min_value=256, max_value=32768
+        ) == 16000
+
+    def test_a_large_configured_value_is_not_clamped_to_a_hidden_default(
+        self, monkeypatch, caplog
+    ):
+        """A declared ceiling must be a ceiling an operator can see being hit.
+
+        ``parse_int_env`` used to default ``max_value`` to 32, so every new
+        integer setting that forgot to declare its own range was silently
+        clamped to 32 with only a log line. Three separate pieces of work hit
+        that independently. ``max_value`` is now a required keyword, and this
+        test pins the consequence: a value far above 32 arrives intact, and one
+        above the declared ceiling is clamped *loudly*.
+        """
+        monkeypatch.setenv("PW_TEST_INT", "4096")
+        with caplog.at_level("WARNING"):
+            assert config.parse_int_env("PW_TEST_INT", default=5, max_value=8192) == 4096
+
+        monkeypatch.setenv("PW_TEST_INT", "999999")
+        with caplog.at_level("WARNING"):
+            clamped = config.parse_int_env("PW_TEST_INT", default=5, max_value=8192)
+        assert clamped == 8192
+        assert any("PW_TEST_INT" in record.getMessage() for record in caplog.records)
+
     def test_parse_int_env_falls_back_on_garbage(self, monkeypatch):
         monkeypatch.setenv("PW_TEST_INT", "abc")
-        assert config.parse_int_env("PW_TEST_INT", default=3) == 3
+        assert config.parse_int_env("PW_TEST_INT", default=3, max_value=100) == 3
 
     @pytest.mark.parametrize("raw", ["1", "true", "TRUE", "yes", "on"])
     def test_parse_bool_env_truthy_values(self, monkeypatch, raw):

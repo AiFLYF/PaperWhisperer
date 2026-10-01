@@ -151,17 +151,35 @@ class RecordingAnalyzer:
 
 
 @pytest.fixture
-def analyzer(monkeypatch):
+def analyzer(monkeypatch, isolated_job_stores):
     """Swap in ``RecordingAnalyzer`` and hand back the class for configuration.
 
     ``DocumentAnalyzer`` has to be replaced in every module that binds the name,
-    not just the route modules: ``/api/analyze`` and ``/api/import-paper`` both
-    delegate to ``analysis.service.analyze_saved_file``, which constructs the
-    analyzer itself. Patching only the routes would let the real analyzer — and
-    a real HTTP call to the model endpoint — through.
+    and the one that matters most is :mod:`paperwhisperer.analysis.orchestrator`:
+    since T2.3 ``/api/analyze`` does not build the analyzer in the route at all —
+    it submits a job, and the job's analysing stage
+    (:func:`paperwhisperer.api.routes_jobs._analyse_stage`) imports
+    ``DocumentAnalyzer`` **at call time** from that module. Patching only the
+    route modules therefore let the real analyzer through, and the first thing
+    it did with the configured ``OPENAI_BASE_URL`` was open a socket to the
+    shared endpoint. The other four modules are still patched because
+    ``/api/import-paper`` and the Q&A / papers routes call
+    ``analysis.service.analyze_saved_file`` (and bind the name themselves).
+
+    ``tests/conftest.py::no_unstubbed_job_stage_model`` is the suite-wide
+    backstop for the same seam; this per-test stub is applied after it and so
+    wins for the duration of the test.
+
+    ``isolated_job_stores`` is requested because every test here drives
+    ``/api/analyze`` (or its streaming sibling), which since T2.3 writes a job
+    row and an ``original`` object through process-wide store singletons. Without
+    it those land in the developer's own database and a re-run can deduplicate to
+    the previous run's job — whose single-use key is already spent — so the
+    response stops being the analysis this file asserts on.
     """
     RecordingAnalyzer.reset()
     for module in (
+        "paperwhisperer.analysis.orchestrator",
         "paperwhisperer.analysis.service",
         "paperwhisperer.api.routes_documents",
         "paperwhisperer.api.routes_qa",
@@ -182,6 +200,19 @@ def form(**values):
     return {key: str(value) for key, value in values.items() if value is not None}
 
 
+#: A caller-supplied API key that a real browser would send.
+#:
+#: Since T2.3 the analysis runs inside a job, and a caller-supplied key is only
+#: parked for that job's stage when it is at least eight characters
+#: (:func:`paperwhisperer.api.routes_jobs.register_ephemeral_secret` — a short
+#: "key" is a browser default, not a credential). A one-character placeholder
+#: is therefore not a key the stage will accept, and the job answers
+#: ``missing api key``. That is correct product behaviour, not something these
+#: tests should paper over, so the placeholder is a realistic length here and
+#: every assertion below is unchanged.
+BROWSER_KEY = "sk-test-browser-key"
+
+
 @pytest.fixture
 def analysis_client(client, analyzer, runtime_dirs):
     """A ``TestClient`` with a stubbed analyzer and isolated storage."""
@@ -191,20 +222,20 @@ def analysis_client(client, analyzer, runtime_dirs):
 class TestAnalyzeRoute:
     def test_a_valid_upload_returns_the_analysis_result(self, analysis_client):
         response = analysis_client.post(
-            "/api/analyze", files=upload_bytes(), data=form(api_key="k")
+            "/api/analyze", files=upload_bytes(), data=form(api_key=BROWSER_KEY)
         )
         assert response.status_code == 200
         assert response.json()["summary"] == "summary 内容"
 
     def test_no_file_is_a_client_error(self, analysis_client):
-        response = analysis_client.post("/api/analyze", data=form(api_key="k"))
+        response = analysis_client.post("/api/analyze", data=form(api_key=BROWSER_KEY))
         assert response.status_code == 400
         assert response.json()["code"] == "missing_file"
 
     def test_an_empty_filename_is_rejected(self, analysis_client):
         response = analysis_client.post(
             "/api/analyze", files={"file": ("", io.BytesIO(b"x"), "text/plain")},
-            data=form(api_key="k"),
+            data=form(api_key=BROWSER_KEY),
         )
         # The request is turned away before the route body runs: with no
         # filename the multipart parser hands FastAPI a plain string, so
@@ -218,7 +249,7 @@ class TestAnalyzeRoute:
     def test_an_unsupported_extension_names_the_supported_ones(self, analysis_client):
         response = analysis_client.post(
             "/api/analyze", files=upload_bytes("malware.exe", b"MZ"),
-            data=form(api_key="k"),
+            data=form(api_key=BROWSER_KEY),
         )
         assert response.status_code == 400
         assert response.json()["code"] == "unsupported_file_type"
@@ -226,13 +257,13 @@ class TestAnalyzeRoute:
     def test_an_oversized_upload_is_refused_and_leaves_nothing_behind(self, analysis_client, runtime_dirs):
         oversized = b"a" * (config.MAX_CONTENT_LENGTH + 1)
         response = analysis_client.post(
-            "/api/analyze", files=upload_bytes("big.txt", oversized), data=form(api_key="k")
+            "/api/analyze", files=upload_bytes("big.txt", oversized), data=form(api_key=BROWSER_KEY)
         )
         assert response.status_code in {400, 413}
         assert list(runtime_dirs["uploads"].iterdir()) == []
 
     def test_the_uploaded_file_is_deleted_after_analysis(self, analysis_client, runtime_dirs):
-        analysis_client.post("/api/analyze", files=upload_bytes(), data=form(api_key="k"))
+        analysis_client.post("/api/analyze", files=upload_bytes(), data=form(api_key=BROWSER_KEY))
         assert list(runtime_dirs["uploads"].iterdir()) == []
 
     @pytest.mark.parametrize(
@@ -243,39 +274,59 @@ class TestAnalyzeRoute:
         self, analysis_client, analyzer, field, position
     ):
         analysis_client.post(
-            "/api/analyze", files=upload_bytes(), data=form(api_key="k", **{field: "false"})
+            "/api/analyze", files=upload_bytes(), data=form(api_key=BROWSER_KEY, **{field: "false"})
         )
         call = analyzer.last().calls[0]
-        assert call[0] == "analyze"
+        # Since T2.3 the analyser runs inside the job's analysing stage, which
+        # drives ``analyze_stream`` (not the one-shot ``analyze``) so that section
+        # events can be published into the job's scratch. The switch positions
+        # are the same on both methods.
+        assert call[0] == "analyze_stream"
         assert call[position] is False
 
     def test_the_switches_default_to_on(self, analysis_client, analyzer):
-        analysis_client.post("/api/analyze", files=upload_bytes(), data=form(api_key="k"))
+        analysis_client.post("/api/analyze", files=upload_bytes(), data=form(api_key=BROWSER_KEY))
         assert analyzer.last().calls[0][2:5] == (True, True, True)
 
     def test_a_hostile_session_id_is_sanitised_before_use(self, analysis_client, runtime_dirs):
         response = analysis_client.post(
-            "/api/analyze", files=upload_bytes(), data=form(api_key="k", session_id="../../etc")
+            "/api/analyze", files=upload_bytes(), data=form(api_key=BROWSER_KEY, session_id="../../etc")
         )
         assert response.status_code == 200
         assert not (runtime_dirs["context"].parent / "etc").exists()
 
-    def test_a_model_failure_is_reported_as_a_server_error(self, client, analyzer, runtime_dirs, monkeypatch):
-        def boom(*args, **kwargs):
+    def test_a_model_failure_is_reported_as_a_server_error(self, client, analyzer, runtime_dirs,
+                                                           monkeypatch):
+        def explode(*args, **kwargs):
             raise RuntimeError("模型不可用")
+            yield  # pragma: no cover - makes this a generator, as analyze_stream is
 
-        monkeypatch.setattr("paperwhisperer.api.routes_documents.analyze_saved_file", boom)
-        response = client.post("/api/analyze", files=upload_bytes(), data=form(api_key="k"))
-        assert response.status_code == 500
+        # Since T2.3 the model runs inside the job's analysing stage, so a model
+        # failure is injected at the seam that stage actually reads (the
+        # analyzer) and surfaces as a *failed job* rather than an exception in the
+        # request. The route's answer for a failed job is 422
+        # ``document_analysis_failed`` — see ``routes_documents.analyze``. What
+        # this test guards is unchanged by that move: the failure is reported
+        # (never a 200), it carries the analysis-failure code, and the staging
+        # upload is still cleaned up.
+        monkeypatch.setattr(analyzer, "analyze_stream", explode)
+        response = client.post("/api/analyze", files=upload_bytes(), data=form(api_key=BROWSER_KEY))
+        assert response.status_code == 422
         assert response.json()["code"] == "document_analysis_failed"
         assert list(runtime_dirs["uploads"].iterdir()) == []
 
-    def test_a_value_error_is_reported_as_a_client_error(self, client, analyzer, runtime_dirs, monkeypatch):
+    def test_a_value_error_is_reported_as_a_client_error(self, client, analyzer, runtime_dirs,
+                                                         monkeypatch):
         def bad(*args, **kwargs):
             raise ValueError("文件内容无法解析")
 
-        monkeypatch.setattr("paperwhisperer.api.routes_documents.analyze_saved_file", bad)
-        response = client.post("/api/analyze", files=upload_bytes(), data=form(api_key="k"))
+        # The upload-save phase is the one that still runs inside the request,
+        # and it is still where a ValueError means "the client's upload is
+        # unusable" — hence 400 ``invalid_request``. This keeps the original
+        # client-error contract intact and asserts it against a seam the route
+        # actually executes (``save_upload_file`` is called directly here).
+        monkeypatch.setattr("paperwhisperer.api.routes_documents.save_upload_file", bad)
+        response = client.post("/api/analyze", files=upload_bytes(), data=form(api_key=BROWSER_KEY))
         assert response.status_code == 400
         assert response.json()["code"] == "invalid_request"
 
@@ -283,7 +334,7 @@ class TestAnalyzeRoute:
 class TestAnalyzeStreamRoute:
     def test_the_response_is_an_event_stream(self, analysis_client):
         response = analysis_client.post(
-            "/api/analyze/stream", files=upload_bytes(), data=form(api_key="k")
+            "/api/analyze/stream", files=upload_bytes(), data=form(api_key=BROWSER_KEY)
         )
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/event-stream")
@@ -292,7 +343,7 @@ class TestAnalyzeStreamRoute:
         self, analysis_client, sse_events
     ):
         response = analysis_client.post(
-            "/api/analyze/stream", files=upload_bytes(), data=form(api_key="k")
+            "/api/analyze/stream", files=upload_bytes(), data=form(api_key=BROWSER_KEY)
         )
         events = sse_events(response.text)
         assert events[0][0] == "start"
@@ -301,7 +352,7 @@ class TestAnalyzeStreamRoute:
 
     def test_every_planned_section_arrives_as_its_own_event(self, analysis_client, sse_events):
         response = analysis_client.post(
-            "/api/analyze/stream", files=upload_bytes(), data=form(api_key="k")
+            "/api/analyze/stream", files=upload_bytes(), data=form(api_key=BROWSER_KEY)
         )
         names = [p["name"] for name, p in sse_events(response.text) if name == "section"]
         assert sorted(names) == sorted(sections.SECTION_KEYS)
@@ -309,7 +360,7 @@ class TestAnalyzeStreamRoute:
     def test_a_switched_off_section_produces_no_event(self, analysis_client, sse_events):
         response = analysis_client.post(
             "/api/analyze/stream", files=upload_bytes(),
-            data=form(api_key="k", generate_evaluation="false"),
+            data=form(api_key=BROWSER_KEY, generate_evaluation="false"),
         )
         names = [p["name"] for name, p in sse_events(response.text) if name == "section"]
         assert "evaluation" not in names
@@ -317,7 +368,7 @@ class TestAnalyzeStreamRoute:
     def test_a_failed_section_is_streamed_rather_than_fatal(self, analysis_client, analyzer, sse_events):
         analyzer.sections_to_fail = {"quotes"}
         response = analysis_client.post(
-            "/api/analyze/stream", files=upload_bytes(), data=form(api_key="k")
+            "/api/analyze/stream", files=upload_bytes(), data=form(api_key=BROWSER_KEY)
         )
         events = sse_events(response.text)
         failed = [p for name, p in events if name == "section" and p["section"]["status"] == "failed"]
@@ -334,23 +385,29 @@ class TestAnalyzeStreamRoute:
             assert "error" in response.text
 
     def test_the_upload_is_removed_once_the_stream_finishes(self, analysis_client, runtime_dirs):
-        analysis_client.post("/api/analyze/stream", files=upload_bytes(), data=form(api_key="k"))
+        analysis_client.post("/api/analyze/stream", files=upload_bytes(), data=form(api_key=BROWSER_KEY))
         assert list(runtime_dirs["uploads"].iterdir()) == []
 
-    def test_a_producer_failure_becomes_an_error_event(self, client, analyzer, runtime_dirs, monkeypatch):
+    def test_a_producer_failure_becomes_an_error_event(self, client, analyzer, runtime_dirs,
+                                                       monkeypatch):
         def explode(*args, **kwargs):
             raise RuntimeError("流式分析崩溃")
             yield  # pragma: no cover - makes this a generator
 
-        monkeypatch.setattr("paperwhisperer.api.routes_documents.DocumentAnalyzer", explode)
+        # The stream is a view of a durable job, so a producer failure is now a
+        # failed job rather than a dead generator. The seam that produces the
+        # sections is the analyzer the job stage reads at call time; the route
+        # turns the failed job into an ``error`` event, which is the same
+        # event vocabulary the browser already consumes.
+        monkeypatch.setattr(analyzer, "analyze_stream", explode)
         response = client.post(
-            "/api/analyze/stream", files=upload_bytes(), data=form(api_key="k")
+            "/api/analyze/stream", files=upload_bytes(), data=form(api_key=BROWSER_KEY)
         )
         assert "error" in response.text
         assert list(runtime_dirs["uploads"].iterdir()) == []
 
     def test_no_file_is_a_client_error(self, analysis_client):
-        response = analysis_client.post("/api/analyze/stream", data=form(api_key="k"))
+        response = analysis_client.post("/api/analyze/stream", data=form(api_key=BROWSER_KEY))
         assert response.status_code == 400
 
 
@@ -590,3 +647,12 @@ class TestEventLoopIsNotBlocked:
             return cleaned
 
         assert asyncio.run(scenario()) == [1]
+
+
+
+
+
+
+
+
+

@@ -14,6 +14,7 @@ Two rules shape everything here:
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -39,11 +40,223 @@ CREDENTIAL_ENV_VARS = (
 )
 
 
+#: Tests that are *allowed* to reach a real model endpoint opt in by restoring
+#: a real ``OPENAI_API_KEY`` into the environment (see ``test_llm_integration``
+#: and ``test_e2e_journey``). The hermetic suite never does: ``isolated_environment``
+#: strips the key, so its presence at the moment an analyzer would be built is a
+#: reliable, opt-in signal that distinguishes the two populations.
+def _live_model_opted_in() -> bool:
+    return bool(os.environ.get("OPENAI_API_KEY", "").strip())
+
+
+@pytest.fixture
+def isolated_job_stores(tmp_path, monkeypatch):
+    """Give one test its own, empty job store, object store and database.
+
+    T2.3 made ``/api/analyze`` durable: the request writes the upload into the
+    object store's ``original`` layer and submits a job row, and the job's stages
+    later materialise those bytes back out and re-read them. ``runtime_dirs``
+    already redirects the three runtime folders, but the job store, the object
+    store and their database are reached through **process-wide singletons**
+    (:func:`routes_evidence.get_store_bundle`, :func:`routes_v1.get_object_store`,
+    :func:`routes_jobs.get_job_store`) that are built from ``config`` on first
+    use and cached for the rest of the process, and ``STORAGE_SQLITE_PATH`` /
+    ``OBJECT_STORE_ROOT`` default to paths inside the repository's ``context/``.
+    Two consequences, both real:
+
+    * a test that submits a job writes a row into the *developer's* database, and
+      leaves it there for the next run; and
+    * because a submission is deduplicated by content digest + session + options
+      (:func:`routes_jobs.analysis_idempotency_key`), a later run reuses the
+      previous run's job — which has already consumed its single-use API key and
+      already had its result taken — so the request answers ``missing api key`` or
+      a bare ``202`` instead of the analysis the test is asserting on. That is
+      how the "hostile session id" case became order- and run-dependent.
+
+    Pointing both backends at ``tmp_path`` and clearing the singletons makes the
+    test start from an empty store, so nothing is written outside ``tmp_path`` and
+    no job can be observed across tests. The configuration and the singletons are
+    restored on teardown (like the process-global teardown in
+    ``tests/test_observability.py``), because leaving a ``tmp_path``-backed store
+    installed would point a later test at a directory that no longer exists.
+
+    **Opt-in, not autouse.** The defaults are themselves part of the contract for
+    a few suites (``test_backup_restore`` snapshots the configured database;
+    ``test_asset_model`` asserts that the default object-store root follows
+    ``CONTEXT_FOLDER``), and an autouse override would break them for a reason that
+    has nothing to do with what they are checking. A suite reaches job submission
+    only by calling ``/api/analyze``, ``/api/analyze/stream`` or
+    ``/api/jobs/analyze``, so the fixture is requested by exactly the suites that
+    do, and everything else keeps the shipped configuration.
+    """
+    from paperwhisperer.api import routes_evidence, routes_jobs, routes_v1
+
+    previous = {
+        "evidence_stores": getattr(routes_evidence, "_STORES", None),
+        "v1_objects": getattr(routes_v1, "_OBJECTS", None),
+        "jobs_stores": dict(getattr(routes_jobs, "_JOB_STORES", {}) or {}),
+    }
+    monkeypatch.setattr(config, "STORAGE_SQLITE_PATH", str(tmp_path / "stores" / "test.sqlite3"))
+    monkeypatch.setattr(config, "OBJECT_STORE_ROOT", str(tmp_path / "objects"), raising=False)
+    routes_evidence._STORES = None
+    routes_v1._OBJECTS = None
+    routes_jobs._JOB_STORES = {}
+    yield
+    routes_evidence._STORES = previous["evidence_stores"]
+    routes_v1._OBJECTS = previous["v1_objects"]
+    routes_jobs._JOB_STORES = previous["jobs_stores"]
+
+
+@pytest.fixture(autouse=True)
+def no_unstubbed_job_stage_model(monkeypatch):
+    """Make a real model completion impossible for every hermetic test.
+
+    **Why this exists.** T2.3 moved the analysis out of the request and into a
+    durable job, so ``/api/analyze`` no longer constructs an analyzer in the
+    route. The job's analysing stage
+    (:func:`paperwhisperer.api.routes_jobs._analyse_stage`) imports
+    ``DocumentAnalyzer`` **at call time** from
+    :mod:`paperwhisperer.analysis.orchestrator` — the seam that is actually
+    executed. Suites that stubbed ``DocumentAnalyzer`` *in the route module* had
+    their stub silently bypassed, the real analyzer was built, and the first
+    thing it did with the configured ``OPENAI_BASE_URL`` was open a socket: an
+    offline test run became a live call against whatever endpoint the
+    developer's ``.env`` pointed at. That is the defect this fixture closes.
+
+    **How it is neutralised.** The analyzer the job stage would construct is
+    replaced by a tripwire that raises *before* any network I/O, unless the
+    running test has deliberately restored a real credential
+    (:func:`_live_model_opted_in`) — the opt-in the two live suites already
+    perform. A test that stubs this seam is unaffected: the per-test stub is
+    applied after this fixture and therefore wins for the duration of the test.
+    A test that forgets to stub now fails loudly and immediately instead of
+    quietly reaching the shared, rate-limited endpoint.
+
+    **Attribute reads are forwarded, not blocked.** Only *construction* is
+    intercepted. The tripwire proxies every other attribute to the real class,
+    because the production code itself reaches the class through this very
+    module global — ``orchestrator.py`` calls ``DocumentAnalyzer.
+    _strip_mermaid_fence`` from inside ``_normalize_mermaid_source`` — and
+    several suites read the analyzer's classmethods and staticmethods
+    (``test_orchestrator.py`` binds them at import). A tripwire that hid the
+    class would break those for reasons that have nothing to do with a live
+    call, which is the difference between a test that says "you forgot to stub"
+    and one that says "this suite is broken".
+
+    **Teardown.** Installed with ``monkeypatch``, so the attribute is restored
+    when the test ends. This matters because the replacement is on a shared
+    module: a leak here would blank out the real analyzer for every later test
+    in the session, not just this one. (``tests/test_observability.py`` asserts
+    the same property for the process-global logging singletons.)
+    """
+    from paperwhisperer.analysis import orchestrator as analysis_orchestrator
+
+    real_analyzer = analysis_orchestrator.DocumentAnalyzer
+
+    class _TripwireMeta(type):
+        """Metaclass: refuse construction, forward every attribute read.
+
+        Class-level attribute lookup (``DocumentAnalyzer._strip_mermaid_fence``)
+        is resolved by the *metaclass*, so the forwarding has to live here; a
+        ``__getattr__`` in the tripwire's own class body would only ever see
+        instance lookups and would leave every classmethod and staticmethod
+        unreadable. The production module itself reaches the class through this
+        global (``orchestrator.py`` calls ``DocumentAnalyzer.
+        _strip_mermaid_fence`` from inside ``_normalize_mermaid_source``), so a
+        tripwire that hid the class would break it for reasons that have nothing
+        to do with a live call.
+        """
+
+        def __call__(cls, *args, **kwargs):
+            if _live_model_opted_in():
+                # An explicitly-live test (see _live_model_opted_in). Build the
+                # real analyzer so those tests still exercise the product.
+                return real_analyzer(*args, **kwargs)
+            raise AssertionError(
+                "the job's analysing stage tried to construct a real "
+                "DocumentAnalyzer. T2.3 moved analysis into a job, so the "
+                "analyzer is built at call time from "
+                "paperwhisperer.analysis.orchestrator — patching the route "
+                "module no longer intercepts it. Stub "
+                "'paperwhisperer.analysis.orchestrator.DocumentAnalyzer' (see "
+                "tests/test_jobs_api.py::stubbed_pipeline), or restore a real "
+                "OPENAI_API_KEY to opt into a live model."
+            )
+
+        def __getattr__(cls, name):
+            return getattr(real_analyzer, name)
+
+    _JobStageAnalyzerTripwire = _TripwireMeta("_JobStageAnalyzerTripwire", (object,), {})
+
+    monkeypatch.setattr(analysis_orchestrator, "DocumentAnalyzer", _JobStageAnalyzerTripwire)
+
+
 @pytest.fixture(autouse=True)
 def isolated_environment(monkeypatch):
     """Run every test as if no credentials were configured."""
     for name in CREDENTIAL_ENV_VARS:
         monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def no_leaked_observability_singleton():
+    """Hand every test the observability singleton in its documented default state.
+
+    ``paperwhisperer.core.observability.observability`` is a process-wide object
+    with three mutable pieces: ``enabled``, a bounded ``trace`` ring buffer, and
+    the ``metrics`` registry. Unlike ``config`` (which tests redirect with
+    ``monkeypatch``) nothing rewinds these on its own, so any test that turns
+    collection on to look at it changes what every test after it measures. That
+    is not hypothetical here: ``tools/fault_inject.py`` is imported *in process*
+    by ``tests/test_fault_injection.py``, and its ``recovery-signal`` scenario
+    sets ``enabled = True``, drives ten real job transitions through the real
+    store to prove ``jobs.recovered_total`` moves, and then restores ``enabled``
+    and calls ``metrics.reset()`` in its ``finally``. It never clears
+    ``trace``. The leak is invisible in every way except the one that matters:
+    ``enabled`` reads ``False``, every counter reads ``0``, the ten
+    ``job.submitted``/``job.transition`` events sit in the buffer, and
+    ``tests/test_observability.py::TestItIsOffUntilAskedFor::
+    test_importing_the_module_changes_nothing`` — the test whose entire job is
+    to catch exactly this — fails with ``assert 10 == 0`` in a full run and
+    passes alone.
+
+    **Restore to the baseline rather than snapshotting the prior contents.**
+    ``shutdown()`` clears the logging state but deliberately leaves the buffer
+    alone, because in production a shutdown should not throw away the trace you
+    were about to ship. Putting it back the way it was would need the recorder's
+    and every counter's private series, and it would be the wrong contract
+    anyway: the singleton is documented as **off until asked for**, so "clean"
+    is the only state a test is entitled to hand the next one. A test that wants
+    it configured calls ``configure()`` itself and is responsible for its own
+    teardown, which is what ``tests/test_observability.py`` does.
+
+    ``exporter`` is included because it is the same class of leak by a
+    different route: ``configure(exporter_path=...)`` assigns onto the
+    singleton, and a test that pointed it at a ``tmp_path`` file would leave
+    every later flush writing to a directory that no longer exists.
+
+    Autouse, and installed here rather than in ``test_observability.py``,
+    because the leak is caused by a *different* file: the file that leaves the
+    mess is not the file that trips over it, and a guard that only protects the
+    suite it lives in does not protect the suite.
+    """
+    from paperwhisperer.core import observability as observability_module
+
+    facade = observability_module.observability
+    try:
+        yield
+    finally:
+        # Logging first: shutdown() removes the handler and restores the record
+        # factory, and the trace/metric reset below is what the module
+        # deliberately does *not* do on its own.
+        observability_module.shutdown()
+        facade.trace.clear()
+        facade.metrics.reset()
+        facade.exporter = observability_module.NullExporter()
+        facade.enabled = False
+        assert facade.enabled is False, "the observability singleton was left enabled"
+        assert len(facade.trace) == 0, "trace events leaked into the next test"
+        assert facade.metrics.parsing_documents.total == 0, "metrics leaked into the next test"
 
 
 @pytest.fixture(autouse=True)

@@ -1,0 +1,40 @@
+Throughput and Tail Latency in Shared Inference Queues
+
+Abstract. We analyse a shared inference queue serving four model replicas and show that
+tail latency is governed by queue discipline rather than by replica count. Adding
+replicas reduces p50 latency and leaves p99 unchanged.
+
+1. Introduction
+
+Capacity planning normally targets the median. Users notice the tail.
+
+2. Model
+
+Requests arrive as a renewal process with a heavy-tailed interarrival distribution and
+are served in first-in-first-out order. Service time is independent of the request.
+
+3. Results
+
+p99 latency is 640 milliseconds at four replicas and 611 milliseconds at eight. Mean
+throughput rises by 38 percent. Queueing theory predicts the observed insensitivity of
+the tail to replica count, and the prediction holds within 6 percent.
+
+4. Limitations
+
+Our trace comes from a single service. A workload with correlated service times would
+behave differently, and we have not characterised the phase transition.
+
+5. Conclusion
+
+Adding replicas buys median latency. Tail latency requires a change to the queue.
+
+6. Future work
+
+We plan to extend the analysis to weighted fair queueing and to report the transition
+point as a function of the interarrival tail index.
+
+References
+
+[1] Dean and Barroso, The Tail at Scale, CACM 2013.
+[2] Harchol-Balter, Performance Modeling and Design of Computer Systems, 2013.
+[3] Hazel, Fast and Reliable: Serving Files Out of a CDN, 2010.

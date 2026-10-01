@@ -1,0 +1,609 @@
+schema: paperwhisperer-eval-manifest/0.2
+created: '2026-09-29'
+corpus_root: corpus
+notes:
+- adversarial/ 下的文件不参与常规批跑，仅用于错误处理与安全测试
+- synthetic 条目的原文文本保存在 ground_truth/ 下，可用于 OCR 准确率打分
+- arXiv 条目的来源 ID 记录在 source 字段，便于复现下载
+- corpus_version 是由内容算出的语料版本（sha256:<hex>），对未改动的语料重跑不变；created 只是生成日期，不构成版本；每条目的 sha256 仍是完整性基准
+categories:
+  digital_single_col:
+    quota: 5
+    actual: 5
+    focus: 基线质量：单栏数字原生 PDF 的解析完整性
+    entries:
+    - file: digital_single_col/attention_is_all_you_need.pdf
+      source: arxiv:1706.03762
+      bytes: 2215244
+      sha256: bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697
+      pages: 15
+      text_layer: true
+      images_p1: 0
+      preview: 'Provided proper attribution is provided, Google hereby grants permission to reproduce the '
+      chars_total: 14603
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_single_col/gan_generative_adversarial.pdf
+      source: arxiv:1406.2661
+      bytes: 530482
+      sha256: ff5819e3a7b713c3bd3107b7de3d51fe0a347aa5d8444f0efdcf2345ef0a8b63
+      pages: 9
+      text_layer: true
+      images_p1: 0
+      preview: Generative Adversarial Nets Ian J. Goodfellow, Jean Pouget-Abadie ∗, Mehdi Mirza, Bing Xu,
+      chars_total: 16579
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_single_col/hinton_distillation.pdf
+      source: arxiv:1503.02531
+      bytes: 106630
+      sha256: 74e6689115c539db499f9d6153edecb364059926fd45402454f8210442444c5a
+      pages: 9
+      text_layer: true
+      images_p1: 3
+      preview: arXiv:1503.02531v1 [stat.ML] 9 Mar 2015 Distilling the Knowledge in a Neural Network Geoff
+      chars_total: 20525
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_single_col/vit_an_image_is_worth_16x16.pdf
+      source: arxiv:2010.11929
+      bytes: 3743814
+      sha256: 8ce7b83971a14508ca711a27c875c9b6914c4f6767cf3150fb1ca6c07aa056d6
+      pages: 22
+      text_layer: true
+      images_p1: 0
+      preview: 'Published as a conference paper at ICLR 2021 AN IMAGE IS WORTH 16 X16 W ORDS : TRANSFORMER'
+      chars_total: 19567
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_single_col/word2vec.pdf
+      source: arxiv:1301.3781
+      bytes: 228716
+      sha256: a44d7e22d2005752271c9cc1929c6462d4c8270916b063977992a883e3a54362
+      pages: 12
+      text_layer: true
+      images_p1: 0
+      preview: Efﬁcient Estimation of Word Representations in Vector Space Tomas Mikolov Google Inc., Mou
+      chars_total: 17447
+      note: arXiv 原始 PDF，版面与元素类型真实
+  digital_two_col:
+    quota: 10
+    actual: 10
+    focus: 阅读顺序恢复：双栏论文的左右列顺序
+    entries:
+    - file: digital_two_col/batchnorm.pdf
+      source: arxiv:1502.03167
+      bytes: 173548
+      sha256: bdc69e0b568f41d8d3181cc9077a461f58fcdd1c70c9f49efe60a05ee6109655
+      pages: 11
+      text_layer: true
+      images_p1: 5
+      preview: 'arXiv:1502.03167v3 [cs.LG] 2 Mar 2015 Batch Normalization: Accelerating Deep Network Train'
+      chars_total: 24704
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_two_col/faster_rcnn.pdf
+      source: arxiv:1506.01497
+      bytes: 6913803
+      sha256: f2630182ccfabd6fc89ac20270b4daf15a0ca849298a7db1e5d124ca443051f1
+      pages: 14
+      text_layer: true
+      images_p1: 0
+      preview: '1 Faster R-CNN: Towards Real-Time Object Detection with Region Proposal Networks Shaoqing '
+      chars_total: 24207
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_two_col/fpn_feature_pyramid.pdf
+      source: arxiv:1612.03144
+      bytes: 789142
+      sha256: 3a33e7ad38c17037624defde57f380f49dee918c1c14abd5dbcad032bae91428
+      pages: 10
+      text_layer: true
+      images_p1: 7
+      preview: Feature Pyramid Networks for Object Detection Tsung-Yi Lin1,2, Piotr Doll´ar1, Ross Girshi
+      chars_total: 25864
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_two_col/googlenet_inception.pdf
+      source: arxiv:1409.4842
+      bytes: 1214160
+      sha256: ba83bd105ffa669ccb2aa240d3176b8cb1c98355257ddee8e64aa486d5ade92a
+      pages: 12
+      text_layer: true
+      images_p1: 0
+      preview: Going deeper with convolutions Christian Szegedy Google Inc. Wei Liu University of North C
+      chars_total: 19931
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_two_col/mask_rcnn.pdf
+      source: arxiv:1703.06870
+      bytes: 7723886
+      sha256: b595a882b763d55d933543131f32a2c4b6f41d0818d418ef46a2b66f946b67a8
+      pages: 12
+      text_layer: true
+      images_p1: 3
+      preview: Mask R-CNN Kaiming He Georgia Gkioxari Piotr Doll ´ar Ross Girshick Facebook AI Research (
+      chars_total: 28381
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_two_col/mobilenets.pdf
+      source: arxiv:1704.04861
+      bytes: 941241
+      sha256: 9fd87b02ecc96c1ecf2b8c2166faf969a2acb187ab3e1e9333b26d226387ff55
+      pages: 9
+      text_layer: true
+      images_p1: 0
+      preview: 'MobileNets: Efﬁcient Convolutional Neural Networks for Mobile Vision Applications Andrew G'
+      chars_total: 20261
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_two_col/resnet.pdf
+      source: arxiv:1512.03385
+      bytes: 819383
+      sha256: 1e0651b6810ecba34a3dbc5b5b0209226f889004607c1f203540a48d64e5a93a
+      pages: 12
+      text_layer: true
+      images_p1: 0
+      preview: Deep Residual Learning for Image Recognition Kaiming He Xiangyu Zhang Shaoqing Ren Jian Su
+      chars_total: 23574
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_two_col/unet.pdf
+      source: arxiv:1505.04597
+      bytes: 1648684
+      sha256: a3172b2124f38e260dc2c7ed968d87c31bc94dbc19a42a7ab3dcbd7534319c44
+      pages: 8
+      text_layer: true
+      images_p1: 0
+      preview: 'U-Net: Convolutional Networks for Biomedical Image Segmentation Olaf Ronneberger, Philipp '
+      chars_total: 12069
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_two_col/yolov1.pdf
+      source: arxiv:1506.02640
+      bytes: 5296750
+      sha256: 54bcd2dd05dc618849e8a94d8b88fe3eeb37f80e96e200600d38f1f733931678
+      pages: 10
+      text_layer: true
+      images_p1: 2
+      preview: 'You Only Look Once: Uniﬁed, Real-Time Object Detection Joseph Redmon∗, Santosh Divvala∗†, '
+      chars_total: 23674
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_two_col/yolov3.pdf
+      source: arxiv:1804.02767
+      bytes: 2456177
+      sha256: 37049049b5e06f67c6cd22b72f7b9352914b0eb3a03e99abf54594c1005a8468
+      pages: 6
+      text_layer: true
+      images_p1: 0
+      preview: 'YOLOv3: An Incremental Improvement Joseph Redmon Ali Farhadi University of Washington Abst'
+      chars_total: 18931
+      note: arXiv 原始 PDF，版面与元素类型真实
+  digital_complex_layout:
+    quota: 2
+    actual: 2
+    focus: 复杂版式：跨栏图表、浮动对象、脚注
+    entries:
+    - file: digital_complex_layout/ligo_gw150914_prl.pdf
+      source: arxiv:1602.03837
+      bytes: 935476
+      sha256: e5e864c23d015b69be17e5b5d51b5b462d2829353a867513414b6728f54589c4
+      pages: 16
+      text_layer: true
+      images_p1: 1
+      preview: 'Observation of Gravitational Waves from a Binary Black Hole Merger B. P . Abbott et al. * '
+      chars_total: 22143
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: digital_complex_layout/quantum_supremacy_nature_style.pdf
+      source: arxiv:1910.11333
+      bytes: 8347960
+      sha256: c9872c1e058ddea06bbd55e9c86d5a515a7bd3aa14246c7a7c71a9689bf4f798
+      pages: 67
+      text_layer: true
+      images_p1: 0
+      preview: Supplementary information for “Quantum supremacy using a programmable superconducting proc
+      chars_total: 20939
+      note: arXiv 原始 PDF，版面与元素类型真实
+  formula_dense:
+    quota: 5
+    actual: 5
+    focus: 公式保留：LaTeX/公式是否被破坏或丢失
+    entries:
+    - file: formula_dense/dbrane_theory_review.pdf
+      source: arxiv:hep-th/9905111
+      bytes: 1871615
+      sha256: 4155953f31246cd11122cfac5527b1c7fa2e64bf407593af9067f2cc85629fc7
+      pages: 261
+      text_layer: true
+      images_p1: 0
+      preview: arXiv:hep-th/9905111v3 1 Oct 1999 November 26, 2024 CERN-TH/99-122 hep-th/9905111 HUTP-99/
+      chars_total: 9419
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: formula_dense/green_tao_primes.pdf
+      source: arxiv:math/0404188
+      bytes: 708604
+      sha256: d03dd6156165fc92e488b3fec35a574c8f7c9df55125cec0f3eebdf95d7256e1
+      pages: 56
+      text_layer: true
+      images_p1: 1
+      preview: 'arXiv:math/0404188v6 [math.NT] 23 Sep 2007 THE PRIMES CONTAIN ARBITRARILY LONG ARITHMETIC '
+      chars_total: 16347
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: formula_dense/maldacena_large_n.pdf
+      source: arxiv:hep-th/9711200
+      bytes: 246327
+      sha256: b711c300aac9a8c93d84451675554da8829d4b7d3c1ae23cdd16e94523975f06
+      pages: 22
+      text_layer: true
+      images_p1: 1
+      preview: arXiv:hep-th/9711200v3 22 Jan 1998 hep-th/9711200 HUTP-97/A097 The Large N Limit of Superc
+      chars_total: 11199
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: formula_dense/maldacena_toroidal_compactification.pdf
+      source: arxiv:hep-th/9711201
+      bytes: 291177
+      sha256: 21d2185ac5f6910918c450137600b9a93527b5b3628044711dd37e39d7dffcc3
+      pages: 22
+      text_layer: true
+      images_p1: 0
+      preview: arXiv:hep-th/9711201v2 7 Aug 1998 ROM2F-97/53 A Note on Toroidal Compactiﬁcations of the T
+      chars_total: 16230
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: formula_dense/witten_ads_holography.pdf
+      source: arxiv:hep-th/9802109
+      bytes: 161857
+      sha256: 303e43fe93335f0d670f59509cab26ab2493cb7c65b942575bcd10a03100a067
+      pages: 15
+      text_layer: true
+      images_p1: 2
+      preview: 'arXiv:hep-th/9802109v2 27 Mar 1998 PUPT-1767 hep-th/9802109 Gauge Theory Correlators from '
+      chars_total: 11735
+      note: arXiv 原始 PDF，版面与元素类型真实
+  table_dense:
+    quota: 5
+    actual: 5
+    focus: 表格二维结构：表头、行列、跨页表格
+    entries:
+    - file: table_dense/efficientnet.pdf
+      source: arxiv:1905.11946
+      bytes: 933600
+      sha256: af6b1bd620f81bfaea81edf8227484588e1fcc2427d6b5020fa17454d7566c70
+      pages: 11
+      text_layer: true
+      images_p1: 0
+      preview: 'EfﬁcientNet: Rethinking Model Scaling for Convolutional Neural Networks Mingxing Tan1 Quoc'
+      chars_total: 22263
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: table_dense/glue_benchmark.pdf
+      source: arxiv:1804.07461
+      bytes: 382439
+      sha256: 4c1aaf622c6ee3166bb4af2999b866e05019e5a35ac5f832018a887e7b44508a
+      pages: 20
+      text_layer: true
+      images_p1: 0
+      preview: 'Published as a conference paper at ICLR 2019 GLUE: A M ULTI-TASK BENCHMARK AND ANALYSIS PL'
+      chars_total: 19904
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: table_dense/gpt4_technical_report.pdf
+      source: arxiv:2303.08774
+      bytes: 5245564
+      sha256: c33a66dadca2388d7b172d6293b00dc32b71110c6f38fafe0d41112e61be7774
+      pages: 100
+      text_layer: true
+      images_p1: 0
+      preview: GPT-4 Technical Report OpenAI∗ Abstract We report the development of GPT-4, a large-scale,
+      chars_total: 14503
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: table_dense/helm_holistic_eval.pdf
+      source: arxiv:2211.09110
+      bytes: 6045688
+      sha256: 30970bda8958a1a8adf6a0a82feef9728331840288b7d2b49368bac87fd25f18
+      pages: 162
+      text_layer: true
+      images_p1: 0
+      preview: Published in Transactions on Machine Learning Research (08/2023) Holistic Evaluation of La
+      chars_total: 21371
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: table_dense/llama_report.pdf
+      source: arxiv:2302.13971
+      bytes: 726566
+      sha256: 2e663675ae36ad12adb2f5a05281bac2747ecf8d23d92bedd9f937a89fee7136
+      pages: 27
+      text_layer: true
+      images_p1: 0
+      preview: 'LLaMA: Open and Efﬁcient Foundation Language Models Hugo Touvron∗, Thibaut Lavril∗, Gautie'
+      chars_total: 18902
+      note: arXiv 原始 PDF，版面与元素类型真实
+  scanned_clear:
+    quota: 5
+    actual: 5
+    focus: OCR 触发：清晰扫描件的字符准确率与段落恢复
+    entries:
+    - file: scanned_clear/paper_en_basic.pdf
+      source: synthetic
+      bytes: 335125
+      sha256: 1b03b1d0f3db302300a6ecf5924dad4d0c5cf7b152eea17f67679dde7c73adc9
+      pages: 1
+      text_layer: false
+      images_p1: 1
+      preview: ''
+      chars_total: 0
+      note: 合成：300 DPI 英文论文扫描件，含标题/章节/结论
+    - file: scanned_clear/paper_en_formulas.pdf
+      source: synthetic
+      bytes: 235451
+      sha256: 60dadca39d736be4432ad95a2293b707cf124d2c6669b476478e9b4b5c5a32a6
+      pages: 1
+      text_layer: false
+      images_p1: 1
+      preview: ''
+      chars_total: 0
+      note: 合成：公式密集扫描件，含积分与 beta 函数
+    - file: scanned_clear/paper_en_twocol.pdf
+      source: synthetic
+      bytes: 231865
+      sha256: c2c22097ae7fad9573efb90fcced19c80f7f73f32733141811facc07de9ccf02
+      pages: 1
+      text_layer: false
+      images_p1: 1
+      preview: ''
+      chars_total: 0
+      note: 合成：双栏扫描件，考察 OCR 阅读顺序
+    - file: scanned_clear/paper_zh_cn.pdf
+      source: synthetic
+      bytes: 264866
+      sha256: a437a5a6d46cc44574919daee021866a1d2dedbda834dbd9637d91d410533358
+      pages: 1
+      text_layer: false
+      images_p1: 1
+      preview: ''
+      chars_total: 0
+      note: 合成：300 DPI 中文论文扫描件，含表格与公式
+    - file: scanned_clear/report_en_tables.pdf
+      source: synthetic
+      bytes: 271338
+      sha256: 372f6eb6f5d9f23d98278e3d332bdcb588654ae02f1017e877447ec18a90f4f7
+      pages: 1
+      text_layer: false
+      images_p1: 1
+      preview: ''
+      chars_total: 0
+      note: 合成：表格密集扫描件，两张多行多列表格
+  scanned_lowq:
+    quota: 3
+    actual: 3
+    focus: OCR 极限：倾斜/模糊/低分辨率下的降级行为
+    entries:
+    - file: scanned_lowq/scan_lowq_blurry.pdf
+      source: synthetic
+      bytes: 83457
+      sha256: 41be05ecfa7a75e40571c9f50702ff4ca859d3c7eb7570bcb2b3471153eafaba
+      pages: 1
+      text_layer: false
+      images_p1: 1
+      preview: ''
+      chars_total: 0
+      note: 合成：中文扫描件，模糊 + 噪声 + JPEG q22
+    - file: scanned_lowq/scan_lowq_rotated.pdf
+      source: synthetic
+      bytes: 103921
+      sha256: b2097129882a3e4c160c4fd113ae7f67d76d9be25cf07c4c0777bfa20d75e6a3
+      pages: 1
+      text_layer: false
+      images_p1: 1
+      preview: ''
+      chars_total: 0
+      note: 合成：旋转 2.8 度 + 降采样 + JPEG q30
+    - file: scanned_lowq/scan_lowq_skew_faint.pdf
+      source: synthetic
+      bytes: 75016
+      sha256: 00fa10f8c47139771677f98101196ffdacfa2e64e57c8f82d9ddf720e45e0135
+      pages: 1
+      text_layer: false
+      images_p1: 1
+      preview: ''
+      chars_total: 0
+      note: 合成：倾斜 -3.5 度 + 淡墨 + 噪声
+  hybrid_scan_text:
+    quota: 3
+    actual: 3
+    focus: 扫描图 + 文本层：是否能识别并使用已有文本层
+    entries:
+    - file: hybrid_scan_text/hybrid_en_paper.pdf
+      source: synthetic
+      bytes: 338532
+      sha256: 052373543a25b60e8eed92602892c335bc2012dd3150bc4251f4accad66bc296
+      pages: 1
+      text_layer: true
+      images_p1: 1
+      preview: 'A Study of Gradient Dynamics in Deep Residual Networks Deep residual networks have become '
+      chars_total: 2236
+      note: 合成：扫描图 + 不可见文本层（英文）
+    - file: hybrid_scan_text/hybrid_en_tables.pdf
+      source: synthetic
+      bytes: 273125
+      sha256: 66a26fae0879d136cf20365b375ea17c779a4f55b16faf46fbb68d770bb280a4
+      pages: 1
+      text_layer: true
+      images_p1: 1
+      preview: Benchmark Protocol and Statistical Analysis of Language Model Evaluations We present a rep
+      chars_total: 598
+      note: 合成：表格扫描图 + 不可见文本层
+    - file: hybrid_scan_text/hybrid_zh_paper.pdf
+      source: synthetic
+      bytes: 265600
+      sha256: e8f05f52c31ca482a881a986f24ec53fcc5402c2f6d116e018563edf6fbd1144
+      pages: 1
+      text_layer: true
+      images_p1: 1
+      preview: y_l = x_l + F(x_l, W_l) lambda 50 1.0 24.7 25.6 101 1.0 23.6 44.5 152 1.0 23.0 60.2 152 1.
+      chars_total: 101
+      note: 合成：中文扫描图 + 英文不可见文本层
+  mixed_zh_en:
+    quota: 4
+    actual: 4
+    focus: 多语言检索：中英混排的词法与语义召回
+    entries:
+    - file: mixed_zh_en/bilingual_paper_zh_en.pdf
+      source: synthetic
+      bytes: 5516
+      sha256: ce3c88d723336e3c727e9709531fa8fc8d18abd2b56044c57496c7131cc15644
+      pages: 1
+      text_layer: true
+      images_p1: 0
+      preview: 评测语料 · 中英混排 · internal-eval PaperWhisperer eval corpus 第 1 页 多模态检索系统在企业知识库中的应用评估 Abstract.
+      chars_total: 1399
+      note: 合成：中文论文，含英文摘要与英文术语，含页眉页脚
+    - file: mixed_zh_en/dual_language_survey.pdf
+      source: synthetic
+      bytes: 5139
+      sha256: 79ccda6ab75f03de1f6050fbf2443424cfc8082b54b9a96bc863fee9436ca3a7
+      pages: 1
+      text_layer: true
+      images_p1: 0
+      preview: 评测语料 · 中英混排 · internal-eval PaperWhisperer eval corpus 第 1 页 A Survey of Evidence-Grounded
+      chars_total: 1795
+      note: 合成：英文正文 + 中文本节要点交替
+    - file: mixed_zh_en/tech_report_zh_terms.pdf
+      source: synthetic
+      bytes: 4825
+      sha256: 11b70da24bbe3c52745381428a50625d56048b609fa92afbd9b501b306aa1b41
+      pages: 1
+      text_layer: true
+      images_p1: 0
+      preview: 评测语料 · 中英混排 · internal-eval PaperWhisperer eval corpus 第 1 页 2026 年第一季度平台稳定性与容量评估 本报告汇总 20
+      chars_total: 767
+      note: 合成：中文技术报告，含 SLO 表格与英文指标名
+    - file: mixed_zh_en/zh_standard_document.pdf
+      source: synthetic
+      bytes: 4473
+      sha256: a12a567a00c0f7bcfbe982e0f0d921dbf203443a65b46d454485625164bbbe47
+      pages: 1
+      text_layer: true
+      images_p1: 0
+      preview: 评测语料 · 中英混排 · internal-eval PaperWhisperer eval corpus 第 1 页 信息技术 文档解析质量评测规范 第 1 部分：术语与评测框
+      chars_total: 685
+      note: 合成：标准规范文体，条款编号 3.1/3.2 + 中英术语表
+  long_paper:
+    quota: 3
+    actual: 3
+    focus: 全文覆盖：长论文与超长参考文献的上下文完整性
+    entries:
+    - file: long_paper/gpt3_language_models.pdf
+      source: arxiv:2005.14165
+      bytes: 6768044
+      sha256: 97fd272f1fdfc18677462d0292f5fbf26ca86b4d1b485c2dba03269b643a0e83
+      pages: 75
+      text_layer: true
+      images_p1: 0
+      preview: Language Models are Few-Shot Learners Tom B. Brown∗ Benjamin Mann∗ Nick Ryder∗ Melanie Sub
+      chars_total: 16029
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: long_paper/ligo_tests_of_gr.pdf
+      source: arxiv:2010.14533
+      bytes: 5126521
+      sha256: 7a53266cd2ab9622144509dac5cd1c6311652e9ba8183bee9d760bcfa095a991
+      pages: 53
+      text_layer: true
+      images_p1: 0
+      preview: Draft version March 1, 2021 Typeset using LATEX twocolumn style in AASTeX62 Population pro
+      chars_total: 29020
+      note: arXiv 原始 PDF，版面与元素类型真实
+    - file: long_paper/planck2018_cosmo_params.pdf
+      source: arxiv:1807.06209
+      bytes: 9317371
+      sha256: 8e172730faf07c9f4ff3fdcc7043f76ed67df6f76066d47df30d693025b6ce77
+      pages: 73
+      text_layer: true
+      images_p1: 0
+      preview: Astronomy & Astrophysics manuscript no. ms © ESO 2021 August 10, 2021 Planck 2018 results.
+      chars_total: 35485
+      note: arXiv 原始 PDF，版面与元素类型真实
+  docx:
+    quota: 4
+    actual: 4
+    focus: DOCX：标题层级、表格、图片、公式元素的定位
+    entries:
+    - file: docx/bilingual_zh_en_notes.docx
+      source: synthetic
+      bytes: 37650
+      sha256: bafc52fdb55b83f1a3af508658a58bcc1d71d47242c5f0de2134fa3fdde7e191
+      paragraphs: 8
+      tables: 1
+      images: 0
+      omml_paragraphs: 0
+      note: 合成：中英混排 DOCX，含中文表格与英文摘要
+    - file: docx/figures_with_captions.docx
+      source: synthetic
+      bytes: 64490
+      sha256: 71ea8c839b551ade5c182fb15bea0d04200d620ad91d0e5fcb5271a76620af6e
+      paragraphs: 10
+      tables: 0
+      images: 2
+      omml_paragraphs: 0
+      note: 合成：2 张图片 + 图题（画布居中）
+    - file: docx/formulas_omml.docx
+      source: synthetic
+      bytes: 37208
+      sha256: 0e06d207e13a0409b256c0a1f7dcaa29a8d38606c32770b4f7057d9b94d99d3e
+      paragraphs: 11
+      tables: 0
+      images: 0
+      omml_paragraphs: 5
+      note: 合成：5 段 OMML 公式（上下标、分数、希腊字母）
+    - file: docx/technical_report_headings_tables.docx
+      source: synthetic
+      bytes: 37654
+      sha256: 6310532d4bb92bc83461a123d05a710641a995efbce65fe4e862a398aaba088c
+      paragraphs: 18
+      tables: 2
+      images: 0
+      omml_paragraphs: 0
+      note: 合成：H1-H3 标题层级 + 两张网格表 + 项目符号列表
+  pptx:
+    quota: 3
+    actual: 3
+    focus: PPTX：幻灯片、notes、图表与图片文字
+    entries:
+    - file: pptx/bilingual_zh_en_deck.pptx
+      source: synthetic
+      bytes: 33278
+      sha256: e7a709f755bdcbd16c7c0a3f7eceef3b0d6e2eb8fc56e5a724fcb35d14fbe96c
+      slides: 6
+      notes_slides: 0
+      charts: 0
+      pictures: 0
+      note: 合成：6 页中英混排幻灯片
+    - file: pptx/deck_with_notes_and_charts.pptx
+      source: synthetic
+      bytes: 65380
+      sha256: 8d4888eba34916dfd042ab5b75b1a293bbb6516291686aa664a2c29863cb69ac
+      slides: 4
+      notes_slides: 3
+      charts: 2
+      pictures: 1
+      note: 合成：3 页 notes + 2 个图表 + 1 张图片
+    - file: pptx/project_review_deck.pptx
+      source: synthetic
+      bytes: 34743
+      sha256: 34b40f2f19249bffe8da9a06a2a1b0755272117aa2204e7626f454a994fe5651
+      slides: 8
+      notes_slides: 0
+      charts: 0
+      pictures: 0
+      note: 合成：8 页标题+正文幻灯片
+adversarial:
+- file: adversarial/corrupted_truncated.pdf
+  bytes: 117293
+  sha256: 4100c297755c0c4ce0c560f0d254e318f4bc1f1791852b9ea4ef1356d1ce83d7
+  batch_excluded: true
+  note: 有效 PDF 截断至 35% 字节，应报明确解析错误而不是静默返回空文本
+- file: adversarial/encrypted_aes128.pdf
+  bytes: 335673
+  sha256: 7e1ab3be98ece6b960884d2d3d72b359ea9f6ae053b5d2e7378021b2e23ef5fc
+  batch_excluded: true
+  note: AES-128 加密 PDF，口令 paperwhisperer-eval，不得使解析进程崩溃
+- file: adversarial/fake_extension_actually_text.pdf
+  bytes: 161
+  sha256: 5429467dd464a014e47759227558eda16240a60144b7fff87dcdb2ecf59f74b0
+  batch_excluded: true
+  note: 纯文本文件伪装成 .pdf，仅校验扩展名的实现会误判通过
+- file: adversarial/zip_bomb_nested.zip
+  bytes: 6286
+  sha256: 09b4d4f54f5882a9287ceaf19649a278d29c2bea4a6eeaf1f863fdf52dc3b47b
+  batch_excluded: true
+  note: 压缩包膨胀样本（6 KB 展开为约 843 KB），检验解压大小限制
+summary:
+  total_documents: 52
+  adversarial_files: 4
+  quota_met: true
+  ground_truth_dir: ground_truth
+corpus_version: sha256:0dfe319761a7cc9d003dd71c00be7ca57f912bf529654b831cd61d5da8f5dda1
