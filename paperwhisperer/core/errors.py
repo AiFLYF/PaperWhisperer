@@ -26,7 +26,19 @@ def now_iso() -> str:
 
 
 def build_error_payload(message: str, code: str = "bad_request") -> dict:
-    return {"error": message, "code": code, "timestamp": now_iso()}
+    """Build the error body every route returns.
+
+    The message is redacted here rather than at each call site. Callers pass
+    ``str(exc)`` — 21 places across three route modules were audited doing it,
+    plus an f-string variant a pattern-based audit would have missed — and a
+    provider SDK that quotes an Authorization header in its error body turns
+    any of them into a credential in a browser. Scrubbing at the boundary
+    closes those 21 and every future one; scrubbing at the call site closes
+    the 21 that exist today and leaves the next one open.
+    """
+    from paperwhisperer.core.text import redact_secrets
+
+    return {"error": redact_secrets(message), "code": code, "timestamp": now_iso()}
 
 
 def build_error_response(message: str, status_code: int = 400,
@@ -106,3 +118,18 @@ def is_retryable_llm_error(message: str) -> bool:
         "429", "限流", "502", "503", "504", "网关",
     )
     return any(marker in normalized for marker in retry_markers)
+
+
+class NonRetryableError(ValueError):
+    """An LLM response that is final, not transient.
+
+    The client retries almost everything, which is right for a timeout or a
+    503 and wrong for a response the model has already committed to. Retrying
+    one of those does not produce a different answer — it produces the same
+    answer three times, slowly, and then a 500 for the user.
+
+    A worked case: a reasoning model that answers "this document does not
+    say" by calling a tool the product does not offer, with an empty
+    ``content``. Re-sending the identical prompt produces an identical empty
+    response, so the retry loop can only burn time.
+    """

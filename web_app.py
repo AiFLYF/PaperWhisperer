@@ -20,7 +20,11 @@ from paperwhisperer.core.config import (  # noqa: F401  (re-exported)
     APP_NAME,
     APP_USER_AGENT,
     APP_VERSION,
+    # Both names are re-exported on purpose: MAX_UPLOAD_BYTES is the setting,
+    # MAX_CONTENT_LENGTH the alias existing importers already hold. Dropping
+    # the alias would break them; the enforcement sites read the former.
     MAX_CONTENT_LENGTH,
+    MAX_UPLOAD_BYTES,
     PAPER_SEARCH_ENABLE_REWRITE,
     PAPER_SEARCH_RESULT_LIMIT,
     PAPER_SEARCH_REWRITE_MODEL,

@@ -9,7 +9,9 @@ import re
 import time
 import unicodedata
 import uuid
+from collections.abc import Iterable
 from datetime import datetime
+from typing import Any
 
 from paperwhisperer.core import config
 
@@ -172,15 +174,59 @@ WINDOWS_RESERVED_NAMES = frozenset({
 })
 
 
+def is_windows_reserved_name(value: str) -> bool:
+    """True when the *stem* of ``value`` is a Windows device name.
+
+    Windows matches the device name against the part before the first dot, so
+    ``con.txt``, ``CON`` and ``Con.pdf`` all resolve to the console device
+    rather than to a file. Trailing spaces and dots are stripped first because
+    the Win32 layer does the same before matching, which is why ``con. .txt``
+    behaves like ``con`` there but not in a naive ``split(".")`` check.
+
+    The comparison is on the uppercased stem, since device names are
+    case-insensitive on Windows.
+    """
+    if not value:
+        return False
+    stem = value.split(".", 1)[0].strip().rstrip(" .")
+    return stem.upper() in WINDOWS_RESERVED_NAMES
+
+
 def secure_filename(filename: str) -> str:
-    """Reduce an arbitrary filename to a safe, traversal-free basename."""
+    """Reduce an arbitrary filename to a safe, traversal-free basename.
+
+    Two independent hazards are removed here, and both are handled regardless
+    of the platform this process happens to be running on:
+
+    * **Path traversal.** ``/``, ``\\`` and every other non-portable character
+      are deleted rather than resolved, so the result is always a bare
+      basename and can never escape the folder it is joined to.
+    * **Windows device names.** ``CON``, ``NUL``, ``COM1`` and friends still
+      resolve to kernel devices on Windows *even when they carry an
+      extension*, and a file that cannot be written is a data-loss bug.
+
+      This used to be guarded by ``os.name == "nt"``, which was wrong in two
+      ways. First, the sanitized name is not opened on the machine that
+      produced it — it is written to the upload folder, returned to the
+      browser, and (via the remote-import path) copied to storage the
+      deployment does not control, any of which may be a Windows share.
+      Second, ``os.name`` describes the *runtime*, so a Linux deployment
+      silently produced ``con.pdf`` and only failed later, at the moment
+      something tried to persist it, long after the point where prefixing was
+      still free. Prefixing unconditionally makes the output portable.
+
+    The ``_`` prefix also keeps this idempotent: the leading/trailing strip
+    runs *before* the reserved-name check, so re-sanitizing an already
+    prefixed name returns it unchanged instead of accumulating ``__`` on
+    every round trip.
+    """
     value = unicodedata.normalize("NFKD", str(filename)).encode("ascii", "ignore").decode("ascii")
     value = value.replace("/", " ").replace("\\", " ")
     value = "_".join(value.split())
     value = re.sub(r"[^A-Za-z0-9_.-]", "", value)
     value = re.sub(r"_+", "_", value)
     value = value.strip("._")
-    if os.name == "nt" and value and value.split(".")[0].upper() in WINDOWS_RESERVED_NAMES:
+    if is_windows_reserved_name(value):
         value = f"_{value}"
     return value
 
@@ -317,3 +363,181 @@ def compute_retry_after_delay(exc, attempt, max_delay) -> int:
         if retry_after is not None:
             return max(1, min(retry_after, max_delay))
     return get_retry_delay_seconds(attempt, max_delay=max_delay)
+
+
+# --------------------------------------------------------------------------
+# Secret redaction
+# --------------------------------------------------------------------------
+# Moved here from ``ingestion/limits.py`` so that there is exactly one
+# implementation. Two redactors is not tidiness: a secret one of them
+# happens to scrub and the other does not is a disclosure, and the module
+# that "owns" the feature is not the only module that logs.
+# ``ingestion/limits.py`` re-exports these names, so nothing that already
+# imported them from there breaks.
+
+_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # OpenAI-style keys, including the project-scoped ``sk-proj-`` form.
+    ("openai_key", re.compile(r"\bsk-[A-Za-z0-9_\-]{16,}")),
+    # GitHub tokens, classic and fine-grained.
+    ("github_token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,})")),
+    # AWS access key ids and the signature/credential query parameters of a
+    # presigned URL. The last one matters here specifically: MinerU hands back
+    # presigned OSS URLs and a socket-level error that quotes the URL puts a
+    # working credential into an exception message.
+    ("aws_key_id", re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b")),
+    ("presigned_query", re.compile(
+        r"(?i)\b(X-Amz-(?:Signature|Credential|Security-Token)|Signature|sig|"
+        r"X-Goog-Signature|access_token|api_key|apikey)=([^&\s\"']+)"
+    )),
+    # ``Authorization: Bearer ...`` in a header dump or a log line.
+    ("bearer_header", re.compile(r"(?i)\b(Bearer|Basic|Token)\s+([A-Za-z0-9._\-+/=]{12,})")),
+)
+
+#: What a redaction replaces a match with. Long enough that a reader can tell
+#: something was removed and where, short enough that a log line stays
+#: readable, and identical for every secret so the shape of the removal does
+#: not itself leak the shape of the credential.
+REDACTED = "[REDACTED]"
+
+
+def _live_secret_values() -> list[str]:
+    """Credential values this process is actually holding, longest first.
+
+    Read from the environment rather than from ``core.config`` on purpose:
+    ``config`` snapshots the environment at import, so a value monkeypatched
+    into ``os.environ`` after that would be invisible to it, and this function
+    is called from logging handlers where "invisible" means "not redacted".
+    The concrete keys are the two this project reads (see ``.env.example``);
+    both are matched by length so a two-character placeholder is not treated as
+    a secret and blanked out of every message.
+    """
+    values: list[str] = []
+    for name in (
+        "OPENAI_API_KEY",
+        "MINERU_API_TOKEN",
+        "RERANK_API_KEY",
+        "SEMANTIC_SCHOLAR_API_KEY",
+        "OPENREX_API_KEY",
+        "CORS_API_KEY",
+    ):
+        value = str(os.environ.get(name, "") or "").strip()
+        if len(value) >= 8:
+            values.append(value)
+    # Longest first: redacting a short value that is a prefix of a long one
+    # would leave the tail of the long one behind.
+    return sorted(set(values), key=len, reverse=True)
+
+
+def redact_secrets(text: str, *, extra_values: Iterable[str] = ()) -> str:
+    """Remove credential values and credential-shaped text from ``text``.
+
+    Two passes, and the order is the whole design:
+
+    1. **Literal.** Every value the process holds for a known credential
+       variable, plus anything the caller supplies, is replaced with
+       :data:`REDACTED`. This is the pass that cannot be evaded, because it
+       does not have to recognise the credential — it already has it.
+    2. **Pattern.** The shapes in :data:`_SECRET_PATTERNS`. This is the pass
+       that works when the value is *not* ours: a key the process never held (a
+       user's own, pasted into a document), or a presigned URL signature that
+       was minted by a third party and is therefore a credential we do not have
+       the value of.
+
+    ``extra_values`` exists for the case that motivated the literal pass being
+    insufficient on its own: a test that installs a sentinel credential, and a
+    redaction filter installed in a child process whose environment was
+    already cleared.
+
+    Applied to a message that contained no secret, this returns it unchanged
+    apart from the substitution of a key-equals-value pair, which is by design:
+    ``api_key=`` in a log line is a leak whether or not the value behind it is
+    real.
+    """
+    if not text:
+        return str(text)
+    result = str(text)
+    for value in [*_live_secret_values(), *(str(item) for item in extra_values)]:
+        candidate = str(value or "").strip()
+        if len(candidate) < 8:
+            # Short values would blank out unrelated text. An 8-character floor
+            # is below any credential format in use and above the strings this
+            # function would otherwise destroy.
+            continue
+        result = result.replace(candidate, REDACTED)
+    for name, pattern in _SECRET_PATTERNS:
+        if name == "presigned_query":
+            result = pattern.sub(lambda m: f"{m.group(1)}={REDACTED}", result)
+        else:
+            result = pattern.sub(REDACTED, result)
+    return result
+
+
+class SecretRedactingFilter(logging.Filter):
+    """A logging filter that redacts credentials from records and arguments.
+
+    Exists because *where* a secret gets logged is not knowable in advance. A
+    ``logging.Filter`` on the root logger sees every record, including the ones
+    produced by third-party libraries, which is the only place a redaction that
+    depends on knowing the call site can be reliable.
+
+    It filters ``msg`` and ``args`` separately and then re-flattens, because a
+    secret in a lazily-formatted ``%s`` argument is the common case: the
+    formatting has not happened yet when the record is created, so redacting
+    ``record.msg`` alone would miss it entirely.
+
+    ``exc_info`` is deliberately **not** rewritten. A traceback is the one thing
+    in a log that must stay verbatim — it is what makes a bug fixable — and
+    scrubbing it would destroy the tool this filter exists to support. The
+    documented consequence is that a credential embedded in a *local variable
+    name or value inside a frame* is still visible in a traceback, which is why
+    the leak paths this closes are ones where the credential reaches a message
+    rather than one where it is merely held nearby.
+    """
+
+    def __init__(self, name: str = "", extra_values: Iterable[str] = ()) -> None:
+        super().__init__(name)
+        self._extra = tuple(str(item) for item in extra_values if str(item or "").strip())
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Redact in place and always return ``True``.
+
+        Returning ``False`` would drop the record, which is a worse outcome
+        than a redacted one: a log line that vanished is a failure an operator
+        cannot diagnose, and this filter's job is to make the line safe, not to
+        decide what is worth saying.
+        """
+        try:
+            if isinstance(record.msg, str):
+                record.msg = redact_secrets(record.msg, extra_values=self._extra)
+            elif record.msg is not None:
+                record.msg = redact_secrets(str(record.msg), extra_values=self._extra)
+            if record.args:
+                if isinstance(record.args, dict):
+                    record.args = {
+                        key: self._clean(value) for key, value in record.args.items()
+                    }
+                else:
+                    record.args = tuple(self._clean(value) for value in record.args)
+        except Exception:  # pragma: no cover - a filter must never raise
+            # A logging filter that raises turns every subsequent log call in
+            # the process into an error, including the one that would have
+            # reported the original problem.
+            return True
+        return True
+
+    def _clean(self, value: Any) -> Any:
+        if isinstance(value, str):
+            return redact_secrets(value, extra_values=self._extra)
+        if isinstance(value, BaseException):
+            # The single most common way a credential reaches a log: a library
+            # exception whose message quotes a request or a URL. Redacting the
+            # message of an exception that is about to be formatted into a log
+            # line is the difference between a diagnostic and a disclosure.
+            try:
+                value.args = tuple(
+                    redact_secrets(str(item), extra_values=self._extra) for item in value.args
+                )
+            except Exception:  # pragma: no cover - exotic exception types
+                pass
+        return value
+
