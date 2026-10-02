@@ -677,9 +677,19 @@ class TestBrokenFixtureFails:
         result = run_gate(GATES_BY_KEY[GATE_RECOVERY], context)
         assert result.status == STATUS_FAIL
 
-    def test_recovery_gate_reports_an_absent_postgres_as_not_run(self):
+    def test_recovery_gate_reports_an_absent_postgres_as_not_run(self, monkeypatch):
         # A DSN-less environment must not silently look like the hosted tier
         # passed.
+        #
+        # The DSN is read out of the process environment by the gate itself, so
+        # this test has to *arrange* its absence rather than assume it. Run on a
+        # machine that had PAPERWHISPERER_TEST_PG_DSN exported — which is what
+        # the Hosted-tier CI job does, and what I did by hand — the gate
+        # correctly reported the hosted half as run, found no "not run" note,
+        # and this failed for a reason that had nothing to do with what it
+        # claims to check. A test that passes only on an unconfigured laptop
+        # pins the machine, not the behaviour.
+        monkeypatch.delenv(PG_DSN_ENV, raising=False)
         context = GateContext(
             recovery_tiers=("personal", "hosted"),
             test_runner=lambda node_ids: (3, 0, "3 passed"),
@@ -687,6 +697,25 @@ class TestBrokenFixtureFails:
         result = run_gate(GATES_BY_KEY[GATE_RECOVERY], context)
         assert result.status == STATUS_PASS
         assert any(PG_DSN_ENV in note for note in result.notes)
+
+    def test_recovery_gate_says_nothing_about_postgres_when_a_dsn_is_present(
+        self, monkeypatch
+    ):
+        """The complement: the "not run" note appears *because* the DSN is absent.
+
+        Without this, the test above could be satisfied by a gate that emits the
+        note unconditionally — including on a real Hosted run, where claiming the
+        tier did not execute would be its own small dishonesty.
+        """
+        monkeypatch.setenv(PG_DSN_ENV, "postgresql://u:p@localhost:5432/db")
+        context = GateContext(
+            recovery_tiers=("personal", "hosted"),
+            test_runner=lambda node_ids: (3, 0, "3 passed"),
+        )
+        result = run_gate(GATES_BY_KEY[GATE_RECOVERY], context)
+        assert not any(PG_DSN_ENV in note for note in result.notes), (
+            "with a DSN configured the hosted half did run; the note would be false"
+        )
 
     def test_a_broken_runner_fails_the_gate_rather_than_passing_it(self):
         def exploding(context: GateContext) -> GateMeasurement:

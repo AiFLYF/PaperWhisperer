@@ -62,6 +62,19 @@ SECTIONS = (JS_DIR / "sections.js").read_text(encoding="utf-8")
 MAIN = (JS_DIR / "main.js").read_text(encoding="utf-8")
 STATE = (JS_DIR / "state.js").read_text(encoding="utf-8")
 INDEX_HTML = TEMPLATE.read_text(encoding="utf-8")
+CATALOGUE = (JS_DIR / "i18n.js").read_text(encoding="utf-8")
+
+
+def _catalogue_source() -> str:
+    """The translation catalogue, as source.
+
+    Several assertions below check that a module names a message by key rather
+    than carrying the sentence inline. Checking the *name* is only half of it:
+    a key that is referenced but never defined renders as a dotted string onto
+    the screen, which is a worse failure than prose frozen into one language.
+    So the reference and the definition are asserted together, here.
+    """
+    return CATALOGUE
 
 #: Modules this task added or touched, for the no-framework / relative-import
 #: checks.
@@ -462,15 +475,34 @@ def test_a_reparse_404_says_the_server_does_not_offer_it_and_leaves_the_document
     # (`apiRequest`) that turns any failure into that shape. The property being
     # asserted is unchanged: a 404 is still called out separately.
     assert "error.status === 404" in submit, "a 404 is not called out separately"
-    assert "does not offer a reparse endpoint" in submit
-    assert "left untouched" in submit
+
+    # The 404 branch names its message by KEY, not by carrying the sentence
+    # inline. These two assertions used to read the English prose out of the
+    # module body, which made the test a photograph of one locale's wording:
+    # moving the sentence into the catalogue — the migration that let a reader
+    # switch to 中文 — turned the pin red without changing the behaviour it
+    # claimed to protect.
+    #
+    # What is actually worth pinning is stronger than the sentence was: the
+    # failure message is *localisable*, and the key it names resolves in every
+    # shipped locale. A key that stopped resolving would render as a dotted
+    # string onto the card, which is worse than prose in one language, so the
+    # second assertion is the load-bearing one.
+    assert "reparse.result.no_route" in submit, (
+        "the missing-route branch must name a catalogue key, not inline prose"
+    )
+    assert "reparse.result.no_route" in _catalogue_source(), (
+        "the key the 404 branch names does not exist in the catalogue"
+    )
 
     # A non-404 failure gets its own branch, so it is never misreported as a
     # missing route.
     assert submit.count("setReparseResult(") >= 2, (
         "a non-404 failure must not reuse the missing-route message"
     )
-    assert "did not succeed" in submit, "other failures need their own honest message"
+    assert "reparse.result.failed" in submit, (
+        "other failures need their own catalogue key, not the missing-route one"
+    )
 
     # Nothing on the failure path writes to the parse provenance or re-renders
     # the status card, which is what "left untouched" means operationally.
@@ -533,11 +565,18 @@ def test_a_deep_link_to_an_unloaded_document_degrades_to_a_message():
     """
     open_evidence = function_body(EVIDENCE, "openEvidence")
     assert "setPanelState('error')" in open_evidence
-    assert "The evidence could not be opened." in open_evidence
+
+    # Same correction as the reparse test above: the panel's failure title is
+    # named by key so it can be translated, and the assertion is that the key
+    # resolves rather than that one language's sentence is present in the file.
+    assert "evidence.error_title" in open_evidence
+    assert "evidence.error_title" in _catalogue_source(), (
+        "the key the evidence error state names does not exist in the catalogue"
+    )
 
     # The no-document-id branch exists too, so a link with no document and no
     # loaded session says so instead of issuing a request to a malformed path.
-    assert "no document id" in open_evidence
+    assert "evidence.no_document_id" in open_evidence
 
 
 def test_the_exported_deep_link_and_the_client_agree_on_the_parameters():
