@@ -814,7 +814,17 @@ class TestCitationGate:
                 },
             ],
         )
-        result = analyzer.answer_question("实验章节的标题是什么？")
+        # The question now carries the passage's own content terms. The
+        # relevance floor added in T1.4's floor work measures *content* coverage
+        # ("ImageNet", "76.3%", "top-1", "baselines"), because lexical coverage
+        # on the question as a whole is dominated by function words — "what is
+        # the title of the experiments section" scored 0.111 against a
+        # distillation passage and was correctly refused before it ever reached
+        # the citation gate. The property under test is unaffected: the answer
+        # lives only in the generated heading, which is not in `verbatim_text`.
+        result = analyzer.answer_question(
+            "在 ImageNet 上模型达到 76.3% top-1 准确率的那个章节标题是什么？"
+        )
 
         degraded = result.claims[1]
         assert degraded.is_direct_quote is False, (

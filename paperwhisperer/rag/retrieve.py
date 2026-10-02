@@ -133,18 +133,23 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "AUTO",
     "CandidateRecord",
+    "DENSE_MIN_SCORE",
     "DENSE_TIE_BAND",
     "DENSE_TIE_WINDOW",
     "DEFAULT_RRF_K",
+    "DROP_BELOW_RELEVANCE",
     "ExpandedEvidence",
     "ExpansionRecord",
     "FusionEntry",
     "FuzzyRecallPolicy",
     "HybridRetriever",
     "LegHit",
+    "MIN_QUERY_COVERAGE",
     "NeighbourPolicy",
     "PLANS",
+    "QUERY_STOPWORDS",
     "RRF_SAFE_RANGE",
+    "RelevanceReport",
     "RetrievalPlan",
     "RetrievalRecord",
     "RetrievalResult",
@@ -156,6 +161,7 @@ __all__ = [
     "TASK_TYPES",
     "lexical_query_forms",
     "plan_for",
+    "query_coverage",
     "reciprocal_rank_fusion",
     "register_plan",
     "trigram_dice",
@@ -238,6 +244,200 @@ DENSE_TIE_BAND = 0.02
 #: usually asked to reorder about that many passages and a decision about fewer
 #: than five would be reacting to one or two coincidences.
 DENSE_TIE_WINDOW = 10
+
+
+# --------------------------------------------------------------------------
+# The relevance floor
+# --------------------------------------------------------------------------
+#
+# Everything above computes *rank*. A candidate's fused score is
+# ``sum_leg w_leg / (k + rank_leg)`` -- it says how many legs liked a passage and
+# how early, and it says nothing at all about whether the passage is about the
+# question. Measured on the corpus, over 25 answerable questions and 11
+# questions the corpus cannot answer at all, the top evidence score is:
+#
+#   answerable            min 0.030  med 0.032  max 0.033
+#   out-of-domain         min 0.031  med 0.032  max 0.033
+#
+# Identical to three decimal places. That is not a bug in the arithmetic, it is
+# what rank fusion *is*: the walkthrough reported a top score of "0.031" for
+# "What is the capital of France?" as though it were a weak match, and 0.031 is
+# not a weak match, it is the score a ranked first place gets. **A floor placed
+# on the fused score would be a floor on a number that means nothing.** So the
+# floor is placed on the two quantities that do mean something, each in its own
+# units, and neither of them is the blended one.
+#
+# :data:`DENSE_MIN_SCORE` filters the dense leg on its own cosine, and
+# :data:`MIN_QUERY_COVERAGE` asks a question no leg can be measured on alone:
+# *how much of what was asked for is actually present in this passage?* Both
+# numbers, and the gap that sets them, are in ``docs/RETRIEVAL_FLOOR.md``.
+
+#: The dense leg's own floor, in cosine. Below this the leg has no opinion about
+#: what the question is about and abstains, the same way it abstains on
+#: :data:`DENSE_TIE_BAND`.
+#:
+#: Measured on three real papers (knowledge distillation, ViT, Attention Is All
+#: You Need) with fastembed MiniLM-Multilingual at 384 dimensions, against 25
+#: answerable questions:
+#:
+#:   answerable             min 0.334  p10 0.381  med 0.579  max 0.758
+#:   out-of-domain          min 0.032  p90 0.215  med 0.170  max 0.360
+#:   in-domain unanswerable min 0.275  p90 0.586  med 0.449  max 0.597
+#:
+#: **0.40, chosen by sweeping it, not by splitting those two rows.** The
+#: distributions overlap — the answerable minimum is *below* the out-of-domain
+#: maximum — so no threshold on the cosine separates the classes on its own, and
+#: picking the midpoint between two overlapping distributions is how a threshold
+#: becomes arbitrary. So it was measured as a floor instead: run the whole
+#: 54-question set at each value and read off the two numbers that matter.
+#:
+#:   dense_min   answerable answered   out-of-domain refused
+#:   0.20        35 / 35                15 / 19
+#:   0.25        35 / 35                17 / 19
+#:   0.36        35 / 35                17 / 19
+#:   0.38        35 / 35                18 / 19
+#:   0.45        35 / 35                18 / 19
+#:   0.50        34 / 35                18 / 19
+#:
+#: **The answerable column is flat from 0.20 to 0.45**, and that is not luck: a
+#: candidate survives if *any* leg that found it cleared *that* leg's floor, so
+#: raising the dense floor costs an answerable question only when the dense leg
+#: was its sole route to a passage that also fails the content floor. Answerable
+#: questions reach their passage through more than one leg, so this one is nearly
+#: free. Refusals keep improving until 0.38 and then stop. 0.40 is the middle of
+#: that measured plateau: past the out-of-domain maximum of 0.360, and inside the
+#: band where the answerable column does not move. At 0.50 it does move.
+#:
+#: It does **not** reject the third row, and that row is the open band: those
+#: questions share their content words with the document and ask for a fact it
+#: does not contain, so no relevance threshold -- at any value, on any signal --
+#: separates them from the answerable ones. They are excluded from the class this
+#: floor is claimed to fix, not quietly absorbed into it. See
+#: ``docs/RETRIEVAL_FLOOR.md``.
+DENSE_MIN_SCORE = 0.40
+
+#: How much of a question's *content* vocabulary a passage must carry before it
+#: is allowed to count as evidence, in ``[0, 1]``.
+#:
+#: The lexical leg's own score cannot be the floor, and the measurement is why:
+#: its coverage ratio is computed over *every* query token, function words
+#: included, so it cannot tell a match from a coincidence:
+#:
+#:   answerable            min 0.545  med 0.750  max 0.900
+#:   out-of-domain         max 0.667
+#:
+#: "What is the capital of France?" scores **0.667** against a paper about
+#: knowledge distillation, because *what*, *is*, *the* and *of* are all in it.
+#: The answerable *minimum* is below the out-of-domain *maximum*. There is no
+#: number on that scale that works, and the reason is structural rather than
+#: statistical: coverage rewards matching the parts of a question that carry no
+#: information.
+#:
+#: Restricting the ratio to tokens that carry information separates the same
+#: classes completely:
+#:
+#:   answerable            min 0.333  p25 0.600  med 0.750
+#:   out-of-domain         max 0.000  (every one, without exception)
+#:   in-domain unanswerable min 0.167  med 0.600
+#:
+#: measured on Chinese, which is not a language-specific case bolted on -- the
+#: store tokenizes a CJK run into character bigrams, so a Chinese question is
+#: scored entirely on content and needs no stopword list at all:
+#:
+#:   answerable            min 0.333  med 0.598  max 0.750
+#:   out-of-domain         max 0.000  (all eight)
+#:
+#: **0.20**, and what sets it is the *shape* of the evidence rather than its
+#: size. The out-of-domain maximum is exactly **0.000** in both languages, not
+#: 0.02 or 0.09 -- those questions' content words are absent from the document
+#: entirely, so no coverage value above zero is reachable for them. Meanwhile the
+#: weakest answerable question measured -- in either language -- reaches 0.333.
+#: Any value in that open interval separates the two classes perfectly, and 0.20
+#: sits below both minima with room: it leaves the Chinese answerable minimum,
+#: the tighter of the two at 0.333, a margin of 0.133, which is twice the margin
+#: the higher-looking 0.30 would have given it.
+#:
+#: This is a gap, not a decision boundary, and calling it a boundary is how a
+#: threshold chosen by taste goes wrong on the first document that does not
+#: resemble this corpus. A deployment with different papers will move these
+#: numbers; what should survive is the shape, and re-measuring it is one run of
+#: ``tests/test_retrieval_floor.py``.
+#:
+#: The third row is the honest limit and it is not absorbed into the claim: an
+#: in-domain question with no answer can carry coverage as high as 1.000.
+MIN_QUERY_COVERAGE = 0.20
+
+#: Query tokens that cannot testify about what a question is about.
+#:
+#: A short, explicit list, because a long one would start removing content and
+#: a short one is auditable by reading it. It covers English function words and
+#: interrogatives -- *what*, *which*, *how many* -- because those are the tokens
+#: a coverage ratio inflates itself with. It deliberately does **not** cover
+#: numerals: "300 classes" and "67 test errors" put their content in the
+#: numeral, and dropping every digit from "how many layers" costs more than it
+#: saves.
+#:
+#: Chinese is not listed and does not need to be. :func:`scoring.tokenize` emits
+#: CJK runs as character bigrams, none of which is a function word, so a Chinese
+#: query is scored entirely on content -- which is the behaviour this list is
+#: trying to produce, arrived at differently.
+QUERY_STOPWORDS = frozenset(
+    [
+        # articles, conjunctions, prepositions
+        "a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "at",
+        "by", "for", "with", "from", "into", "onto", "than", "then", "so",
+        "such", "as", "that", "this", "these", "those", "there", "here",
+        # copulas, auxiliaries, modals
+        "is", "are", "was", "were", "be", "been", "being", "am",
+        "do", "does", "did", "done", "can", "could", "will", "would",
+        "shall", "should", "may", "might", "must",
+        # pronouns
+        "it", "its", "i", "we", "you", "they", "he", "she", "them", "us",
+        "me", "my", "our", "your", "their", "his", "her",
+        # interrogatives and quantifiers — the tokens a coverage ratio inflates
+        # itself with, since "what is the X?" always contains what/is/the
+        "what", "which", "who", "whom", "whose", "when", "where", "why",
+        "how", "many", "much", "most", "more", "less", "least", "some",
+        "any", "all", "each", "every", "other", "another", "both",
+        "few", "several",
+        # prepositional and reporting boilerplate
+        "about", "over", "under", "between", "within", "across", "per",
+        "via", "vs", "using", "used", "use", "based", "given",
+        "please", "tell", "show", "explain", "describe",
+        "report", "reported", "state",
+    ]
+)
+
+
+def _content_tokens(text: str) -> frozenset[str]:
+    """The tokens of ``text`` that can carry what the question is about.
+
+    Stopwords out, pure numerals out, CJK bigrams in. Returns a set rather than
+    a list because the coverage ratio is a set operation and a duplicate token
+    must not be counted twice.
+    """
+    return frozenset(
+        token
+        for token in scoring.tokenize(text)
+        if token and not token.isdigit() and token not in QUERY_STOPWORDS
+    )
+
+
+def query_coverage(query: str, text: str) -> float | None:
+    """What share of the question's content terms this passage contains.
+
+    ``None`` when the question has no content terms at all -- an empty ratio is
+    not a zero ratio, and a floor that silently refused every question it could
+    not measure would be a floor that refuses short questions, which are exactly
+    the questions a person types when they know the paper's own words and want
+    to look one up. A caller that gets ``None`` must fall back to the dense leg's
+    floor, which is why this returns an optional rather than a number.
+    """
+    wanted = _content_tokens(query)
+    if not wanted:
+        return None
+    present = wanted & frozenset(scoring.tokenize(text))
+    return len(present) / len(wanted)
 
 
 @dataclass(slots=True, frozen=True)
@@ -724,7 +924,23 @@ class RetrievalPlan:
     #: refuses to return a chunk sharing no term with the query; this is the
     #: same idea with a bar, and it is how a plan says "an answer has to
     #: contain most of what was asked".
+    #:
+    #: **Left at ``0.0`` on every shipped plan, and that is a measured decision
+    #: rather than an oversight.** Coverage is computed over every query token,
+    #: function words included, so it cannot separate an answerable question
+    #: from an out-of-domain one: measured, the answerable *minimum* (0.545) sits
+    #: below the out-of-domain *maximum* (0.667). See :data:`MIN_QUERY_COVERAGE`
+    #: for the signal that does, and ``docs/RETRIEVAL_FLOOR.md`` for the
+    #: distributions. A plan that genuinely expects term-like queries -- the
+    #: reproduction plan's proper nouns -- is where this knob belongs, and
+    #: setting it from a question set that does not contain such questions
+    #: would be fitting a number to nothing.
     min_lexical_score: float = 0.0
+    #: The dense leg's floor, in cosine. See :data:`DENSE_MIN_SCORE`.
+    dense_min_score: float = DENSE_MIN_SCORE
+    #: The share of the question's content terms a passage must carry to count
+    #: as evidence. See :data:`MIN_QUERY_COVERAGE`.
+    min_query_coverage: float = MIN_QUERY_COVERAGE
     #: ``None`` means "use whatever the deployment configured". A plan can turn
     #: rerank off; it cannot force it on, because there may be no provider.
     rerank: bool | None = None
@@ -742,6 +958,14 @@ class RetrievalPlan:
             raise ValueError(
                 f"candidate_depth（{self.candidate_depth}）不能小于 final_k"
                 f"（{self.final_k}）：融合只能提升已被召回的候选。"
+            )
+        if not 0.0 <= float(self.min_query_coverage) <= 1.0:
+            raise ValueError(
+                f"min_query_coverage 必须在 [0, 1]，收到 {self.min_query_coverage!r}。"
+            )
+        if not -1.0 <= float(self.dense_min_score) <= 1.0:
+            raise ValueError(
+                f"dense_min_score 必须在 [-1, 1]，收到 {self.dense_min_score!r}。"
             )
 
     # -- weights -----------------------------------------------------------
@@ -817,6 +1041,8 @@ class RetrievalPlan:
                 else None
             ),
             "min_lexical_score": self.min_lexical_score,
+            "dense_min_score": self.dense_min_score,
+            "min_query_coverage": self.min_query_coverage,
             "rerank": self.rerank,
             "fuzzy": self.fuzzy.to_dict(),
             "neighbors": self.neighbors.to_dict(),
@@ -851,6 +1077,12 @@ class RetrievalPlan:
                 tuple(str(item) for item in required) if required is not None else None
             ),
             min_lexical_score=float(payload.get("min_lexical_score") or 0.0),
+            dense_min_score=float(
+                payload.get("dense_min_score", base.dense_min_score)
+            ),
+            min_query_coverage=float(
+                payload.get("min_query_coverage", base.min_query_coverage)
+            ),
             rerank=None if rerank is None else bool(rerank),
             fuzzy=FuzzyRecallPolicy.from_dict(payload.get("fuzzy") or {}),
             neighbors=NeighbourPolicy.from_dict(payload.get("neighbors") or {}),
@@ -1042,6 +1274,90 @@ EMPTY_OK = "ok"
 #: never a candidate" are different bugs with different fixes.
 DROP_BELOW_FINAL_K = "below_final_k"
 DROP_NOT_IN_INDEX = "chunk_missing_from_metadata"
+DROP_BELOW_RELEVANCE = "below_relevance_floor"
+
+
+@dataclass(slots=True, frozen=True)
+class RelevanceReport:
+    """What the floor decided, and the numbers behind the decision.
+
+    It exists because the answer layer's confidence verdict needs to know
+    whether the passage a claim rests on was ever *about* the question, and
+    after :meth:`HybridRetriever.retrieve` has returned there is nowhere else to
+    ask. Before the floor, the only question a claim could ask was "is this id
+    one the retriever minted?", which a padded passage answers yes to -- and
+    that is the whole defect: identity is not relevance.
+
+    Three properties, deliberately small:
+
+    ``coverage``
+        Every candidate's content coverage, keyed by ``chunk_id``. The losers
+        are in here too, which is what makes a false refusal debuggable: a
+        retrieval that returned nothing can say what its best passage scored.
+
+    ``evidence_ids``
+        The passages that cleared the floor. An id absent from this set is a
+        passage the retriever placed on the list and then rejected, and a claim
+        resting on one is not evidence.
+
+    ``measured``
+        Whether any candidate had content terms to be measured against at all.
+        ``False`` means the question was short or entirely function words; the
+        floor was skipped rather than applied to nothing, and the report says so
+        instead of reporting a zero that would read as a refusal.
+    """
+
+    task: str
+    min_query_coverage: float
+    min_dense_score: float
+    dense_top: float | None = None
+    dense_abstained: bool = False
+    coverage: dict[str, float] = field(default_factory=dict)
+    evidence_ids: tuple[str, ...] = ()
+    measured: bool = True
+
+    @property
+    def supports_any(self) -> bool:
+        """Whether this retrieval found at least one passage worth answering from.
+
+        This is the single question the Q&A path asks. It is a property of the
+        retrieval rather than of the store, and it is what
+        :attr:`RetrievalResult.insufficient_evidence` now reports.
+        """
+        return bool(self.evidence_ids)
+
+    def clears(self, evidence_id: str) -> bool:
+        """Whether one cited passage survived the floor."""
+        return str(evidence_id) in self.evidence_ids
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "task": self.task,
+            "min_query_coverage": self.min_query_coverage,
+            "min_dense_score": self.min_dense_score,
+            "dense_top": self.dense_top,
+            "dense_abstained": self.dense_abstained,
+            "coverage": dict(self.coverage),
+            "evidence_ids": list(self.evidence_ids),
+            "measured": self.measured,
+        }
+
+    @classmethod
+    def from_dict(cls, payload: Mapping[str, Any]) -> RelevanceReport:
+        dense_top = payload.get("dense_top")
+        return cls(
+            task=str(payload.get("task") or ""),
+            min_query_coverage=float(payload.get("min_query_coverage") or 0.0),
+            min_dense_score=float(payload.get("min_dense_score") or 0.0),
+            dense_top=None if dense_top is None else float(dense_top),
+            dense_abstained=bool(payload.get("dense_abstained")),
+            coverage={
+                str(key): float(value)
+                for key, value in dict(payload.get("coverage") or {}).items()
+            },
+            evidence_ids=tuple(str(item) for item in payload.get("evidence_ids") or ()),
+            measured=bool(payload.get("measured", True)),
+        )
 
 
 @dataclass(slots=True, frozen=True)
@@ -1060,6 +1376,11 @@ class CandidateRecord:
     rerank_rank: int | None = None
     selected: bool = False
     reason: str = ""
+    #: Share of the question's content terms this passage carries, or ``None``
+    #: when the question had none to measure. Recorded for every candidate, not
+    #: only the rejected ones, because "the best passage scored 0.15 coverage and
+    #: the floor is 0.30" is the sentence a reader of a refusal needs.
+    coverage: float | None = None
 
     @property
     def legs_found(self) -> tuple[str, ...]:
@@ -1087,12 +1408,14 @@ class CandidateRecord:
             "rerank_rank": self.rerank_rank,
             "selected": self.selected,
             "reason": self.reason,
+            "coverage": self.coverage,
         }
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> CandidateRecord:
         rerank_score = payload.get("rerank_score")
         rerank_rank = payload.get("rerank_rank")
+        coverage = payload.get("coverage")
         return cls(
             chunk_id=str(payload.get("chunk_id") or ""),
             document_id=str(payload.get("document_id") or ""),
@@ -1114,6 +1437,7 @@ class CandidateRecord:
             rerank_rank=None if rerank_rank is None else int(rerank_rank),
             selected=bool(payload.get("selected")),
             reason=str(payload.get("reason") or ""),
+            coverage=None if coverage is None else float(coverage),
         )
 
 
@@ -1211,10 +1535,24 @@ class RetrievalRecord:
     rerank: dict[str, Any] = field(default_factory=dict)
     query_forms: tuple[str, ...] = ()
     documents_considered: tuple[str, ...] = ()
+    #: What the relevance floor decided, and the numbers behind it. Present on
+    #: every record including the empty ones: "nothing cleared the floor" is a
+    #: finding, and a record that cannot express it is a record that has to be
+    #: re-run to explain itself.
+    relevance: RelevanceReport | None = None
 
     @property
     def insufficient_evidence(self) -> bool:
-        """Whether this retrieval found nothing, however many legs ran."""
+        """Whether this retrieval found nothing usable, however many legs ran.
+
+        Emptiness is no longer the whole test. Before the floor this was
+        ``not self.evidence``, which meant a retriever that always padded to
+        ``final_k`` could never report insufficiency and the deterministic
+        no-model refusal was unreachable for every question the corpus cannot
+        answer -- the defect the user walkthrough found. Now a passage that did
+        not clear the floor is not evidence, so the two tests agree again, and
+        this property is a truthful summary rather than a tautology.
+        """
         return not self.evidence
 
     def to_dict(self) -> dict[str, Any]:
@@ -1236,10 +1574,12 @@ class RetrievalRecord:
             "rerank": dict(self.rerank),
             "query_forms": list(self.query_forms),
             "documents_considered": list(self.documents_considered),
+            "relevance": None if self.relevance is None else self.relevance.to_dict(),
         }
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> RetrievalRecord:
+        relevance = payload.get("relevance")
         return cls(
             record_id=str(payload.get("record_id") or ""),
             query=str(payload.get("query") or ""),
@@ -1271,6 +1611,11 @@ class RetrievalRecord:
             documents_considered=tuple(
                 str(item) for item in payload.get("documents_considered") or ()
             ),
+            relevance=(
+                RelevanceReport.from_dict(relevance)
+                if isinstance(relevance, Mapping)
+                else None
+            ),
         )
 
 
@@ -1291,11 +1636,23 @@ class RetrievalResult:
     evidence: tuple[Evidence, ...]
     expansions: tuple[ExpandedEvidence, ...]
     record: RetrievalRecord
+    #: What the relevance floor decided. ``None`` only for a result assembled by
+    #: a caller rather than by :meth:`HybridRetriever.retrieve`.
+    relevance: RelevanceReport | None = None
 
     @property
     def insufficient_evidence(self) -> bool:
-        """The required outcome for a question the corpus cannot answer."""
-        return not self.evidence
+        """The required outcome for a question the corpus cannot answer.
+
+        Two things make it ``True``: no passage at all came back, and -- the case
+        that used to be unreachable -- passages came back and none of them
+        cleared the floor. Before the floor the second case could not be
+        expressed, which is why a question about the capital of France returned
+        eight passages and said its evidence was sufficient.
+        """
+        if not self.evidence:
+            return True
+        return self.relevance is not None and not self.relevance.supports_any
 
     @property
     def empty_reason(self) -> str:
@@ -1385,6 +1742,16 @@ class _Ranked:
     rerank_score: float | None = None
     rerank_rank: int | None = None
     legs: tuple[LegHit, ...] = ()
+
+    @property
+    def legs_found(self) -> tuple[str, ...]:
+        """The legs that returned this candidate, in the declared leg order.
+
+        On the record as well as on :class:`CandidateRecord`, because the record
+        is what a person debugging a bad answer actually reads, and "no leg
+        returned this chunk" is the single most useful sentence in it.
+        """
+        return tuple(leg.leg for leg in self.legs)
 
 
 @dataclass(slots=True, frozen=True)
@@ -1507,7 +1874,7 @@ class HybridRetriever:
         rankings: dict[str, list[str]] = {leg: [] for leg in LEG_ORDER}
         scores: dict[str, dict[str, float]] = {leg: {} for leg in LEG_ORDER}
 
-        self._dense_leg(
+        dense_top, dense_abstained = self._dense_leg(
             forms[0], resolved, scope, rankings, scores, owner, degradations
         )
         self._lexical_leg(forms, resolved, scope, rankings, scores, owner, degradations)
@@ -1518,6 +1885,9 @@ class HybridRetriever:
         ranked = self._apply_topics(entries, chunks, resolved)
         ranked, rerank_info = self._rerank(ranked, chunks, query, resolved, degradations)
         anchors, dropped = self._select(ranked, chunks, final_k)
+        anchors, coverage, measured = self._apply_relevance_floor(
+            anchors, chunks, query, resolved, dropped, degradations
+        )
 
         evidence: list[Evidence] = []
         parsers = self._parser_names(owner)
@@ -1542,8 +1912,24 @@ class HybridRetriever:
             self.bundle, {owner.get(item.chunk_id, "") for item in anchors}, resolved.signature()
         )
         records = tuple(
-            self._candidate_record(item, owner.get(item.chunk_id, ""), selected_ids, dropped)
+            self._candidate_record(
+                item,
+                owner.get(item.chunk_id, ""),
+                selected_ids,
+                dropped,
+                coverage.get(item.chunk_id),
+            )
             for item in ranked
+        )
+        relevance = RelevanceReport(
+            task=resolved.task,
+            min_query_coverage=float(resolved.min_query_coverage),
+            min_dense_score=float(resolved.dense_min_score),
+            dense_top=dense_top,
+            dense_abstained=bool(dense_abstained),
+            coverage=dict(coverage),
+            evidence_ids=tuple(item.evidence_id for item in evidence),
+            measured=measured,
         )
         record = self._build_record(
             query=query,
@@ -1556,10 +1942,130 @@ class HybridRetriever:
             degradations=degradations,
             rerank=rerank_info,
             documents_seen=sorted(set(owner.values())),
+            relevance=relevance,
         )
         return RetrievalResult(
-            evidence=tuple(evidence), expansions=tuple(expansions), record=record
+            evidence=tuple(evidence),
+            expansions=tuple(expansions),
+            record=record,
+            relevance=relevance,
         )
+
+    def _apply_relevance_floor(
+        self,
+        anchors: Sequence[_Ranked],
+        chunks: Mapping[str, Chunk],
+        query: str,
+        plan: RetrievalPlan,
+        dropped: dict[str, str],
+        degradations: list[str],
+    ) -> tuple[list[_Ranked], dict[str, float], bool]:
+        """Drop the anchors no leg can vouch for, and say so.
+
+        This is the gate the deterministic refusal depends on. Before it, every
+        anchor that survived ``final_k`` became evidence, so a retriever that
+        always produced ``final_k`` candidates could never report that it had
+        found nothing -- and the fixed, model-free refusal that
+        ``DocumentAnalyzer._insufficient_answer`` implements was unreachable for
+        every question except the ones where the legs happened to find nothing at
+        all. The measured cost of that: "What is the capital of France?" against a
+        paper on knowledge distillation returned eight passages and
+        ``insufficient_evidence = False``.
+
+        **The floor is per leg, because relevance is not one quantity.** A single
+        threshold across the legs is the mistake this method exists to avoid, and
+        the two ways it goes wrong were both measured:
+
+        * Requiring *term overlap* from the dense leg would be requiring two
+          independent proofs of the same thing, one of which that leg cannot give
+          by design. "How well did the small model do compared to the big one on
+          handwritten digits?" shares almost no content term with the passage
+          that answers it, and its cosine is 0.484. It is answerable. A floor
+          demanding overlap would refuse it, and would refuse every paraphrase
+          question -- which is the whole class the plan is named after.
+
+        * Requiring a *cosine* from the lexical leg would be the same error in the
+          other direction, and worse: coverage is a different quantity measured in
+          different units, and its raw value cannot be compared with a cosine at
+          all (see :data:`MIN_QUERY_COVERAGE` for the measured overlap).
+
+        So each leg is judged on its own measure, and **a candidate survives if
+        any leg that returned it cleared that leg's floor**:
+
+        dense
+            :attr:`RetrievalPlan.dense_min_score`, in cosine. The leg abstained
+            rather than voting if it did not, so a dense candidate's presence in
+            the ranking *is* the finding that it cleared.
+        fuzzy
+            :data:`FUZZY_MIN_SIMILARITY`, enforced inside the leg. A fuzzy hit
+            is by construction a near-miss on a term that is **not present** --
+            ``recieve`` for ``receive`` -- so asking a fuzzy candidate whether it
+            contains the query's terms is asking the one question it was built to
+            answer "no" to. (Applying the content floor uniformly here was the
+            first version of this method and it silently deleted the fuzzy leg's
+            entire reason to exist; ``tests/test_retrieve.py`` caught it.)
+        lexical
+            :attr:`RetrievalPlan.min_query_coverage`, over the question's content
+            terms. The lexical leg ranks by term presence, so without this it
+            will rank "what", "is", "the" and "of" matches above a real answer --
+            measured at **0.667** for "What is the capital of France?" against a
+            paper on knowledge distillation.
+
+        A lexical-only candidate that clears the content floor is therefore a
+        passage that genuinely contains most of what was asked, and a lexical-only
+        candidate that does not is padding. That is the case this whole change is
+        about, and it is why the lexical leg is the one carrying the floor.
+
+        **``None`` means the question had no content terms to measure** -- a bare
+        proper noun, a pure-CJK fragment. Those anchors are kept and
+        :attr:`RelevanceReport.measured` is ``False``, so the record says the
+        floor did not apply rather than reporting a zero that reads as a verdict.
+
+        **A dropped anchor keeps its place in the record**, with
+        :data:`DROP_BELOW_RELEVANCE` as the reason. A refusal that did not say
+        what it refused would be indistinguishable from a retrieval that broke.
+        """
+        kept: list[_Ranked] = []
+        coverage: dict[str, float] = {}
+        measured = False
+        floor = float(plan.min_query_coverage)
+        removed = 0
+        worst_best = 0.0
+        for item in anchors:
+            chunk = chunks.get(item.chunk_id)
+            if chunk is None:
+                continue
+            found = item.legs_found
+            if LEG_DENSE in found or LEG_FUZZY in found:
+                # A leg that ranks by meaning, or that matched a term that is not
+                # there, has already answered its own floor. Neither can be asked
+                # a content-coverage question.
+                score = query_coverage(query, chunk.text)
+                if score is not None:
+                    measured = True
+                    coverage[item.chunk_id] = float(score)
+                kept.append(item)
+                continue
+            score = query_coverage(query, chunk.text)
+            if score is None:
+                kept.append(item)
+                continue
+            measured = True
+            coverage[item.chunk_id] = float(score)
+            worst_best = max(worst_best, float(score))
+            if score >= floor:
+                kept.append(item)
+            else:
+                removed += 1
+                dropped.setdefault(item.chunk_id, DROP_BELOW_RELEVANCE)
+        if not measured:
+            return list(anchors), coverage, False
+        if removed:
+            degradations.append(
+                f"{removed} 个词法候选未达到问题内容覆盖率下限 {floor:.2f}"
+                f"（最佳 {worst_best:.2f}），已从证据中剔除。[{DROP_BELOW_RELEVANCE}]"
+            )
+        return kept, coverage, True
 
     def describe(self) -> dict[str, Any]:
         """Which legs and providers this instance will actually use.
@@ -1630,10 +2136,17 @@ class HybridRetriever:
         scores: dict[str, dict[str, float]],
         owner: dict[str, str],
         degradations: list[str],
-    ) -> None:
+    ) -> tuple[float | None, bool]:
         """The dense leg, and a recorded reason when it could not run.
 
-        Two ways it can be absent, and they are not the same thing. No
+        Returns ``(top_cosine, abstained)`` rather than leaving it on the
+        instance. The class is documented as safe to share across threads and
+        keeps no per-query state, and a retriever whose ``_dense_top`` changes
+        between two concurrent questions is a retriever whose relevance report
+        describes somebody else's query. So the observation is returned, like
+        every other per-query fact in this module.
+
+        Three ways it can be absent, and they are not the same thing. No
         embedding provider at all is a configuration fact, reported once. A
         provider that raises is a *failure* of a leg that should have run, and
         it degrades instead of raising because of the product rule: a retrieval
@@ -1644,10 +2157,10 @@ class HybridRetriever:
         """
         if plan.dense_weight == 0.0:
             degradations.append("RetrievalPlan.dense_weight=0，本次检索关闭 dense 通道。")
-            return
+            return None, True
         if self.embeddings is None:
             degradations.append("未配置 embedding provider，dense 通道未参与本次检索。")
-            return
+            return None, True
         try:
             vector = self.embeddings.embed_query(query)
             hits = self.bundle.vectors.search(
@@ -1656,7 +2169,8 @@ class HybridRetriever:
         except Exception as exc:  # noqa: BLE001 - a leg must not take the query down
             logger.warning("dense 通道失败，本次检索降级为词法检索。", exc_info=True)
             degradations.append(f"dense 通道失败，已降级为词法检索：{exc}")
-            return
+            return None, True
+        top = float(hits[0].score) if hits else None
         if hits and plan.dense_tie_band > 0.0:
             window = hits[: max(2, int(DENSE_TIE_WINDOW))]
             spread = float(window[0].score) - float(window[-1].score)
@@ -1665,12 +2179,32 @@ class HybridRetriever:
                     f"dense 通道前 {len(window)} 个候选的余弦相似度跨度仅 {spread:.4f}"
                     f"（小于 {plan.dense_tie_band}），对本次 query 没有区分力，该通道弃权。"
                 )
-                return
+                return float(window[0].score), True
+        # A second, independent reason to abstain, and the two answer different
+        # questions. The tie band asks "can this leg tell its own best
+        # candidates apart?" -- a precision question about the ranking. This asks
+        # "is any of them about the question at all?" -- a level question about
+        # the top score. A cosine of 0.20 against every passage is not a
+        # confident answer; it is the embedding of a query the corpus has never
+        # seen, and letting it vote is how eight irrelevant passages get fused
+        # into a confident-looking ranking.
+        #
+        # Every path that does not abstain falls through to the loop below, and
+        # it has to: an early ``return`` on the *non*-abstaining branch is a bug
+        # this module's own tests caught, and the leg reported a healthy cosine
+        # while contributing no candidates at all.
+        if hits and plan.dense_min_score > -1.0 and top < plan.dense_min_score:
+            degradations.append(
+                f"dense 通道最高余弦相似度仅 {top:.4f}"
+                f"（低于下限 {plan.dense_min_score}），与本次 query 无关，该通道弃权。"
+            )
+            return top, True
         for hit in hits:
             _add(
                 rankings, scores, owner, LEG_DENSE,
                 hit.chunk_id, getattr(hit, "document_id", ""), float(hit.score),
             )
+        return top, False
 
     def _lexical_leg(
         self,
@@ -2214,6 +2748,7 @@ class HybridRetriever:
         document_id: str,
         selected_ids: set[str],
         dropped: Mapping[str, str],
+        coverage: float | None = None,
     ) -> CandidateRecord:
         return CandidateRecord(
             chunk_id=item.chunk_id,
@@ -2227,6 +2762,7 @@ class HybridRetriever:
             rerank_rank=item.rerank_rank,
             selected=item.chunk_id in selected_ids,
             reason=dropped.get(item.chunk_id, ""),
+            coverage=coverage,
         )
 
     def _scope_exists(self, scope: tuple[str, ...] | None) -> bool | None:
@@ -2262,6 +2798,7 @@ class HybridRetriever:
         degradations: Sequence[str],
         rerank: Mapping[str, Any],
         documents_seen: Sequence[str],
+        relevance: RelevanceReport | None = None,
     ) -> RetrievalRecord:
         ranked = tuple(replace(item, rank=position) for position, item in enumerate(candidates, 1))
         signature = plan.signature()
@@ -2284,6 +2821,7 @@ class HybridRetriever:
             rerank=dict(rerank),
             query_forms=tuple(forms),
             documents_considered=tuple(documents_seen),
+            relevance=relevance,
         )
 
     def _empty_result(

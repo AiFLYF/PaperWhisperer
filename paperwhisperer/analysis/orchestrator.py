@@ -494,16 +494,34 @@ def _verify_claim(
     )
 
 
-def _derive_confidence(claims: Sequence[AnswerClaim]) -> str:
+def _derive_confidence(
+    claims: Sequence[AnswerClaim], *, relevance: Any = None
+) -> str:
     """Confidence, computed from the claims the answer actually carries.
 
     A claim is *verified* when it is carried by evidence that was retrieved for
-    this question **and** it presents no quotation, or a quotation that
-    aligned. "Presents no quotation" counts as verified deliberately: a claim
-    is a paraphrase by nature, the gate is about claims dressed as quotations,
-    and a rule that made every paraphrase unverified would report
-    ``insufficient_evidence`` for a perfectly well-sourced answer and teach
-    users to distrust a label that is always wrong.
+    this question, that **cleared the retrieval relevance floor**, and that
+    presents no quotation or a quotation that aligned. "Presents no quotation"
+    still counts as verified deliberately: a claim is a paraphrase by nature,
+    the gate is about claims dressed as quotations, and a rule that made every
+    paraphrase unverified would report ``insufficient_evidence`` for a perfectly
+    well-sourced answer and teach users to distrust a label that is always wrong.
+    That argument is about the *quotation*, and it does not extend to relevance.
+
+    **What was added, and why it is not the same rule.** Before the floor, a
+    claim was verified when it cited any id the retriever had minted. That is an
+    identity test, and identity is not relevance: a retriever that padded every
+    question to ``final_k`` minted eight ids for every question including the
+    ones it had no answer to, so a paraphrase resting on one of those was
+    labelled ``supported``. The walkthrough reproduced exactly that, with no
+    model in the loop. ``relevance`` is the floor's verdict -- which passages
+    were allowed to count as evidence at all -- and a claim that cites a passage
+    the floor rejected is not verified.
+
+    ``relevance`` is keyword-only and optional purely so this function stays
+    callable in isolation; ``None`` means "no floor report available", which
+    skips the check rather than failing it. The production call site at
+    :meth:`DocumentAnalyzer._compose_answer_result` always passes one.
 
     The three-way split is then the only thing this could be. All claims
     verified and at least one claim present is ``supported``; some verified is
@@ -514,7 +532,7 @@ def _derive_confidence(claims: Sequence[AnswerClaim]) -> str:
     """
     if not claims:
         return CONFIDENCE_INSUFFICIENT
-    verified = [claim for claim in claims if _claim_is_verified(claim)]
+    verified = [claim for claim in claims if _claim_is_verified(claim, relevance)]
     if not verified:
         return CONFIDENCE_INSUFFICIENT
     if len(verified) == len(claims):
@@ -522,9 +540,16 @@ def _derive_confidence(claims: Sequence[AnswerClaim]) -> str:
     return CONFIDENCE_PARTIALLY_SUPPORTED
 
 
-def _claim_is_verified(claim: AnswerClaim) -> bool:
-    """Whether one claim is carried by real evidence with a valid quotation."""
+def _claim_is_verified(claim: AnswerClaim, relevance: Any = None) -> bool:
+    """Whether one claim is carried by real, *relevant* evidence with a valid quotation."""
     if not claim.evidence_ids:
+        return False
+    # The defect this closes: an id the retriever minted is not a passage that
+    # answers the question. Before the relevance floor every query was padded to
+    # a full set, so every fabricated-and-supported chain had this door open.
+    if relevance is not None and not all(
+        relevance.clears(evidence_id) for evidence_id in claim.evidence_ids
+    ):
         return False
     if not claim.quote:
         return True
@@ -1641,7 +1666,7 @@ class DocumentAnalyzer:
                         if item in evidence_by_id]
             verified.append(_verify_claim(claim, evidence, self._qa_document()))
 
-        confidence = _derive_confidence(verified)
+        confidence = _derive_confidence(verified, relevance=result.relevance)
         # A refusal wrapped in invented context is worse than no refusal, so an
         # answer nothing can be tied to is not shown at all — not even as a
         # caveat. The model was given real passages and still produced claims
