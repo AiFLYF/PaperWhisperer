@@ -572,14 +572,23 @@ def test_the_parse_status_card_names_every_signal_t34_requires():
     assert "parsed_by" in render
     # The quality verdict, and what to say when it was not reported.
     assert "parse.quality" in render or "renderParseQuality" in render
-    assert "No parse quality report was returned" in PARSE_STATUS
+    # The reader-facing sentences live in the catalogue, not in the module: the
+    # card's strings are produced at render time and are resolved with `t()` so
+    # a language switch repaints them. So these assertions read the catalogue
+    # entry the module looks up, rather than a literal in the module source.
+    catalogue = (JS_DIR / "i18n.js").read_text(encoding="utf-8")
+    assert "'parse.quality.absent'" in catalogue
+    assert "t('parse.quality.absent')" in function_body(PARSE_STATUS, "renderParseQuality")
     # A fallback that fired.
     assert "fallback_used" in render
     # Whether it left the machine — all three facts, kept apart.
     for field in ("used_cloud", "cloud_attempted", "touched_network"):
         assert field in render, f"{field} is not surfaced to the user"
-    assert "left this machine" in PARSE_STATUS
-    assert "charged" in PARSE_STATUS
+    for key in ("parse.notice.used_cloud", "parse.notice.cloud_discarded"):
+        assert f"t('{key}')" in render, f"{key} is not said through the catalogue"
+        assert f"'{key}'" in catalogue, f"{key} has no catalogue entry"
+    assert "left this machine" in catalogue
+    assert "charged" in catalogue
     assert card
 
 
@@ -623,16 +632,18 @@ def test_the_reparse_control_offers_both_force_ocr_and_a_parser_choice():
 
 def test_the_reparse_control_warns_before_the_consequence_happens():
     """A cloud parse leaves the machine, and the user has to be told first."""
-    assert "REPARSE_CLOUD_WARNING" in CONFIG
+    # The warning sentences are catalogue keys now, so the warning follows the
+    # language switch; the strings themselves are asserted in the catalogue.
+    assert "'reparse.force_ocr_warning'" in (JS_DIR / "i18n.js").read_text(encoding="utf-8")
     assert "上传到第三方服务" in CONFIG
-    assert "REPARSE_FORCE_OCR_WARNING" in CONFIG
+    assert "重跑一次解析" in CONFIG
 
     warnings = function_body(PARSE_STATUS, "updateReparseWarnings")
     # Shown on selection, driven by the option and the checkbox.
     assert "option.leavesMachine" in warnings
     assert "forceOcr" in warnings
-    assert "REPARSE_CLOUD_WARNING" in warnings
-    assert "REPARSE_FORCE_OCR_WARNING" in warnings
+    assert "t('reparse.cloud_warning')" in warnings
+    assert "t('reparse.force_ocr_warning')" in warnings
     assert element_by_id("div", "reparseWarning")
 
     # The cloud option must be flagged as leaving the machine in the data too,
@@ -654,8 +665,20 @@ def test_a_reparse_the_server_refuses_is_reported_not_swallowed():
     assert path and path.group(1).endswith("/reparse")
     submit = function_body(PARSE_STATUS, "submitReparse")
     assert "buildReparseUrl(documentId)" in submit
-    assert "does not offer a reparse endpoint" in submit
-    assert "left untouched" in submit
+    # The two failure sentences are catalogue entries now, so they follow the
+    # language switch. What is pinned here is what each of them must state: that
+    # this server offers no reparse endpoint, and that the document was left
+    # untouched — in both languages, because a Chinese reader told only that a
+    # reparse failed is not told their paper is intact.
+    assert "'reparse.result.no_route'" in submit
+    catalogue = (JS_DIR / "i18n.js").read_text(encoding="utf-8")
+    assert "'reparse.result.no_route'" in catalogue
+    assert "'reparse.result.failed'" in catalogue
+    assert "does not offer a reparse endpoint" in catalogue
+    assert "left untouched" in catalogue
+    assert "文档没有被改动" in catalogue, (
+        "the Chinese locale must say the document was untouched too"
+    )
     # Disabled with no document id, rather than live and failing.
     warnings = function_body(PARSE_STATUS, "updateReparseWarnings")
     assert "state.currentDocumentId" in warnings
@@ -690,6 +713,135 @@ def test_the_panel_survives_a_failed_re_analysis_restore():
     restore = function_body(SECTIONS, "restoreWorkspaceState")
     assert "snapshot.currentDocumentId" in restore
     assert "snapshot.currentParseProvenance" in restore
+
+
+# --------------------------------------------------------------------------
+# WALK-DEFECT-4: a reparse option that cannot run must say so
+# --------------------------------------------------------------------------
+
+
+def _parser_options() -> list[dict]:
+    """`REPARSE_PARSER_OPTIONS` as data, parsed from the shipped `config.js`."""
+    block = re.search(r"REPARSE_PARSER_OPTIONS\s*=\s*\[(.*?)\];", CONFIG, re.DOTALL)
+    assert block, "REPARSE_PARSER_OPTIONS is missing from config.js"
+    options = []
+    for entry in re.finditer(r"\{([^{}]*)\}", block.group(1)):
+        body = entry.group(1)
+        fields = dict(re.findall(r"(\w+):\s*'([^']*)'", body))
+        # Booleans are written unquoted in config.js, so they are captured
+        # separately rather than being silently dropped from the parse.
+        for name, value in re.findall(r"(\w+):\s*(true|false)\b", body):
+            fields[name] = value
+        options.append(fields)
+    assert options, "no parser options were parsed out of config.js"
+    return options
+
+
+def _catalogue() -> dict:
+    """Both locale tables of the catalogue as `{key: (zh, en)}`."""
+    source = (JS_DIR / "i18n.js").read_text(encoding="utf-8")
+    tables = {}
+    for locale in ("ZH_CN", "EN"):
+        match = re.search(rf"const {locale} = \{{(.*?)\n\}};", source, re.DOTALL)
+        assert match, f"the {locale} table is missing from i18n.js"
+        tables[locale] = dict(
+            re.findall(r"^    '([^']+)':\s*(.*?),?$", match.group(1), re.MULTILINE)
+        )
+    return tables
+
+
+def test_a_reparse_option_that_cannot_run_in_this_deployment_is_labelled_with_its_requirement():
+    """WALK-DEFECT-4: the menu must not offer a parser it cannot use, silently.
+
+    With the shipped default (`PARSER_BACKEND=legacy`) the gateway is rolled back
+    to the legacy adapter, so every *named* parser answers `409
+    parser_unavailable`. The walkthrough's finding was not the 409 — it is that
+    the control offered the choice without saying what the choice requires, and
+    under a different deployment the same menu offers a parser that works fine.
+
+    So the contract asserted here is: every option is either absent from the
+    menu, or carries a `requirementKey` whose sentence exists in **both** locales
+    and names the requirement. Filtering by availability is deliberately *not*
+    the mechanism, because the browser is not told what this deployment has
+    installed (no endpoint publishes the parser catalogue), so a filter would be
+    wrong in the other direction on a gateway deployment. Labelling is the one
+    statement that is true in every deployment.
+    """
+    from paperwhisperer.core import config
+
+    tables = _catalogue()
+    options = _parser_options()
+
+    def bilingual(key: str) -> tuple[str, str]:
+        zh = tables["ZH_CN"].get(key)
+        en = tables["EN"].get(key)
+        assert zh is not None, f"{key} has no zh-CN catalogue entry"
+        assert en is not None, f"{key} has no en catalogue entry"
+        return zh, en
+
+    legacy_default = config.PARSER_BACKEND != "gateway"
+
+    for option in options:
+        # Every option is named in the reader's language.
+        bilingual(option["labelKey"])
+        # And every option states what it requires, in both languages.
+        requirement_key = option.get("requirementKey")
+        assert requirement_key, (
+            f"the {option.get('value')!r} option carries no requirementKey, so a "
+            "reader cannot tell whether it can run in this deployment"
+        )
+        zh, en = bilingual(requirement_key)
+        assert zh.strip(), f"the requirement for {option.get('value')!r} is blank in zh-CN"
+        assert en.strip(), f"the requirement for {option.get('value')!r} is blank in en"
+        if legacy_default and option.get("value", "") in {"docling", "docling_ocr"}:
+            # Under the shipped default these cannot run; the requirement must
+            # say exactly that, in words, in the reader's language.
+            for text in (zh, en):
+                assert "PARSER_BACKEND" in text, (
+                    "the docling options' requirement does not name the setting "
+                    f"that decides whether they can run: {text!r}"
+                )
+                assert "gateway" in text, (
+                    f"the requirement does not say what has to be set: {text!r}"
+                )
+
+    # The cloud option keeps its egress warning (a separate, stronger rule).
+    cloud = next(option for option in options if option["value"] == "mineru_cloud")
+    assert cloud.get("leavesMachine") == "true"
+    warnings = function_body(PARSE_STATUS, "updateReparseWarnings")
+    assert "option.requirementKey" in warnings, (
+        "the selected option's own requirement is not shown before the reparse"
+    )
+    assert "t('reparse.cloud_warning')" in warnings
+
+    # The default entry must not imply a single best parser: the routing decision
+    # is per media type (DOCX is pinned to legacy by design), so the default
+    # entry says so.
+    default_option = next(option for option in options if option["value"] == "")
+    zh, en = bilingual(default_option["requirementKey"])
+    for text in (zh, en):
+        assert "file type" in text or "文件类型" in text, (
+            f"the default entry does not say the route is chosen per file type: {text!r}"
+        )
+
+
+def test_no_reparse_option_is_offered_without_saying_it_needs_something():
+    """Every option a reader can pick names its requirement — no exceptions.
+
+    Stated separately from the test above because it is the invariant that keeps
+    a *newly added* option honest: a fifth parser added to `config.js` without a
+    `requirementKey` fails here, at review, rather than shipping as a control
+    that offers a choice whose consequence is undisclosed.
+    """
+    tables = _catalogue()
+    for option in _parser_options():
+        assert option.get("requirementKey"), (
+            f"{option.get('value')!r} has no requirementKey"
+        )
+        assert option["requirementKey"] in tables["ZH_CN"]
+        assert option["requirementKey"] in tables["EN"]
+        assert option["labelKey"] in tables["ZH_CN"]
+        assert option["labelKey"] in tables["EN"]
 
 
 # --------------------------------------------------------------------------

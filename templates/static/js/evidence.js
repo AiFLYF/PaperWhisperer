@@ -11,6 +11,7 @@ import { apiRequest, buildApiError } from './api.js';
 import { notifyFailure } from './runtime.js';
 import { sanitizeTableHtml } from './sanitize.js';
 import { scrollElementIntoView, updateStatus } from './dom.js';
+import { onLocaleChange, t } from './i18n.js';
 import { describeClaim, isDirectQuote, renderClaim } from './claims.js';
 import { renderEvidenceView } from './evidenceViewer.js';
 
@@ -56,6 +57,23 @@ import { renderEvidenceView } from './evidenceViewer.js';
  * third case, "loaded and genuinely nothing to show", is `#evidenceEmpty` —
  * distinct again, because conflating it with either of the others is how a
  * broken citation ends up described to the user as a limitation of the paper.
+ *
+ * ## Following the language switch
+ *
+ * Every string this module writes is produced at render time, so the interface
+ * can only follow a language switch if it is *re-rendered* after one. That is
+ * what {@link repaintLocalizedSurfaces} is for, and it is the reason this module
+ * remembers what it last rendered into which host: an evidence panel that
+ * rendered once and is never re-rendered is a panel showing the previous
+ * language beside an interface in the new one, which is worse than no
+ * translation at all because the reader has no way to know which parts of the
+ * page they can trust.
+ *
+ * **The passage and the claim text are not translated, and must not be.** They
+ * are the *document's* words, not the interface's. A Chinese paper stays
+ * Chinese under an English interface — see `documentLocale` in `i18n.js` — so
+ * everything below routes through `t()` and nothing that carries document text
+ * does.
  */
 
 /**
@@ -163,7 +181,9 @@ function renderTargetSummary(visualTargeting) {
     if (kind || label) {
         const heading = document.createElement('p');
         heading.className = 'evidence-target-label';
-        heading.textContent = kind === 'pdf_page' ? `第 ${label} 页` : (label || kind);
+        heading.textContent = kind === 'pdf_page'
+            ? t('evidence.page_label', { label })
+            : (label || kind);
         target.appendChild(heading);
     }
 
@@ -171,7 +191,11 @@ function renderTargetSummary(visualTargeting) {
     if (capability && TARGET_CAPABILITY_LABELS[capability]) {
         const row = document.createElement('p');
         row.className = 'evidence-target-row';
-        row.textContent = TARGET_CAPABILITY_LABELS[capability];
+        // The vocabulary in `config.js` decides *whether* this capability is one
+        // this build renders; the catalogue decides what it is called. Reading
+        // the table directly would say the same sentence in one language in
+        // both, which is exactly the mixed-language defect this replaces.
+        row.textContent = t(`evidence.capability.${capability}`);
         target.appendChild(row);
     }
 
@@ -179,11 +203,17 @@ function renderTargetSummary(visualTargeting) {
     if (reasonCode) {
         const note = document.createElement('p');
         note.className = 'evidence-note';
-        // The server's own sentence when it sent one, and the client table
-        // otherwise — an unknown code still gets shown rather than dropped,
-        // because "this locator could not be pointed at" is the useful part
-        // and the specific reason is a refinement.
-        note.textContent = visualTargeting?.reason || NO_TARGET_MESSAGES[reasonCode] || reasonCode;
+        // A code this build knows is looked up in the catalogue and the
+        // server's own sentence is *not* preferred over it: the server writes
+        // its reason prose in Chinese, and an English interface showing a
+        // Chinese sentence beside an English heading is the defect being fixed.
+        // A code this build has never heard of still gets shown — the server's
+        // sentence when it sent one, the raw code otherwise — because "this
+        // locator could not be pointed at" is the useful part and the specific
+        // reason is a refinement.
+        note.textContent = NO_TARGET_MESSAGES[reasonCode]
+            ? t(`evidence.no_target.${reasonCode}`)
+            : (visualTargeting?.reason || reasonCode);
         target.appendChild(note);
     }
 }
@@ -198,9 +228,9 @@ function renderEvidencePayload(payload) {
         const snippet = payload.snippet || {};
         const truncated = snippet.truncated === true;
         meta.textContent = [
-            payload.citation_label ? `引用 ${payload.citation_label}` : '',
-            snippet.source === 'chunk_verbatim_text' ? '来自已核对的原文' : '',
-            truncated ? '片段已截断' : ''
+            payload.citation_label ? t('evidence.snippet.citation', { label: payload.citation_label }) : '',
+            snippet.source === 'chunk_verbatim_text' ? t('evidence.snippet.verbatim') : '',
+            truncated ? t('evidence.snippet.truncated') : ''
         ].filter(Boolean).join(' · ');
         meta.hidden = !meta.textContent;
     }
@@ -251,6 +281,7 @@ function renderCitationChips(host, claims) {
     if (!host) return [];
     const verified = claims.filter(claim => isDirectQuote(claim));
     host.replaceChildren();
+    rememberRender(chipHosts, host, claims);
 
     if (!verified.length) {
         host.hidden = true;
@@ -260,7 +291,7 @@ function renderCitationChips(host, claims) {
     const list = document.createElement('div');
     list.className = 'citation-chips';
     list.setAttribute('role', 'group');
-    list.setAttribute('aria-label', '打开证据');
+    list.setAttribute('aria-label', t('claim.chips_group_label'));
 
     verified.forEach(claim => {
         const button = document.createElement('button');
@@ -274,7 +305,7 @@ function renderCitationChips(host, claims) {
         // screen-reader user is told this is a verified quote rather than
         // hearing only the number.
         button.setAttribute('aria-label', describeClaim(claim));
-        button.textContent = claim.citation_label || claim.label || '证据';
+        button.textContent = claim.citation_label || claim.label || t('claim.chip_generic_label');
         list.appendChild(button);
     });
 
@@ -426,7 +457,7 @@ async function openEvidence(documentId, evidenceId, trigger) {
     openPanelShell();
     setPanelState('loading');
     setPanelWarning('');
-    updateStatus('Opening evidence...', 'idle');
+    updateStatus(t('evidence.opening'), 'idle');
 
     // No document id means no evidence URL could be built. The panel says so
     // rather than issuing a request to a path with an empty segment, which the
@@ -439,14 +470,14 @@ async function openEvidence(documentId, evidenceId, trigger) {
             box.replaceChildren();
             const title = document.createElement('p');
             title.className = 'evidence-state-title';
-            title.textContent = 'This session has no document id, so its evidence cannot be addressed.';
+            title.textContent = t('evidence.no_document_id');
             const detail = document.createElement('p');
             detail.className = 'evidence-state-detail';
-            detail.textContent = 'The citation is real; the server has not published the document id it belongs to.';
+            detail.textContent = t('evidence.id_not_published');
             box.append(title, detail);
         }
         setPanelState('error');
-        updateStatus('Evidence unavailable', 'error');
+        updateStatus(t('evidence.unavailable'), 'error');
         focusPanel();
         restoreScrollAnchor();
         return;
@@ -464,14 +495,14 @@ async function openEvidence(documentId, evidenceId, trigger) {
         // `code` and not on prose: the envelope is the contract, and a success
         // status is only half of it.
         if (payload?.error || payload?.detail) {
-            throw buildApiError(payload, '无法打开该证据。');
+            throw buildApiError(payload, t('evidence.failed'));
         }
         state.currentEvidence = payload;
         renderEvidencePayload(payload);
         // Mark the chip that is now driving the panel, so a screen-reader user
         // moving back through the chips can tell which one is open.
         syncChipExpansion();
-        updateStatus('Evidence opened', 'success');
+        updateStatus(t('evidence.opened'), 'success');
     } catch (error) {
         state.currentEvidence = null;
         // The code is carried through to the DOM as `data-code`, so the state element of the
@@ -480,7 +511,7 @@ async function openEvidence(documentId, evidenceId, trigger) {
         // read differently, and a reader who cannot tell them apart is being
         // told less than they need.
         const failure = {
-            message: error?.message || 'Could not open this evidence.',
+            message: error?.message || t('evidence.failed'),
             code: error?.code || '',
             status: error?.status || ''
         };
@@ -489,7 +520,7 @@ async function openEvidence(documentId, evidenceId, trigger) {
             box.replaceChildren();
             const title = document.createElement('p');
             title.className = 'evidence-state-title';
-            title.textContent = 'The evidence could not be opened.';
+            title.textContent = t('evidence.error_title');
             const detail = document.createElement('p');
             detail.className = 'evidence-state-detail';
             detail.dataset.code = String(failure.code || '');
@@ -498,7 +529,7 @@ async function openEvidence(documentId, evidenceId, trigger) {
         }
         setPanelWarning('');
         setPanelState('error');
-        updateStatus('Evidence unavailable', 'error');
+        updateStatus(t('evidence.unavailable'), 'error');
         // Routed through the runtime so a *retryable* failure (the server was
         // briefly down) offers a 重试 and a terminal one (this evidence id does
         // not exist) names the cause instead. The error element of the panel and
@@ -585,6 +616,10 @@ function renderInlineClaims(host, claims) {
     host.replaceChildren();
     const list = Array.isArray(claims) ? claims : [];
     host.dataset.count = String(list.length);
+    // Remembered before the early return: a host that renders nothing is still
+    // a host the reader is looking at, and a later switch must not leave the
+    // previous render standing in the other language.
+    rememberRender(claimHosts, host, list);
     if (!list.length) {
         host.hidden = true;
         return 0;
@@ -593,6 +628,62 @@ function renderInlineClaims(host, claims) {
     host.hidden = false;
     return list.length;
 }
+
+/**
+ * Hosts this module last rendered claims or chips into, so a language switch
+ * can repaint them. One entry per host, the latest render winning, because a
+ * streamed answer re-renders the same host on every delta and only the last one
+ * is on screen.
+ */
+const claimHosts = [];
+const chipHosts = [];
+
+/** Whether a remembered host is still in the document to be repainted. */
+function isAttached(host) {
+    if (!host) return false;
+    if (typeof host.isConnected === 'boolean') return host.isConnected;
+    if (typeof document.contains === 'function') return document.contains(host);
+    return true;
+}
+
+function rememberRender(registry, host, claims) {
+    const index = registry.findIndex(entry => entry.host === host);
+    const entry = { host, claims };
+    if (index >= 0) {
+        registry[index] = entry;
+    } else {
+        registry.push(entry);
+    }
+}
+
+/**
+ * Re-render every surface this module painted, in the language now active.
+ *
+ * Subscribed to the locale event from `initializeEvidencePanel`, behind a flag,
+ * because that function is callable more than once and a second subscription
+ * would double every render.
+ *
+ * The order matters: chips first, then the panel, so the chip the panel marks
+ * as open is the one the reader can actually see marked. Only the claims and the
+ * panel's own sentences are repainted — the passage, the claim text and the
+ * table are the document's words and are re-written from the same payload
+ * unchanged.
+ */
+function repaintLocalizedSurfaces() {
+    claimHosts
+        .filter(entry => isAttached(entry.host))
+        .forEach(entry => renderInlineClaims(entry.host, entry.claims));
+    chipHosts
+        .filter(entry => isAttached(entry.host))
+        .forEach(entry => renderCitationChips(entry.host, entry.claims));
+    if (state.evidencePanelOpen && state.currentEvidence) {
+        renderEvidencePayload(state.currentEvidence);
+        syncChipExpansion();
+    }
+}
+
+/** Whether the locale subscription below has already been made. */
+let localeBound = false;
 
 function initializeEvidencePanel() {
     const panel = document.getElementById('evidencePanel');
@@ -610,6 +701,10 @@ function initializeEvidencePanel() {
     window.addEventListener('hashchange', openDeepLinkedEvidence);
 
     setPanelState('idle');
+    if (!localeBound) {
+        localeBound = true;
+        onLocaleChange(repaintLocalizedSurfaces);
+    }
     // A deep link pasted into a fresh tab has to resolve, so this runs on load
     // and not only on a click.
     openDeepLinkedEvidence();
@@ -627,5 +722,6 @@ export { readDeepLinkTarget };
 export { renderCitationChips };
 export { renderEvidencePayload };
 export { renderInlineClaims };
+export { repaintLocalizedSurfaces };
 export { setPanelState };
 export { PANEL_STATE_ELEMENTS };

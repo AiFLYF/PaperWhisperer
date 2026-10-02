@@ -6,6 +6,7 @@ import {
     PRESENTATION_PARAPHRASE,
     WRAPPING_QUOTE_PAIRS
 } from './config.js';
+import { t } from './i18n.js';
 
 /**
  * How a claim may be shown to a reader — the front-end half of the release
@@ -194,7 +195,15 @@ function renderDirectQuoteClaim(claim) {
 
     const prefix = document.createElement('span');
     prefix.className = 'claim-prefix';
-    prefix.textContent = mode === 'normalized' ? '归一化后逐字对齐：' : '逐字引用：';
+    // The prefix is the textual carrier of the release gate: the one of the
+    // four carriers that follows the language the reader chose. A gate stated in
+    // a language the reader cannot read is not a gate, so the sentences that
+    // distinguish a verified quotation from a paraphrase are catalogue entries
+    // resolved at render time, and both locales say the same thing about the
+    // same claim.
+    prefix.textContent = mode === 'normalized'
+        ? t('claim.prefix.normalized_quote')
+        : t('claim.prefix.direct_quote');
 
     const body = document.createElement('p');
     body.className = 'claim-text';
@@ -248,7 +257,7 @@ function renderParaphraseClaim(claim) {
 
     const prefix = document.createElement('span');
     prefix.className = 'claim-prefix';
-    prefix.textContent = '转述（未通过逐字回源校验）：';
+    prefix.textContent = t('claim.prefix.paraphrase');
 
     const body = document.createElement('span');
     body.className = 'claim-text';
@@ -287,13 +296,23 @@ function renderClaim(claim) {
         : renderParaphraseClaim(claim);
 }
 
-/** The accessible name for a citation chip, so the verdict is announced too. */
+/**
+ * The accessible name for a citation chip, so the verdict is announced too.
+ *
+ * Resolved through the catalogue for the same reason the visible prefix is: the
+ * verdict is the part a screen-reader user has no other way to learn, so it is
+ * the part that must not be stranded in a language the reader did not ask for.
+ * The label is passed as an already-delimited fragment — the two languages
+ * bracket a citation label differently, and the reader only ever sees the
+ * sentence this builds.
+ */
 function describeClaim(claim) {
     const direct = resolvePresentation(claim) === PRESENTATION_DIRECT_QUOTE;
     const label = String(claim?.citation_label || claim?.label || '').trim();
-    return direct
-        ? `已回源校验的直接引用${label ? `（${label}）` : ''}，打开证据`
-        : '未通过回源校验的转述，不提供引用定位';
+    if (!direct) {
+        return t('claim.chip.paraphrase');
+    }
+    return t('claim.chip.direct_quote', { label: label ? `(${label})` : '' });
 }
 
 

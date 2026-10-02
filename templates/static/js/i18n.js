@@ -450,6 +450,81 @@ const ZH_CN = {
     'evidence.id_not_published': '这条引用是真实的，但服务端还没有公布它所属的文档 id。',
     'evidence.citations_label': '引用',
 
+    // --- claims.js: the reader-facing half of the release gate ---------------
+    //
+    // These three prefixes are the only thing standing between a verified
+    // quotation and a model paraphrase on the screen, so they are translated
+    // rather than concatenated: a reader who cannot read the sentence that
+    // says "this was not verified" cannot be warned at all. Each language says
+    // the same thing about the same claim — nothing here decides the
+    // presentation, which the backend already did.
+    'claim.prefix.direct_quote': '逐字引用：',
+    'claim.prefix.normalized_quote': '归一化后逐字对齐：',
+    'claim.prefix.paraphrase': '转述（未通过逐字回源校验）：',
+    'claim.chip.direct_quote': '已回源校验的直接引用{label}，打开证据',
+    'claim.chip.paraphrase': '未通过回源校验的转述，不提供引用定位',
+    'claim.chips_group_label': '打开证据',
+    'claim.chip_generic_label': '证据',
+
+    // --- the evidence panel's own sentences, produced at render time ---------
+    // The state banners above carry `data-i18n` and are translated by
+    // `translateStaticMarkup`; these four are written into elements that carry
+    // no `data-i18n`, so nothing translated them before this table existed.
+    'evidence.page_label': '第 {label} 页',
+    'evidence.snippet.citation': '引用 {label}',
+    'evidence.snippet.verbatim': '来自已核对的原文',
+    'evidence.snippet.truncated': '片段已截断',
+
+    // --- the parse card's field labels, notices and quality verdict ---------
+    //
+    // The card already re-rendered on a language switch; it read its labels
+    // and its notices from literals, so a re-render reproduced the same
+    // English in whichever language the reader had chosen. Saying the same
+    // thing in the reader's language is the whole of this block.
+    'parse.field.parser': '解析器',
+    'parse.field.media_type': '媒体类型',
+    'parse.field.status': '解析状态',
+    'parse.field.cache': '缓存',
+    'parse.value.not_reported': '未报告',
+    'parse.value.cache_hit': '本次命中缓存，没有运行解析器。',
+    'parse.notice.used_cloud': '这份文档被上传到了云端解析服务，内容离开了这台机器。',
+    'parse.notice.cloud_discarded': '调用了云端解析并产生了费用，但结果被丢弃；你看到的文本来自本地解析。',
+    'parse.notice.local_only': '没有解析器访问网络，这份文档一直留在这台机器上。',
+    'parse.notice.fallback': '第一个解析器没有产出可用结果；这份结果来自回退解析器。',
+    'parse.notice.failed': '解析失败：{message}',
+    'parse.quality.absent': '这份文档没有返回解析质量报告。',
+    'parse.quality.heading': '解析质量：{status}',
+    'parse.quality.clean': '已检查的规则全部通过。',
+    'parse.quality.rule_fallback': '规则',
+
+    // --- the reparse control -----------------------------------------------
+    //
+    // The parser menu labels each choice with what it *requires*, not merely
+    // what it is called, because `PARSER_BACKEND=legacy` (the shipped default)
+    // makes every named parser answer `409 parser_unavailable` — and the
+    // default route is chosen per media type, so there is no single "best
+    // parser" the menu could have pointed at instead. See
+    // `REPARSE_PARSER_OPTIONS` for why the options are labelled rather than
+    // filtered.
+    'reparse.parser.default': '按部署配置的解析链（按文件类型选择）',
+    'reparse.parser.docling': 'Docling（本地）',
+    'reparse.parser.docling_ocr': 'Docling + 强制 OCR（本地）',
+    'reparse.parser.mineru_cloud': 'MinerU 云端解析',
+    'reparse.parser.default_note': '这一项不指定解析器：部署会按当前文件的类型选路，不同文件类型可能走不同的解析器。',
+    'reparse.parser.requires_gateway': '需要管理员把 PARSER_BACKEND 设为 gateway，否则服务器会以 409 parser_unavailable 拒绝这次请求。',
+    'reparse.parser.requires_gateway_ocr': '需要管理员把 PARSER_BACKEND 设为 gateway，否则服务器会以 409 parser_unavailable 拒绝这次请求；强制 OCR 由所选的 Docling 自己执行。',
+    'reparse.parser.requires_cloud': '需要部署配置云端解析适配器、隐私策略允许出网，并且还有可用调用额度。',
+    'reparse.hint.ready': '用当前选中的选项重新解析这份文档。',
+    'reparse.hint.no_document': '当前会话没有文档 id，因此没有可重新解析的对象。',
+    'reparse.result.started': '正在重新解析…',
+    'reparse.result.finished': '重新解析完成。上方的解析状态反映的是这次新的运行。',
+    'reparse.result.no_document': '这次会话没有文档 id，因此没有可重新解析的对象。',
+    'reparse.result.no_route': '这个服务端没有提供重新解析接口（POST {path} → {reason}）。文档没有被改动。',
+    'reparse.result.failed': '重新解析请求没有成功（{reason}）。文档没有被改动。',
+    'reparse.status.started': '正在重新解析文档…',
+    'reparse.status.finished': '重新解析完成',
+    'reparse.status.unavailable': '重新解析不可用',
+
     // --- leaf modules: shortcuts, theme, mermaid, empty content -------------
     'a11y.shortcut_upload': '上传快捷键已聚焦文档来源',
     'a11y.shortcut_search': '检索快捷键已聚焦论文检索',
@@ -686,6 +761,54 @@ const EN = {
     'evidence.no_document_id': 'This session has no document id, so its evidence cannot be addressed.',
     'evidence.id_not_published': 'The citation is real; the server has not published the document id it belongs to.',
     'evidence.citations_label': 'Citations',
+
+    'claim.prefix.direct_quote': 'Verbatim quote:',
+    'claim.prefix.normalized_quote': 'Aligned verbatim after normalisation:',
+    'claim.prefix.paraphrase': 'Paraphrase (not verified verbatim against the source):',
+    'claim.chip.direct_quote': 'Source-verified direct quote{label}, open the evidence',
+    'claim.chip.paraphrase': 'A paraphrase that did not pass source verification, with no citation location',
+    'claim.chips_group_label': 'Open evidence',
+    'claim.chip_generic_label': 'Evidence',
+
+    'evidence.page_label': 'Page {label}',
+    'evidence.snippet.citation': 'Citation {label}',
+    'evidence.snippet.verbatim': 'From the verified source text',
+    'evidence.snippet.truncated': 'passage truncated',
+
+    'parse.field.parser': 'Parser',
+    'parse.field.media_type': 'Media type',
+    'parse.field.status': 'Parse status',
+    'parse.field.cache': 'Cache',
+    'parse.value.not_reported': 'not reported',
+    'parse.value.cache_hit': 'Served from cache; no parser ran this time.',
+    'parse.notice.used_cloud': 'This document was uploaded to a cloud parsing service. Its contents left this machine.',
+    'parse.notice.cloud_discarded': 'A cloud parser was called and charged, but its result was discarded; the text you see was parsed locally.',
+    'parse.notice.local_only': 'No parser reached the network. This document stayed on this machine.',
+    'parse.notice.fallback': 'The first parser did not produce a usable result; a fallback parser produced this one.',
+    'parse.notice.failed': 'The parse failed: {message}',
+    'parse.quality.absent': 'No parse quality report was returned for this document.',
+    'parse.quality.heading': 'Parse quality: {status}',
+    'parse.quality.clean': 'Every checked rule passed.',
+    'parse.quality.rule_fallback': 'rule',
+
+    'reparse.parser.default': 'The deployment’s configured route (chosen per file type)',
+    'reparse.parser.docling': 'Docling (local)',
+    'reparse.parser.docling_ocr': 'Docling with forced OCR (local)',
+    'reparse.parser.mineru_cloud': 'MinerU cloud parser',
+    'reparse.parser.default_note': 'This entry names no parser: the deployment picks a route per file type, and different file types can take different parsers.',
+    'reparse.parser.requires_gateway': 'Needs an administrator to set PARSER_BACKEND=gateway; otherwise the server refuses with 409 parser_unavailable.',
+    'reparse.parser.requires_gateway_ocr': 'Needs an administrator to set PARSER_BACKEND=gateway; otherwise the server refuses with 409 parser_unavailable. The forced OCR is run by the chosen Docling itself.',
+    'reparse.parser.requires_cloud': 'Needs a cloud parsing adapter in this deployment, a privacy policy that allows egress, and remaining call quota.',
+    'reparse.hint.ready': 'Reparse this document with the selected options.',
+    'reparse.hint.no_document': 'No document id is available for this session, so there is nothing to reparse.',
+    'reparse.result.started': 'Reparsing...',
+    'reparse.result.finished': 'Reparse finished. The parse status above reflects the new run.',
+    'reparse.result.no_document': 'This session has no document id, so there is nothing to reparse.',
+    'reparse.result.no_route': 'This server does not offer a reparse endpoint (POST {path} → {reason}). The document was left untouched.',
+    'reparse.result.failed': 'The reparse request did not succeed ({reason}). The document was left untouched.',
+    'reparse.status.started': 'Reparsing document...',
+    'reparse.status.finished': 'Reparse finished',
+    'reparse.status.unavailable': 'Reparse unavailable',
 
     'a11y.shortcut_upload': 'Upload shortcut focused document source',
     'a11y.shortcut_search': 'Search shortcut focused paper search',

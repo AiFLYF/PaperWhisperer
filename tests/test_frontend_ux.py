@@ -805,10 +805,20 @@ def test_reparsing_names_what_it_costs_before_it_happens():
     can introduce recognition errors. ``parseStatus.js`` is not this module's,
     so this asserts only that the affordance is reachable and still carries its
     warning — a regression guard, not a re-implementation.
+
+    The warning *sentences* are catalogue keys rather than constants imported
+    out of ``config.js``, because ``config.js`` holds only the Chinese half of
+    each pair; a warning read from the constant is Chinese in both locales,
+    which is the mixed-language defect WALK-DEFECT-3 is about. So this asserts
+    that the module looks the copy up through ``t()`` and that the catalogue
+    actually carries it, rather than asserting on a string literal.
     """
     parse_status = (JS_DIR / "parseStatus.js").read_text(encoding="utf-8")
-    assert "REPARSE_FORCE_OCR_WARNING" in parse_status
-    assert "REPARSE_CLOUD_WARNING" in parse_status
+    i18n = (JS_DIR / "i18n.js").read_text(encoding="utf-8")
+    assert "t('reparse.force_ocr_warning')" in parse_status
+    assert "t('reparse.cloud_warning')" in parse_status
+    assert "'reparse.force_ocr_warning'" in i18n
+    assert "'reparse.cloud_warning'" in i18n
     assert 'id="reparseSubmitBtn"' in (PROJECT_ROOT / "templates" / "index.html").read_text(
         encoding="utf-8"
     )

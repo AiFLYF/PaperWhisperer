@@ -364,17 +364,41 @@ export const REPARSE_API_PATH = '/v1/documents/{documentId}/reparse';
 /**
  * Parsers the reparse control offers, with the consequence each one carries.
  *
- * `leaves_machine` is the field that matters: choosing a cloud parser is the
- * user deciding to upload their file, and the control says so next to the
- * option rather than after the fact. A parser absent from this list is one the
- * UI refuses to offer, which is the safe direction — an unlisted parser cannot
- * be selected by accident.
+ * `leaves_machine` is the field that matters for egress: choosing a cloud
+ * parser is the user deciding to upload their file, and the control says so
+ * next to the option rather than after the fact. A parser absent from this list
+ * is one the UI refuses to offer, which is the safe direction — an unlisted
+ * parser cannot be selected by accident.
+ *
+ * **`labelKey` and `requirementKey`, and why the requirement is part of the
+ * label.** The labels are catalogue keys rather than strings so that the menu
+ * follows the reader's language like everything else, and every entry carries
+ * the *requirement* for that choice to work at all. That is not decoration: with
+ * the shipped default (`PARSER_BACKEND=legacy`, `core/config.py`) the gateway
+ * is rolled back to the legacy adapter, so `resolve_reparse_parser`
+ * (`api/routes_v1.py`) refuses every named parser with `409
+ * parser_unavailable` — a deployment-dependent fact the browser is not told,
+ * because no endpoint publishes the parser catalogue.
+ *
+ * So the option cannot honestly be *filtered* either: the client cannot know
+ * what this deployment can run, and guessing would make the menu wrong in the
+ * opposite direction (offering only the legacy route on a deployment that had
+ * the gateway, or hiding Docling from an operator who had just enabled it).
+ * Labelling with the requirement is the one option that is true in every
+ * deployment, and it puts the reason next to the choice instead of leaving the
+ * reader to discover it from a 409.
+ *
+ * **The default entry is not "the default parser".** `PARSER_PRIMARY_BY_MEDIA_TYPE`
+ * routes per media type and pins DOCX to the legacy adapter by design, so there
+ * is no single parser a reparse could be pointed at as "the best one"; the
+ * default entry says so (`requirementKey` → `reparse.parser.default_note`)
+ * instead of implying a routing that does not exist.
  */
 export const REPARSE_PARSER_OPTIONS = [
-    { value: '', label: 'Use the default route', leavesMachine: false },
-    { value: 'docling', label: 'Docling (local)', leavesMachine: false },
-    { value: 'docling_ocr', label: 'Docling with forced OCR (local)', leavesMachine: false },
-    { value: 'mineru_cloud', label: 'MinerU cloud parser', leavesMachine: true }
+    { value: '', labelKey: 'reparse.parser.default', requirementKey: 'reparse.parser.default_note', leavesMachine: false },
+    { value: 'docling', labelKey: 'reparse.parser.docling', requirementKey: 'reparse.parser.requires_gateway', leavesMachine: false },
+    { value: 'docling_ocr', labelKey: 'reparse.parser.docling_ocr', requirementKey: 'reparse.parser.requires_gateway_ocr', leavesMachine: false },
+    { value: 'mineru_cloud', labelKey: 'reparse.parser.mineru_cloud', requirementKey: 'reparse.parser.requires_cloud', leavesMachine: true }
 ];
 
 export const REPARSE_FORCE_OCR_WARNING =

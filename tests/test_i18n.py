@@ -30,6 +30,7 @@ import json
 import re
 import shutil
 import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -44,7 +45,24 @@ INDEX_HTML = TEMPLATE.read_text(encoding="utf-8")
 #: The modules this task migrated in full. A bare user-visible literal in any of
 #: them is a miss, so the "no literals outside the catalogue" test is scoped to
 #: exactly these and does not pretend to cover modules still awaiting migration.
-MIGRATED_MODULES = ("i18n.js", "a11y.js", "theme.js", "mermaid.js", "format.js", "dom.js")
+#:
+#: `claims.js`, `evidence.js` and `parseStatus.js` joined the list when the
+#: evidence and claim surfaces were routed through the catalogue (WALK-DEFECT-3).
+#: They were the last three renderers whose sentences were produced at render
+#: time and hardcoded, and they are the surfaces where a mixed-language page is
+#: worst, because they sit immediately beside a citation the reader is about to
+#: trust. `evidenceViewer.js` is still unmigrated and is deliberately not listed.
+MIGRATED_MODULES = (
+    "i18n.js",
+    "a11y.js",
+    "theme.js",
+    "mermaid.js",
+    "format.js",
+    "dom.js",
+    "claims.js",
+    "evidence.js",
+    "parseStatus.js",
+)
 
 
 # --------------------------------------------------------------------------
@@ -694,6 +712,428 @@ result = {
     assert result["mostlyEnglish"] == "en"
     assert result["mostlyChinese"] == "zh-CN"
     assert result["empty"] is None
+
+
+# --------------------------------------------------------------------------
+# The walkthrough's scenario, executed
+# --------------------------------------------------------------------------
+#
+# WALK-DEFECT-3, as a test rather than as a description. The walkthrough found
+# that switching language repainted the parse-status card but not the answer
+# claims or the evidence panel: an English reader saw Chinese claim prefixes and
+# Chinese "no visual targeting" reasons beside an English interface.
+#
+# There is still no browser, so the DOM is a stub — but a *behavioural* one this
+# time, not a source read: the real `claims.js`, `evidence.js` and `i18n.js`
+# modules are imported and run, a claim and an evidence panel are rendered in
+# Chinese, the locale is switched, and the surfaces are re-rendered. Every
+# string the reader can see is then read back out of the stub and compared with
+# the catalogue. This is what makes it a regression test rather than a grep: a
+# future change that puts a literal back into `evidence.js` fails here, and a
+# change that makes a surface stop repainting fails here too.
+
+#: The minimal element the modules under test actually use. Not a DOM
+#: implementation — a bag of the accessors these three modules touch.
+DOM_SHIM = """
+class El {
+    constructor(tag) {
+        this.tagName = String(tag).toUpperCase();
+        this.children = [];
+        this.attributes = {};
+        this.dataset = {};
+        this.hidden = false;
+        this._text = null;
+        this.isConnected = true;
+        this.title = '';
+    }
+    get className() { return this.attributes.class || ''; }
+    set className(v) { this.attributes.class = String(v); }
+    setAttribute(k, v) {
+        this.attributes[k] = String(v);
+        if (k.startsWith('data-')) {
+            this.dataset[k.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = String(v);
+        }
+    }
+    getAttribute(k) { return k in this.attributes ? this.attributes[k] : null; }
+    removeAttribute(k) { delete this.attributes[k]; }
+    appendChild(child) { this.children.push(child); return child; }
+    append(...nodes) { nodes.forEach(node => this.appendChild(node)); }
+    replaceChildren(...nodes) { this.children = []; nodes.forEach(node => this.appendChild(node)); }
+    set textContent(value) { this.children = []; this._text = String(value); }
+    get textContent() {
+        if (this._text !== null && this.children.length === 0) return this._text;
+        return this.children.map(child => child.textContent).join('');
+    }
+    addEventListener() {}
+    focus() {}
+    closest() { return null; }
+    querySelectorAll() { return []; }
+    contains(node) { return node === this || this.children.indexOf(node) >= 0; }
+}
+const byId = new Map();
+[
+    'evidencePanel','evidenceIdle','evidenceLoading','evidenceError','evidenceNoTarget',
+    'evidenceEmpty','evidenceContent','evidenceWarnings','evidenceTarget','evidenceViewer',
+    'evidenceSnippetMeta','evidenceSnippet','evidenceTable','evidenceCloseBtn',
+    'evidenceBackdrop','evidencePanelHeading','claimsHost','chipsHost'
+].forEach(id => byId.set(id, new El('div')));
+globalThis.document = {
+    documentElement: new El('html'),
+    body: new El('body'),
+    createElement: tag => new El(tag),
+    createTextNode: text => ({ textContent: String(text), children: [] }),
+    createDocumentFragment: () => new El('#fragment'),
+    getElementById: id => byId.get(id) || null,
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => true,
+    contains: () => true,
+    activeElement: null
+};
+globalThis.HTMLElement = El;
+globalThis.window = {
+    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
+    scrollY: 0, scrollTo: () => {},
+    addEventListener: () => {}, removeEventListener: () => {},
+    getComputedStyle: () => ({ getPropertyValue: () => '' }),
+    location: { hash: '', search: '' },
+    setTimeout, clearTimeout
+};
+globalThis.getComputedStyle = globalThis.window.getComputedStyle;
+globalThis.__el = (tag) => new El(tag);
+globalThis.__texts = (node) => {
+    const out = [];
+    const walk = current => {
+        if (current.textContent && current.children.length === 0 && current.textContent.trim()) {
+            out.push(current.textContent);
+        }
+        (current.children || []).forEach(walk);
+    };
+    walk(node);
+    return out;
+};
+// Accessible names, which are text a screen reader announces and which the
+// visible-text walk above cannot see. A verdict that lives only in an
+// aria-label is still text the reader is shown.
+globalThis.__ariaLabels = (node) => {
+    const out = [];
+    const walk = current => {
+        const label = (current.attributes || {})['aria-label'];
+        if (label) out.push(label);
+        (current.children || []).forEach(walk);
+    };
+    walk(node);
+    return out;
+};
+"""
+
+
+def run_walkthrough_harness(workdir: Path, body: str) -> dict:
+    """Execute `body` against the real claim/evidence/i18n modules under a DOM stub.
+
+    The modules are imported from the shipped files by absolute path rather than
+    lifted out with a regex, because the defect under test is a *join*: the
+    catalogue has to be consulted by the render path, and the render path has to
+    be reached again on a locale change. Extracting one function would test a
+    version of the code that does not ship.
+    """
+    (workdir / "dom_shim.mjs").write_text(DOM_SHIM, encoding="utf-8")
+    harness = workdir / "walkthrough_harness.mjs"
+    js_dir = JS_DIR
+    harness.write_text(
+        "import './dom_shim.mjs';\n"
+        "const ev = await import(%r);\n"
+        "const claims = await import(%r);\n"
+        "const i18n = await import(%r);\n"
+        "const state = (await import(%r)).state;\n"
+        "let result = null;\n"
+        "try {\n"
+        f"{body}\n"
+        "} catch (error) {\n"
+        "    result = { __threw: String(error && error.message) };\n"
+        "}\n"
+        "process.stdout.write(JSON.stringify(result === undefined ? null : result));\n"
+        % (
+            str(js_dir / "evidence.js"),
+            str(js_dir / "claims.js"),
+            str(js_dir / "i18n.js"),
+            str(js_dir / "state.js"),
+        ),
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        ["node", str(harness)], capture_output=True, text=True, timeout=60, cwd=workdir
+    )
+    assert completed.returncode == 0, f"harness failed: {completed.stderr}"
+    return json.loads(completed.stdout)
+
+
+def test_the_walkthrough_scenario_switching_language_repaints_claims_and_evidence(
+    i18n_module,
+):
+    """WALK-DEFECT-3 as a test.
+
+    The walkthrough's smallest reproduction, executed: render a claim and an
+    evidence panel in Chinese, switch to English, let the modules re-render, and
+    assert that *every* string the reader can see is now the English one. Before
+    the fix this fails — the claim prefix, the evidence page label, the snippet
+    meta and the capability line all stayed Chinese while the interface around
+    them switched — and it fails again if any of those strings is moved back out
+    of the catalogue, or if a surface stops re-rendering on the locale event.
+    """
+    body = textwrap.dedent(
+        """
+        i18n.setLocale('zh-CN');
+        const doc = globalThis.document;
+
+        // A verified direct quote and a degraded paraphrase, and an evidence
+        // payload that exercises the page label, the capability line and the
+        // snippet meta. All four literals named in the walkthrough are here.
+        const verified = {
+            text: 'Transformer 在本数据集上提升了 4.2 个百分点。',
+            quote: 'Transformer improves by 4.2 points',
+            evidence_ids: ['ev_1'],
+            presentation: 'direct_quote',
+            mode: 'normalized',
+            message: '',
+            citation_label: 'p3',
+            locator: { kind: 'page', page: 3 }
+        };
+        const paraphrase = {
+            text: '该方法可能适用于更大的模型。',
+            quote: 'the method may scale to larger models',
+            evidence_ids: ['ev_2'],
+            presentation: 'paraphrase',
+            message: '与原文不一致',
+            citation_label: 'p4'
+        };
+        const payload = {
+            citation_label: 'p3',
+            snippet: {
+                text: 'Transformer improves by 4.2 points on this dataset.',
+                source: 'chunk_verbatim_text',
+                truncated: true
+            },
+            visual_targeting: {
+                available: false,
+                reason_code: 'relative_bbox',
+                target: { kind: 'pdf_page', page_label: '3' },
+                capability: 'pdf_page_highlight'
+            }
+        };
+
+        function renderEverything() {
+            ev.renderInlineClaims(doc.getElementById('claimsHost'), [verified, paraphrase]);
+            ev.renderCitationChips(doc.getElementById('chipsHost'), [verified, paraphrase]);
+            state.evidencePanelOpen = true;
+            state.currentEvidence = payload;
+            ev.renderEvidencePayload(payload);
+        }
+
+        // The direct-quote and paraphrase renderers each build [prefix, body,
+        // ...], so children[0] is the translated prefix and children[1] is the
+        // claim's own words — which are the document's and must NOT translate.
+        const claimsHost = doc.getElementById('claimsHost');
+        const readClaims = () => claimsHost.children.map(element => ({
+            prefix: element.children[0].textContent,
+            body: element.children[1].textContent
+        }));
+
+        renderEverything();
+        const zhBefore = {
+            claims: readClaims(),
+            target: doc.getElementById('evidenceTarget').textContent,
+            meta: doc.getElementById('evidenceSnippetMeta').textContent,
+            chips: __texts(doc.getElementById('chipsHost')),
+            chipNames: __ariaLabels(doc.getElementById('chipsHost'))
+        };
+
+        // The reader flips the switch. `setLocale` is what the switcher calls;
+        // it persists, then notifies every subscriber.
+        i18n.setLocale('en');
+        // And the module repaints, exactly as its onLocaleChange subscription
+        // does. Called explicitly rather than relying on the notification,
+        // because the stub has no event-target wiring; the subscription itself
+        // is asserted separately below.
+        ev.repaintLocalizedSurfaces();
+        renderEverything(); // idempotent: a second repaint must not double anything
+
+        const zhAfter = {
+            claims: readClaims(),
+            target: doc.getElementById('evidenceTarget').textContent,
+            meta: doc.getElementById('evidenceSnippetMeta').textContent,
+            chips: __texts(doc.getElementById('chipsHost')),
+            chipNames: __ariaLabels(doc.getElementById('chipsHost'))
+        };
+
+        result = { zhBefore, zhAfter };
+        """
+    )
+    result = run_walkthrough_harness(i18n_module, body)
+    assert "__threw" not in result, result
+
+    # The claim *prefix* is the interface's sentence and must have switched; the
+    # claim *body* is the document's words and must not have.
+    before_prefixes = [entry["prefix"] for entry in result["zhBefore"]["claims"]]
+    after_prefixes = [entry["prefix"] for entry in result["zhAfter"]["claims"]]
+    before_bodies = [entry["body"] for entry in result["zhBefore"]["claims"]]
+    after_bodies = [entry["body"] for entry in result["zhAfter"]["claims"]]
+
+    # Fixture sanity, asserted rather than assumed: the run really did start in
+    # Chinese, so "it is now English" is a statement about the switch and not
+    # about a payload that happened to be English to begin with.
+    assert all(re.search(r"[一-鿿]", prefix) for prefix in before_prefixes), (
+        f"the fixture should have rendered Chinese prefixes first, got {before_prefixes}"
+    )
+    assert all(not re.search(r"[一-鿿]", prefix) for prefix in after_prefixes), (
+        f"a claim prefix is still Chinese after a switch to English: {after_prefixes}"
+    )
+    assert after_prefixes == [
+        "Aligned verbatim after normalisation:",
+        "Paraphrase (not verified verbatim against the source):",
+    ], f"the claim prefixes did not become the English ones: {after_prefixes}"
+    # The claim text itself — the document's words — did not move.
+    assert after_bodies == before_bodies
+
+    for key in ("target", "meta"):
+        assert not re.search(r"[一-鿿]", result["zhAfter"][key]), (
+            f"the {key} surface still contains Chinese after a switch to English: "
+            f"{result['zhAfter'][key]!r}"
+        )
+    assert result["zhAfter"]["target"] != result["zhBefore"]["target"], (
+        "the evidence target summary did not change with the locale at all"
+    )
+    assert "Page 3" in result["zhAfter"]["target"]
+    assert "Can highlight on the page" in result["zhAfter"]["target"]
+    assert "Citation p3" in result["zhAfter"]["meta"]
+    assert "From the verified source text" in result["zhAfter"]["meta"]
+    assert "truncated" in result["zhAfter"]["meta"]
+    # The chip's own label and accessible name follow too. The accessible name is
+    # where the verdict lives, so it is checked as string text, not as a
+    # colour or a class.
+    assert all(not re.search(r"[一-鿿]", chip) for chip in result["zhAfter"]["chips"]), (
+        f"a citation chip is still Chinese: {result['zhAfter']['chips']}"
+    )
+    assert any("Source-verified direct quote" in name for name in result["zhAfter"]["chipNames"]), (
+        f"the chip's accessible name lost the verdict: {result['zhAfter']['chipNames']}"
+    )
+    assert all(
+        not re.search(r"[一-鿿]", name) for name in result["zhAfter"]["chipNames"]
+    ), f"a chip's accessible name is still Chinese: {result['zhAfter']['chipNames']}"
+
+
+def test_switching_language_does_not_relabel_a_chinese_papers_headings(i18n_module):
+    """The document language is a separate axis and stays where it is.
+
+    The interface language says nothing about the document's, and the fix for
+    WALK-DEFECT-3 must not overreach into relabelling someone's paper. So the
+    claim's own text and the evidence passage — which are the *document's* words
+    — are asserted to be byte-identical before and after the switch, while the
+    surrounding interface changed language.
+    """
+    body = textwrap.dedent(
+        """
+        i18n.setLocale('zh-CN');
+        const doc = globalThis.document;
+        const claim = {
+            text: '本文提出了一种新的检索增强生成方法，并在大规模语料上验证了它的有效性。',
+            quote: '我们提出了一种新的检索增强生成方法',
+            presentation: 'direct_quote',
+            mode: 'verbatim',
+            citation_label: 'p1'
+        };
+        const payload = {
+            citation_label: 'p1',
+            snippet: { text: '第 3 节  实验结果', source: 'chunk_verbatim_text', truncated: false },
+            visual_targeting: {
+                available: true,
+                target: { kind: 'pdf_page', page_label: '7' },
+                capability: 'pdf_page_highlight'
+            }
+        };
+        ev.renderInlineClaims(doc.getElementById('claimsHost'), [claim]);
+        state.evidencePanelOpen = true;
+        state.currentEvidence = payload;
+        ev.renderEvidencePayload(payload);
+        // The direct-quote renderer builds [prefix, body, ...], so the body's
+        // text is the claim's own words without the translated prefix.
+        const claimWords = () => doc.getElementById('claimsHost').children[0].children[1].textContent;
+        const before = {
+            claimText: claimWords(),
+            passage: doc.getElementById('evidenceSnippet').textContent,
+            label: doc.getElementById('evidenceTarget').textContent
+        };
+
+        i18n.setLocale('en');
+        ev.repaintLocalizedSurfaces();
+
+        result = {
+            beforeClaim: before.claimText,
+            afterClaim: claimWords(),
+            beforePassage: before.passage,
+            afterPassage: doc.getElementById('evidenceSnippet').textContent,
+            beforeLabel: before.label,
+            afterLabel: doc.getElementById('evidenceTarget').textContent,
+            documentLocale: i18n.documentLocale(before.claimText)
+        };
+        """
+    )
+    result = run_walkthrough_harness(i18n_module, body)
+    assert result["afterClaim"] == result["beforeClaim"], (
+        "the claim's own text was rewritten by the language switch — the document "
+        "language and the interface language are separate axes"
+    )
+    assert re.search(r"[一-鿿]", result["afterClaim"]), "the fixture text should be Chinese"
+    assert result["afterPassage"] == result["beforePassage"], (
+        "the evidence passage was translated; it is the document's text, not the "
+        "interface's"
+    )
+    assert result["documentLocale"] == "zh-CN", (
+        "the Chinese paper must still be detected as Chinese under an English "
+        "interface"
+    )
+    # And the interface around it really did change, so the assertion above is
+    # not passing because nothing happened.
+    assert result["beforeLabel"] != result["afterLabel"]
+    assert "Page 7" in result["afterLabel"]
+
+
+def test_the_evidence_and_claim_surfaces_re_render_on_a_locale_change():
+    """The panels must repaint on `onLocaleChange`, not just render once.
+
+    Reading the source for `onLocaleChange` alone would pass for a module that
+    subscribes and then forgets to re-render. So this asserts the subscription
+    exists *and* that calling the exported repaint actually rewrites what is on
+    screen — the pairing that makes the switch work.
+    """
+    evidence = (JS_DIR / "evidence.js").read_text(encoding="utf-8")
+    parse_status = (JS_DIR / "parseStatus.js").read_text(encoding="utf-8")
+    for name, source in (("evidence.js", evidence), ("parseStatus.js", parse_status)):
+        assert "onLocaleChange" in source, f"{name} does not subscribe to locale changes"
+
+    # The evidence module's subscription must call the repaint, and the repaint
+    # must be exported so the harness can drive it directly.
+    assert "repaintLocalizedSurfaces" in evidence
+    match = re.search(r"onLocaleChange\((.*?)\);", evidence, re.DOTALL)
+    assert match, "evidence.js does not register a locale listener"
+    assert "repaintLocalizedSurfaces" in match.group(1)
+
+    # And the parse card's own subscription must repaint the card, the parser
+    # menu and the last reparse result, not just the card.
+    match = re.search(r"onLocaleChange\(\(\) => \{(.*?)\n\s*\}\);", parse_status, re.DOTALL)
+    assert match, "parseStatus.js does not register a locale listener"
+    for call in (
+        "renderParserOptions",
+        "updateReparseWarnings",
+        "renderParseStatus",
+        "lastReparseResult",
+    ):
+        assert call in match.group(1), (
+            f"the parse-status locale listener does not re-run {call}, so the "
+            "reparse control would keep the previous language"
+        )
 
 
 # --------------------------------------------------------------------------

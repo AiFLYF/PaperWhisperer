@@ -1,10 +1,12 @@
+// The reparse warning copy and the parser-option labels are catalogue keys
+// resolved with `t()` at render time, not constants imported from `config.js`:
+// both are reader-facing sentences, and the constants in `config.js` hold only
+// the `zh-CN` half of each pair.
 import {
     CLOUD_OUTCOME_OPERATION,
     CLOUD_OUTCOME_PRESENTATIONS,
     CLOUD_OUTCOME_UNKNOWN,
     REPARSE_API_PATH,
-    REPARSE_CLOUD_WARNING,
-    REPARSE_FORCE_OCR_WARNING,
     REPARSE_PARSER_OPTIONS
 } from './config.js';
 import { onLocaleChange, t } from './i18n.js';
@@ -69,13 +71,23 @@ import { setControlDisabled, updateStatus } from './dom.js';
  * **On reparse.** The control offers what T3.4 names — forced OCR, and a
  * different parser — and states the consequence of each next to the option
  * rather than after the fact, because a cloud parser is a decision to upload
- * someone's file to a third party and that decision is the user's to make. The
- * endpoint it POSTs to is the T2.4 contract, `/v1/documents/{id}/reparse`,
- * which this repository does not currently serve. So the failure path is a
- * first-class, visible state rather than a silent no-op: an unavailable
- * endpoint says so, in the card, in the same words the rest of this module uses
- * for every other degraded parse. A control that looks armed and does nothing
- * is the failure mode this product is built against.
+ * someone's file to a third party and that decision is the user's to make. Each
+ * option additionally names the *requirement* for it to work at all, because the
+ * shipped default (`PARSER_BACKEND=legacy`) refuses every named parser with a
+ * 409 and the browser is not told which parsers this deployment has; see
+ * `REPARSE_PARSER_OPTIONS`. The endpoint it POSTs to is the T2.4 contract,
+ * `/v1/documents/{id}/reparse`, which this repository does not currently serve.
+ * So the failure path is a first-class, visible state rather than a silent
+ * no-op: an unavailable endpoint says so, in the card, in the same words the
+ * rest of this module uses for every other degraded parse. A control that looks
+ * armed and does nothing is the failure mode this product is built against.
+ *
+ * **On language.** Every sentence here is produced at render time and goes
+ * through `t()`. Re-rendering on a locale change is therefore not enough on its
+ * own — the strings have to be *looked up* again — which is why this module
+ * subscribes to the locale event and rebuilds the card, the parser menu and the
+ * last reparse result together. What the card says is unchanged by this: the
+ * same facts, the same tone, in whichever language the reader chose.
  */
 
 /** How each parse status maps onto the tones the stylesheet already defines. */
@@ -279,7 +291,7 @@ function renderParseStatus(parse) {
     // this branch can say "unknown" instead of rendering "parsed by ".
     if (!parse || typeof parse !== 'object' || !Object.keys(parse).length) {
         dismissCloudOutcomeNotice();
-        appendNotice(container, 'The server did not report how this document was parsed.', 'unknown');
+        appendNotice(container, t('parse.unknown_notice'), 'unknown');
         container.dataset.state = 'unknown';
         return;
     }
@@ -303,28 +315,28 @@ function renderParseStatus(parse) {
 
     const facts = document.createElement('div');
     facts.className = 'parse-facts';
-    appendFact(facts, 'Parser', String(parse.parsed_by || 'not reported'), 'neutral');
+    appendFact(facts, t('parse.field.parser'), String(parse.parsed_by || t('parse.value.not_reported')), 'neutral');
     if (parse.media_type) {
-        appendFact(facts, 'Media type', String(parse.media_type), 'neutral');
+        appendFact(facts, t('parse.field.media_type'), String(parse.media_type), 'neutral');
     }
-    appendFact(facts, 'Parse status', String(parse.status || 'not reported'), toneForStatus(parse.status));
+    appendFact(facts, t('parse.field.status'), String(parse.status || t('parse.value.not_reported')), toneForStatus(parse.status));
     if (parse.cache_hit) {
-        appendFact(facts, 'Cache', 'served from cache; no parser ran this time', 'neutral');
+        appendFact(facts, t('parse.field.cache'), t('parse.value.cache_hit'), 'neutral');
     }
     appendCloudOutcomeRow(facts, cloudOutcome);
     container.appendChild(facts);
 
     // --- the cloud question, in three parts --------------------------------
     if (parse.used_cloud) {
-        appendNotice(container, 'This document was uploaded to a cloud parsing service. Its contents left this machine.', 'cloud');
+        appendNotice(container, t('parse.notice.used_cloud'), 'cloud');
     } else if (parse.cloud_attempted) {
-        appendNotice(container, 'A cloud parser was called and charged, but its result was discarded; the text you see was parsed locally.', 'warn');
+        appendNotice(container, t('parse.notice.cloud_discarded'), 'warn');
     } else if (parse.touched_network === false) {
-        appendNotice(container, 'No parser reached the network. This document stayed on this machine.', 'local');
+        appendNotice(container, t('parse.notice.local_only'), 'local');
     }
 
     if (parse.fallback_used) {
-        appendNotice(container, 'The first parser did not produce a usable result; a fallback parser produced this one.', 'warn');
+        appendNotice(container, t('parse.notice.fallback'), 'warn');
     }
 
     // The row above says what happened; this says what to do about it, and
@@ -348,7 +360,7 @@ function renderParseStatus(parse) {
     }
 
     if (parse.error_message) {
-        appendNotice(container, `The parse failed: ${parse.error_message}`, 'fail');
+        appendNotice(container, t('parse.notice.failed', { message: String(parse.error_message) }), 'fail');
     }
 }
 
@@ -363,7 +375,7 @@ function renderParseStatus(parse) {
  */
 function renderParseQuality(container, quality) {
     if (!quality || typeof quality !== 'object') {
-        appendNotice(container, 'No parse quality report was returned for this document.', 'unknown');
+        appendNotice(container, t('parse.quality.absent'), 'unknown');
         return;
     }
 
@@ -372,14 +384,14 @@ function renderParseQuality(container, quality) {
     const heading = document.createElement('p');
     heading.className = 'parse-quality-heading';
     heading.dataset.tone = tone;
-    heading.textContent = `Parse quality: ${status}`;
+    heading.textContent = t('parse.quality.heading', { status });
     container.appendChild(heading);
 
     const flags = Array.isArray(quality.flags) ? quality.flags : [];
     if (!flags.length) {
         const clean = document.createElement('p');
         clean.className = 'parse-quality-clean';
-        clean.textContent = 'Every checked rule passed.';
+        clean.textContent = t('parse.quality.clean');
         container.appendChild(clean);
         return;
     }
@@ -392,7 +404,7 @@ function renderParseQuality(container, quality) {
         item.dataset.severity = severity;
         const rule = document.createElement('span');
         rule.className = 'parse-quality-rule';
-        rule.textContent = String(flag?.rule_id || 'rule');
+        rule.textContent = String(flag?.rule_id || t('parse.quality.rule_fallback'));
         const message = document.createElement('span');
         message.className = 'parse-quality-message';
         message.textContent = String(flag?.message || '');
@@ -418,11 +430,23 @@ function renderParserOptions(select) {
     REPARSE_PARSER_OPTIONS.forEach(option => {
         const element = document.createElement('option');
         element.value = option.value;
-        element.textContent = option.label;
+        // The label is a catalogue key, and it carries the *requirement* for the
+        // choice as well as its name: see `REPARSE_PARSER_OPTIONS` in
+        // `config.js` for why the options are labelled rather than filtered
+        // against what this deployment happens to have installed.
+        element.textContent = t(option.labelKey);
         element.dataset.leavesMachine = String(Boolean(option.leavesMachine));
+        element.dataset.requirementKey = String(option.requirementKey || '');
         fragment.appendChild(element);
     });
+    // The selected value is the reader's own choice and is restored after the
+    // menu is rebuilt, so a language switch does not silently re-select the
+    // first entry.
+    const previous = String(select.value || '');
     select.replaceChildren(fragment);
+    if (REPARSE_PARSER_OPTIONS.some(option => option.value === previous)) {
+        select.value = previous;
+    }
 }
 
 function currentParserOption(select) {
@@ -438,6 +462,12 @@ function currentParserOption(select) {
  * the reader rather than after it. A checkbox for forced OCR carries its own
  * cost warning for the same reason — forced OCR is slower and less accurate on
  * already-digital text, which is a trade the reader should be choosing.
+ *
+ * The selected option's own requirement rides along with it. Under the shipped
+ * default (`PARSER_BACKEND=legacy`) every named parser answers `409
+ * parser_unavailable`, and the browser is not told the parser catalogue, so the
+ * only honest place for that fact is next to the choice — before the reader
+ * commits to it, rather than after the server refuses it.
  */
 function updateReparseWarnings() {
     const notice = document.getElementById('reparseWarning');
@@ -446,11 +476,14 @@ function updateReparseWarnings() {
     const forceOcr = document.getElementById('reparseForceOcr')?.checked === true;
 
     const messages = [];
+    if (option.requirementKey) {
+        messages.push(t(option.requirementKey));
+    }
     if (forceOcr) {
-        messages.push(REPARSE_FORCE_OCR_WARNING);
+        messages.push(t('reparse.force_ocr_warning'));
     }
     if (option.leavesMachine) {
-        messages.push(REPARSE_CLOUD_WARNING);
+        messages.push(t('reparse.cloud_warning'));
     }
 
     if (notice) {
@@ -471,24 +504,34 @@ function updateReparseWarnings() {
     setControlDisabled(submit, !hasDocument);
     if (submit) {
         submit.title = hasDocument
-            ? 'Reparse this document with the selected options.'
-            : 'No document id is available for this session, so there is nothing to reparse.';
+            ? t('reparse.hint.ready')
+            : t('reparse.hint.no_document');
     }
 }
 
-function setReparseResult(message, tone) {
+/**
+ * The last reparse result, kept as a key rather than as a rendered string.
+ *
+ * A rendered string would freeze the sentence in the language that was active
+ * when the reparse ran, which is the same staleness this module's locale
+ * subscription exists to remove everywhere else.
+ */
+let lastReparseResult = null;
+
+function setReparseResult(key, params, tone) {
     const box = document.getElementById('reparseResult');
     if (!box) {
         return;
     }
+    lastReparseResult = key ? { key, params: params || null, tone: tone || 'idle' } : null;
     box.replaceChildren();
     box.dataset.tone = tone || 'idle';
-    if (!message) {
+    if (!key) {
         box.hidden = true;
         return;
     }
     const paragraph = document.createElement('p');
-    paragraph.textContent = message;
+    paragraph.textContent = t(key, params);
     box.appendChild(paragraph);
     box.hidden = false;
 }
@@ -512,7 +555,7 @@ async function submitReparse() {
     const submit = document.getElementById('reparseSubmitBtn');
     const documentId = state.currentDocumentId;
     if (!documentId) {
-        setReparseResult('This session has no document id, so there is nothing to reparse.', 'warn');
+        setReparseResult('reparse.result.no_document', null, 'warn');
         return;
     }
 
@@ -521,8 +564,8 @@ async function submitReparse() {
     }
     state.reparseController = new AbortController();
     setControlDisabled(submit, true);
-    setReparseResult('Reparsing...', 'idle');
-    updateStatus('Reparsing document...', 'idle');
+    setReparseResult('reparse.result.started', null, 'idle');
+    updateStatus(t('reparse.status.started'), 'idle');
 
     const parser = String(document.getElementById('reparseParser')?.value || '');
     const forceOcr = document.getElementById('reparseForceOcr')?.checked === true;
@@ -548,8 +591,8 @@ async function submitReparse() {
         if (payload?.parse && typeof payload.parse === 'object' && Object.keys(payload.parse).length) {
             renderParseStatus(payload.parse);
         }
-        setReparseResult('Reparse finished. The parse status above reflects the new run.', 'pass');
-        updateStatus('Reparse finished', 'success');
+        setReparseResult('reparse.result.finished', null, 'pass');
+        updateStatus(t('reparse.status.finished'), 'success');
     } catch (error) {
         if (error.name === 'AbortError' || error.code === 'client_cancelled') {
             return;
@@ -572,15 +615,19 @@ async function submitReparse() {
         restorePreservedFields(preserved);
         const reason = error.message || `${error.status || ''} ${error.code || ''}`.trim();
         if (error.status === 404) {
-            setReparseResult(`This server does not offer a reparse endpoint (POST ${buildReparseUrl(documentId)} → ${reason}). The document was left untouched.`, 'fail');
+            setReparseResult(
+                'reparse.result.no_route',
+                { path: buildReparseUrl(documentId), reason },
+                'fail'
+            );
         } else {
-            setReparseResult(`The reparse request did not succeed (${reason}). The document was left untouched.`, 'fail');
+            setReparseResult('reparse.result.failed', { reason }, 'fail');
         }
         // The runtime adds the notice with a retry button only if the code is
         // retryable, so a 404 (route absent) and a 409 (busy) cannot both end up
         // offering the reader the same next step.
         notifyFailure(error, { onRetry: () => submitReparse() });
-        updateStatus('Reparse unavailable', 'error');
+        updateStatus(t('reparse.status.unavailable'), 'error');
     } finally {
         state.reparseController = null;
         setControlDisabled(submit, Boolean(state.currentDocumentId));
@@ -613,16 +660,30 @@ function initializeParseStatus() {
     // previous language: `reportCloudOutcome` dismisses the old one first, so the
     // outcome is described once, in the reader's current language, rather than
     // twice in two.
+    //
+    // The reparse control is part of the same card and had the same problem in a
+    // second form: its option labels and its requirement notice are built once,
+    // so a switch left the menu describing itself in the old language while the
+    // card beside it had already repainted. Both are rebuilt here — the menu
+    // preserving the reader's own selection — and the last result line is
+    // re-resolved from its key rather than from the string it rendered before.
     if (!cloudOutcomeLocaleBound) {
         cloudOutcomeLocaleBound = true;
-        onLocaleChange(() => renderParseStatus(state.currentParseProvenance));
+        onLocaleChange(() => {
+            renderParserOptions(document.getElementById('reparseParser'));
+            updateReparseWarnings();
+            if (lastReparseResult) {
+                setReparseResult(lastReparseResult.key, lastReparseResult.params, lastReparseResult.tone);
+            }
+            renderParseStatus(state.currentParseProvenance);
+        });
     }
 }
 
 function resetParseStatus() {
     dismissCloudOutcomeNotice();
     toggleReparseControls(false);
-    setReparseResult('', 'idle');
+    setReparseResult(null, null, 'idle');
     renderParseStatus(null);
 }
 
