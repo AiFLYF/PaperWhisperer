@@ -1,0 +1,5 @@
+schema: paperwhisperer-eval-labels-pending/0.1
+corpus_version: sha256:0dfe319761a7cc9d003dd71c00be7ca57f912bf529654b831cd61d5da8f5dda1
+note: 工具产出但没有人确认的记录。这些不在门禁的输入文件里。删掉它们比把它们并进去更安全：并进去就是让系统给自己打分。
+queries: []
+claims: []

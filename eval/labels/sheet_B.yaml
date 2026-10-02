@@ -1,0 +1,103 @@
+schema: paperwhisperer-answer-sheet/0.1
+source: assistant_draft
+decisions:
+  - query_id: q001
+    language: en
+    kind: prose
+    window_ids: ["el_90e8ab3edf4648ac#w1", "el_f1bc662c3f4042ef#w4", "el_90e8ab3edf4648ac#w0"]
+    seconds: 90
+  - query_id: q002
+    language: en
+    kind: formula
+    window_ids: ["el_8d96b481ce794ffa#w3", "el_8d96b481ce794ffa#w5"]
+    seconds: 70
+  - query_id: q003
+    language: en
+    kind: formula
+    window_ids: ["el_0381f8fbe3e74cac#w3", "el_0381f8fbe3e74cac#w4", "el_0381f8fbe3e74cac#w5"]
+    seconds: 70
+  - query_id: q004
+    language: en
+    kind: table
+    window_ids: ["el_52c138becdad45a2#w0"]
+    seconds: 45
+  - query_id: q005
+    language: en
+    kind: table
+    window_ids: ["el_52c138becdad45a2#w0"]
+    seconds: 40
+  - query_id: q006
+    language: en
+    kind: table
+    window_ids: ["el_d6b3bcab6bf74387#w0", "el_0d9179bfa2684033#w0"]
+    seconds: 55
+  - query_id: q007
+    language: en
+    kind: prose
+    window_ids: ["el_759321ec05454807#w1", "el_759321ec05454807#w3", "el_baeec877c54a47a5#w2"]
+    seconds: 50
+  - query_id: q008
+    language: en
+    kind: formula
+    none_relevant: true
+    seconds: 80
+  - query_id: q009
+    language: en
+    kind: prose
+    window_ids: ["el_d1e9737d707d4f07#w1", "el_d1e9737d707d4f07#w3"]
+    seconds: 70
+  - query_id: q010
+    language: en
+    kind: formula
+    none_relevant: true
+    seconds: 40
+  - query_id: q011
+    language: en
+    kind: prose
+    window_ids: ["el_a400af4fef364d5d#w0"]
+    seconds: 30
+  - query_id: q012
+    language: en
+    kind: formula
+    window_ids: ["el_7a9eb5ffb2f948f9#w0", "el_7a9eb5ffb2f948f9#w1"]
+    seconds: 30
+  - query_id: q013
+    language: en
+    kind: prose
+    window_ids: ["el_d6d47706738f40da#w3", "el_ae4786fe6de3497a#w0"]
+    seconds: 60
+  - query_id: q014
+    language: en
+    kind: prose
+    window_ids: ["el_23100e57a1d04b57#w1"]
+    seconds: 30
+  - query_id: q015
+    language: zh
+    kind: prose
+    window_ids: ["el_f3d77b6f693f4366#w0"]
+    seconds: 20
+  - query_id: q016
+    language: zh
+    kind: table
+    window_ids: ["el_f3d77b6f693f4366#w0"]
+    seconds: 20
+  - query_id: q017
+    language: zh
+    kind: prose
+    window_ids: ["el_f3d77b6f693f4366#w0"]
+    seconds: 20
+  - query_id: q018
+    language: mixed
+    kind: table
+    window_ids: ["el_5e3179dd601b4cf7#w0", "el_5e3179dd601b4cf7#w1"]
+    seconds: 30
+  - query_id: q019
+    language: mixed
+    kind: prose
+    window_ids: ["el_5e3179dd601b4cf7#w0", "el_5e3179dd601b4cf7#w1"]
+    seconds: 30
+  - query_id: q020
+    language: mixed
+    kind: prose
+    window_ids: ["el_5e3179dd601b4cf7#w1"]
+    seconds: 30

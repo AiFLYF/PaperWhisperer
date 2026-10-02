@@ -1,0 +1,168 @@
+# Query seeds for the retrieval labelling run.
+#
+# These are the *questions*, not the answers. A seed carries no ground truth:
+# `tools/label_retrieval.py build` ranks candidate passages for it and a person
+# (or an annotator whose draft a person then checks) decides which passages
+# actually answer it. Writing the question is cheap; writing the answer is the
+# work, and it is the part nobody should let a machine do.
+#
+# `language` / `kind` here are the seed's guess, shown to the annotator and
+# overridable per query in the CLI (`l zh`, `k table`). They are recorded as
+# `decision_source: assistant_draft` unless a person set them, because the plan
+# requires the two axes counted separately and a mis-classified label quietly
+# moves a row into the wrong bucket.
+#
+# Documents chosen to span the axes the gate asks for:
+#   en/zh/mixed  x  prose/table/formula
+# Four of the zh/mixed corpus PDFs parse into a *single* element under the
+# legacy parser, so their Recall@K is not discriminating -- recorded per query
+# in `note`, because a bucket that looks like a failure is sometimes just a
+# document with one element in it.
+
+schema: paperwhisperer-label-seeds/0.1
+queries:
+  # -- digital_two_col/batchnorm.pdf (en, formula-heavy) ------------------
+  - id: q001
+    document: digital_two_col/batchnorm.pdf
+    query: What happens to the activations inside a network when the input distribution shifts between mini-batches?
+    language: en
+    kind: prose
+    query_source: assistant_draft
+    note: 第 2 节，BN 的动机
+  - id: q002
+    document: digital_two_col/batchnorm.pdf
+    query: What are the two learnable parameters in the batch normalisation transform, and what does each one do?
+    language: en
+    kind: formula
+    query_source: assistant_draft
+    note: gamma 与 beta 的定义
+  - id: q003
+    document: digital_two_col/batchnorm.pdf
+    query: During inference with a running average, how is the normalisation computed when a whole batch is not available?
+    language: en
+    kind: formula
+    query_source: assistant_draft
+    note: 推理阶段的 BN
+
+  # -- table_dense/glue_benchmark.pdf (en, table) --------------------------
+  - id: q004
+    document: table_dense/glue_benchmark.pdf
+    query: How many training examples are in the QQP task and how big is its test set?
+    language: en
+    kind: table
+    query_source: assistant_draft
+    note: Table 1 的 Train/Test 列
+  - id: q005
+    document: table_dense/glue_benchmark.pdf
+    query: Which GLUE task has only 634 training examples, and what kind of task is it?
+    language: en
+    kind: table
+    query_source: assistant_draft
+    note: Table 1 的 WNLI 行
+  - id: q006
+    document: table_dense/glue_benchmark.pdf
+    query: What does the corpus statistics table say about the linguistic phenomena categories covered by the diagnostic dataset?
+    language: en
+    kind: table
+    query_source: assistant_draft
+    note: Table 2
+  - id: q007
+    document: table_dense/glue_benchmark.pdf
+    query: Why is GLUE described as favouring models that share general linguistic knowledge across tasks?
+    language: en
+    kind: prose
+    query_source: assistant_draft
+
+  # -- formula_dense/maldacena_large_n.pdf (en, formula) ------------------
+  - id: q008
+    document: formula_dense/maldacena_large_n.pdf
+    query: What is the conjectured relationship between the rank N of AdS and the number N of degrees of freedom in its dual CFT?
+    language: en
+    kind: formula
+    query_source: assistant_draft
+  - id: q009
+    document: formula_dense/maldacena_large_n.pdf
+    query: Which supersymmetric theory is conjectured to be exactly solvable and describes black holes, and in how many dimensions?
+    language: en
+    kind: prose
+    query_source: assistant_draft
+  - id: q010
+    document: formula_dense/maldacena_large_n.pdf
+    query: How do correlators of heavy operators in the CFT map to correlators of light operators in the bulk?
+    language: en
+    kind: formula
+    query_source: assistant_draft
+
+  # -- digital_single_col/attention_is_all_you_need.pdf (en, prose) -------
+  - id: q011
+    document: digital_single_col/attention_is_all_you_need.pdf
+    query: How many dimensions does each of the eight attention heads in the multi-head attention have?
+    language: en
+    kind: prose
+    query_source: assistant_draft
+  - id: q012
+    document: digital_single_col/attention_is_all_you_need.pdf
+    query: What is the exact inner product computation written for the attention function called Scaled Dot-Product Attention?
+    language: en
+    kind: formula
+    query_source: assistant_draft
+
+  # -- digital_single_col/word2vec.pdf (en, prose) ------------------------
+  - id: q013
+    document: digital_single_col/word2vec.pdf
+    query: Which two model architectures are compared for learning word vector representations, and which one gave the better results?
+    language: en
+    kind: prose
+    query_source: assistant_draft
+  - id: q014
+    document: digital_single_col/word2vec.pdf
+    query: What did the vector arithmetic examples show about king minus man plus woman, and what did the authors claim this suggests?
+    language: en
+    kind: prose
+    query_source: assistant_draft
+
+  # -- mixed_zh_en/tech_report_zh_terms.pdf (zh) --------------------------
+  - id: q015
+    document: mixed_zh_en/tech_report_zh_terms.pdf
+    query: parser-worker 的 p95 延迟是多少，主要由哪部分贡献？
+    language: zh
+    kind: prose
+    query_source: assistant_draft
+    note: 单元素文档，Recall@K 不具区分度
+  - id: q016
+    document: mixed_zh_en/tech_report_zh_terms.pdf
+    query: 表 1 里哪个服务的可用性最低，错误率是多少？
+    language: zh
+    kind: table
+    query_source: assistant_draft
+    note: 单元素文档，Recall@K 不具区分度
+  - id: q017
+    document: mixed_zh_en/tech_report_zh_terms.pdf
+    query: 队列积压峰值出现在什么时段，超过多少任务时自动扩容 worker？
+    language: zh
+    kind: prose
+    query_source: assistant_draft
+    note: 单元素文档，Recall@K 不具区分度
+
+  # -- mixed_zh_en/bilingual_paper_zh_en.pdf (mixed) ----------------------
+  - id: q018
+    document: mixed_zh_en/bilingual_paper_zh_en.pdf
+    query: 加入 cross-encoder reranker 之后，Recall@10 和 p95 延迟分别变成多少？
+    language: mixed
+    kind: table
+    query_source: assistant_draft
+    note: 单元素文档，Recall@K 不具区分度
+  - id: q019
+    document: mixed_zh_en/bilingual_paper_zh_en.pdf
+    query: 中文文档、英文文档、中英混排文档各占语料的多少比例？Embedding 维度是多少？
+    language: mixed
+    kind: table
+    query_source: assistant_draft
+    note: 单元素文档，Recall@K 不具区分度
+  - id: q020
+    document: mixed_zh_en/bilingual_paper_zh_en.pdf
+    query: 为什么在中文语料上 BM25 通道的贡献明显高于英文语料？
+    language: mixed
+    kind: prose
+    query_source: assistant_draft
+    note: 单元素文档，Recall@K 不具区分度

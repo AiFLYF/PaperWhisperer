@@ -1,0 +1,15 @@
+# Rebuildable caches -- parsed-document text and the pre-ranked candidates.
+# These are derived deterministically from `query_seeds.yaml` by
+# `python tools/label_retrieval.py build` / `claims --candidates-out`.
+# They are large (hundreds of KB of extracted document text) and carry no
+# judgement, so they are run products, not gate inputs.
+#
+# What IS tracked, and why:
+#   query_seeds.yaml      the questions (no ground truth, just seeds)
+#   sheet_*.yaml          the annotator answer sheets (the human-meaningful input)
+#   annotations/*.jsonl   the append-only decision log -- the source of truth
+#   retrieval_labels.yaml the gate's input, loader-checked
+#   pending_labels.yaml   tool output nobody has confirmed, kept out of the gate
+#   agreement.json        the inter-annotator report
+worklist.json
+claim_candidates_*.json

@@ -1,0 +1,114 @@
+schema: paperwhisperer-answer-sheet/0.1
+source: assistant_draft
+decisions:
+  # q001 -- activations under shifting input distribution
+  - claim_id: q001-c1
+    supported: true
+    seconds: 25
+  # q002 -- the two learnable parameters gamma/beta
+  - claim_id: q002-c1
+    supported: false
+    seconds: 15
+  - claim_id: q002-c2
+    supported: false
+    seconds: 10
+  # q003 -- inference-time normalisation without a batch
+  - claim_id: q003-c1
+    supported: false
+    seconds: 30
+  - claim_id: q003-c2
+    supported: false
+    seconds: 10
+  # q004 -- QQP train/test sizes
+  - claim_id: q004-c1
+    supported: false
+    seconds: 15
+  - claim_id: q004-c2
+    supported: false
+    seconds: 10
+  # q005 -- the 634-example task
+  - claim_id: q005-c1
+    supported: false
+    seconds: 15
+  - claim_id: q005-c2
+    supported: false
+    seconds: 10
+  # q006 -- corpus statistics of the diagnostic dataset
+  - claim_id: q006-c1
+    supported: false
+    seconds: 15
+  - claim_id: q006-c2
+    supported: false
+    seconds: 25
+  # q007 -- why GLUE favours shared linguistic knowledge
+  - claim_id: q007-c1
+    supported: false
+    seconds: 25
+  - claim_id: q007-c2
+    supported: true
+    seconds: 30
+  # q008 -- rank N vs number of degrees of freedom
+  - claim_id: q008-c1
+    supported: false
+    seconds: 20
+  # q009 -- exactly solvable supersymmetric black hole theory
+  - claim_id: q009-c1
+    supported: false
+    seconds: 20
+  - claim_id: q009-c2
+    supported: false
+    seconds: 15
+  # q010 -- heavy/light correlator mapping
+  - claim_id: q010-c1
+    supported: false
+    seconds: 25
+  - claim_id: q010-c2
+    supported: false
+    seconds: 15
+  # q011 -- dimension of each of the eight heads
+  - claim_id: q011-c1
+    supported: false
+    seconds: 15
+  # q012 -- Scaled Dot-Product Attention formula
+  - claim_id: q012-c1
+    supported: false
+    seconds: 15
+  - claim_id: q012-c2
+    supported: false
+    seconds: 15
+  # q013 -- the two architectures compared
+  - claim_id: q013-c1
+    supported: false
+    seconds: 10
+  - claim_id: q013-c2
+    supported: false
+    seconds: 15
+  # q014 -- king - man + woman
+  - claim_id: q014-c1
+    supported: true
+    seconds: 20
+  # q015/q016/q017 -- all cite the report's header block
+  - claim_id: q015-c1
+    supported: false
+    seconds: 10
+  - claim_id: q016-c1
+    supported: false
+    seconds: 10
+  - claim_id: q017-c1
+    supported: false
+    seconds: 10
+  # q018 -- reranker Recall@10 / p95 latency
+  - claim_id: q018-c1
+    supported: false
+    seconds: 20
+  - claim_id: q018-c2
+    supported: false
+    seconds: 15
+  # q019 -- corpus language mix and embedding dimension
+  - claim_id: q019-c1
+    supported: false
+    seconds: 15
+  # q020 -- why BM25 helps more on Chinese
+  - claim_id: q020-c1
+    supported: false
+    seconds: 15

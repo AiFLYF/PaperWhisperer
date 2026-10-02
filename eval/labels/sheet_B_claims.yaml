@@ -1,0 +1,102 @@
+schema: paperwhisperer-answer-sheet/0.1
+source: assistant_draft
+decisions:
+  - claim_id: q001-c1
+    supported: false
+    seconds: 25
+  - claim_id: q001-c2
+    supported: true
+    seconds: 30
+  - claim_id: q002-c1
+    supported: false
+    seconds: 20
+  - claim_id: q002-c2
+    supported: false
+    seconds: 15
+  - claim_id: q003-c1
+    supported: true
+    seconds: 35
+  - claim_id: q003-c2
+    supported: false
+    seconds: 15
+  - claim_id: q004-c1
+    supported: false
+    seconds: 20
+  - claim_id: q004-c2
+    supported: false
+    seconds: 15
+  - claim_id: q005-c1
+    supported: false
+    seconds: 15
+  - claim_id: q005-c2
+    supported: false
+    seconds: 15
+  - claim_id: q006-c1
+    supported: false
+    seconds: 20
+  - claim_id: q006-c2
+    supported: true
+    seconds: 30
+  - claim_id: q007-c1
+    supported: false
+    seconds: 25
+  - claim_id: q007-c2
+    supported: false
+    seconds: 30
+  - claim_id: q008-c1
+    supported: false
+    seconds: 20
+  - claim_id: q008-c2
+    supported: false
+    seconds: 20
+  - claim_id: q009-c1
+    supported: false
+    seconds: 20
+  - claim_id: q010-c1
+    supported: false
+    seconds: 25
+  - claim_id: q010-c2
+    supported: false
+    seconds: 15
+  - claim_id: q011-c1
+    supported: false
+    seconds: 20
+  - claim_id: q012-c1
+    supported: false
+    seconds: 20
+  - claim_id: q012-c2
+    supported: false
+    seconds: 20
+  - claim_id: q013-c1
+    supported: false
+    seconds: 15
+  - claim_id: q013-c2
+    supported: false
+    seconds: 20
+  - claim_id: q014-c1
+    supported: true
+    seconds: 30
+  - claim_id: q015-c1
+    supported: false
+    seconds: 20
+  - claim_id: q016-c1
+    supported: false
+    seconds: 20
+  - claim_id: q017-c1
+    supported: false
+    seconds: 20
+  - claim_id: q018-c1
+    supported: false
+    seconds: 20
+  - claim_id: q018-c2
+    supported: false
+    seconds: 20
+  - claim_id: q019-c1
+    supported: false
+    seconds: 20
+  - claim_id: q019-c2
+    supported: false
+    seconds: 20
+  - claim_id: q020-c1
+    supported: false
+    seconds: 20
