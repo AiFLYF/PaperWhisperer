@@ -378,7 +378,9 @@ export const REPARSE_PARSER_OPTIONS = [
 ];
 
 export const REPARSE_FORCE_OCR_WARNING =
-    '强制 OCR 会用文字识别重跑全文，扫描件更准确，但耗时明显更长，且可能引入识别错误。';
+    '重跑一次解析。'
+    + '当前安装的 docling 默认就已启用 OCR，因此这一项通常不会改变结果，'
+    + '只会多花一次解析时间；它对 OCR 默认关闭的解析器才有效。';
 export const REPARSE_CLOUD_WARNING =
     '云端解析会把这份文档上传到第三方服务，文件将离开这台机器，并产生调用费用。';
 
