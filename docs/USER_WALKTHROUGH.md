@@ -146,6 +146,24 @@ judgement-by-eye in this walkthrough that this run could **not** make.
 ## Defects found (ranked by how much they undermine the central claim)
 
 Each is a **new** finding from walking the product as a user, with an owner and
+> **Status update — this supersedes the present tense below.** All four findings
+> this document reports have since been fixed, and the hermetic pins in
+> `tests/test_walkthrough.py` have been rewritten to pin the *fixed* behaviour
+> rather than the defect; each replacement names the commit that closed it in its
+> own docstring. Read the reproduction lines below as the record of what was true
+> on the recorded run, not as a statement about the current tree.
+>
+> | Finding | Closed in | How |
+> |---|---|---|
+> | WALK-DEFECT-1 — every clickable citation 404s | `5588fa9` | Q&A now retrieves over the session's **registered** document rather than one rebuilt from flat text, so an `ev_*` id and the id the evidence panel addresses belong to the same paper. |
+> | WALK-DEFECT-2 — no relevance floor; the deterministic refusal unreachable | `b8ca091` | A per-leg relevance floor was added. "What is the capital of France?" now retrieves nothing, `insufficient_evidence` is true, and the confidence verdict rejects a claim resting on a passage the floor rejected. |
+> | WALK-DEFECT-3 — the evidence/claim surfaces ignore the language switch | `2ace411` | The render-time strings moved into the catalogue in both languages, and both surfaces now subscribe to `onLocaleChange` — a panel that renders once is now repainted. |
+> | WALK-DEFECT-4 — the reparse control advertises a parser the default cannot run | `2ace411` | Closed by **labelling**: the options are kept (filtering them means hardcoding "legacy only", which is wrong on a gateway deployment) and each carries a requirement naming `PARSER_BACKEND=gateway` and the `409 parser_unavailable` a reader would otherwise meet unexplained. |
+>
+> `PARSER_BACKEND` still defaults to `legacy`, so a reader on this deployment still
+> meets the 409 — the routing default is unchanged. What changed is that the
+> control now says so before they do.
+
 the smallest reproduction. Nothing here was fixed by this change — these belong
 to the owning modules.
 
