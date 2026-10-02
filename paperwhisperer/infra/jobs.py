@@ -3041,13 +3041,35 @@ class JobWorker:
             )
             self._thread.start()
 
-    def stop(self, timeout: float = 5.0) -> None:
+    @property
+    def running(self) -> bool:
+        """Whether this worker's thread is alive right now.
+
+        The question a shutdown has to ask, and the one :meth:`stop` used to
+        answer only by the absence of a handle. A worker that was never started
+        is not running, and neither is one whose thread has since exited — so
+        this is ``True`` *only* while there is a live thread to join, which is
+        exactly the condition under which dropping the handle would lose the
+        only reference to something that is still executing.
+        """
+        thread = self._thread
+        return thread is not None and thread.is_alive()
+
+    def stop(self, timeout: float = 5.0) -> bool:
         """Ask the loop to finish the step it is in, then join. Idempotent.
 
         ``timeout`` is a bound on waiting for a *running step*, not on
         interrupting one. A worker stopped mid-parse leaves the job leased and
         the next worker recovers it — which is the same path a crash takes, and
         is tested as one.
+
+        Returns whether the thread has stopped, so a caller never has to infer it
+        from the absence of an exception. ``True`` means the join completed, or
+        there was nothing to join; ``False`` means the budget expired with the
+        thread still running. The old ``None`` return made those two outcomes
+        indistinguishable — which is the same defect one level up, because a
+        shutdown that failed and a shutdown that succeeded looked identical to
+        every reader, including the registry that was supposed to be able to ask.
 
         **The handle is only forgotten once the thread has actually stopped.**
         Clearing ``_thread`` unconditionally — the obvious ``thread, self._thread
@@ -3059,17 +3081,33 @@ class JobWorker:
         executing on its store's connection after the owning bundle has been
         closed underneath it, which is a use-after-free in SQLite's C layer.
 
-        So a timed-out join keeps the handle. The worker is unreachable-by-
-        reference only in the sense that its step is long, and the next
-        ``stop()`` — or the ``_loop`` itself, which re-checks ``_stop`` after the
-        step returns — finishes the job and lets the handle go.
+        So a timed-out join keeps the handle, and says so. The worker is
+        unreachable-by-reference only in the sense that its step is long, and the
+        next ``stop()`` — or the ``_loop`` itself, which re-checks ``_stop`` after
+        the step returns — finishes the job and lets the handle go. Nothing about
+        the failure is irreversible, and nothing about it is silent.
         """
         self._stop.set()
         thread = self._thread
-        if thread is not None and thread.is_alive():
+        if thread is None:
+            return True
+        if thread.is_alive():
             thread.join(timeout=timeout)
-            if not thread.is_alive():
-                self._thread = None
+        if thread.is_alive():
+            # Not an error — a long parse legitimately outlives a bounded wait,
+            # and the job is recoverable exactly as it is after a crash. But it is
+            # not *success*, so it is said out loud here rather than left for the
+            # caller to infer from a registry that has already forgotten it.
+            logger.warning(
+                "任务 worker %s 在 %.1fs 内没有停止（线程 %s 仍在运行）；"
+                "它会先完成当前步骤再自行退出，并且仍可被再次 stop() 回收。",
+                self.worker_id,
+                float(timeout),
+                thread.name,
+            )
+            return False
+        self._thread = None
+        return True
 
     def __enter__(self) -> JobWorker:
         self.start()

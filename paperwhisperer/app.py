@@ -183,10 +183,30 @@ def stop_workers(application: FastAPI, started: list) -> None:
     worker that outlived a failed startup would otherwise be un-reachable from
     the next lifespan on the same object — the one worker a shutdown path cannot
     find is the one that leaks.
+
+    **What is logged depends on whether the shutdown actually worked.**
+    ``stop_job_workers`` removes a worker from the registry only once its thread
+    has really stopped, so anything still listed afterwards is a thread that is
+    still running. Reporting "stopped N" for such a worker would lose exactly the
+    information the registry was reordered to keep — it is what makes a failed
+    teardown indistinguishable from a clean one — so the survivors are named, and
+    the count that gets logged is the count that actually stopped.
     """
-    workers = routes_jobs.stop_job_workers()
-    if workers or started:
-        logger.info("已停止 %d 个任务 worker；未完成的任务将由下一次启动回收。", len(workers))
+    attempted = routes_jobs.stop_job_workers()
+    still_running = routes_jobs.stuck_workers()
+    stopped = len(attempted) - len([w for w in still_running if w in attempted])
+    if still_running:
+        logger.error(
+            "已停止 %d 个任务 worker，但有 %d 个仍在运行（%s）；"
+            "它们的句柄仍在 worker 注册表中，可被下一次关闭再次回收。"
+            "未完成的任务将由下一次启动回收。",
+            stopped,
+            len(still_running),
+            "、".join(sorted(worker.worker_id for worker in still_running)),
+        )
+        return
+    if attempted or started:
+        logger.info("已停止 %d 个任务 worker；未完成的任务将由下一次启动回收。", stopped)
 
 
 def create_app() -> FastAPI:

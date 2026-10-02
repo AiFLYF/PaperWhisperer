@@ -723,13 +723,27 @@ PIPELINES: dict[str, JobPipeline] = {
 # The background worker
 # --------------------------------------------------------------------------
 
-#: The process's one worker, and the store it is draining.
+#: The process's workers, keyed by the job kind each one drains.
 #:
-#: Held on the application state rather than in a module global so that a second
-#: application object — a test's, a second instance's — has its own worker and its
-#: own teardown. A module global would be shared between them, and a test that
-#: stopped the worker would stop the one the other application is using.
-_WORKERS: dict[int, JobWorker] = {}
+#: **An entry is removed only once that worker's thread has actually stopped.**
+#: The obvious shape — snapshot the values, ``clear()``, then stop each — forgets
+#: a worker before it has finished stopping, and that single reordering is the
+#: whole defect. Once the handle is gone, a join that timed out has left a live
+#: thread that *no* shutdown path can reach again: not this one, not the next
+#: lifespan's, not a test's teardown. The bounded wait silently becomes an
+#: unbounded orphan, and the process's only evidence that it happened — an empty
+#: registry read as "drained" — is gone with the entry.
+_WORKERS: dict[str, JobWorker] = {}
+#: Workers displaced from :data:`_WORKERS` that are still running, and are
+#: therefore still somebody's problem.
+#:
+#: They get here when a *new* lifespan starts while a previous worker's thread
+#: has not yet finished the step it was in. ``_WORKERS`` is keyed by kind and so
+#: can hold only one worker per kind, so a displaced live thread cannot stay in
+#: it — but dropping it would be exactly the defect above, one level down, so it
+#: moves here instead: still reachable, still re-joinable, and counted by every
+#: question a caller can ask about the shutdown.
+_STRANDED: list[JobWorker] = []
 _WORKER_LOCK = threading.RLock()
 
 
@@ -741,15 +755,45 @@ def start_job_worker(store: JobStore) -> list[JobWorker]:
     "the queue is stuck until the poll interval elapses" is a worse thing to
     write down than a call that is plainly there. Recovery is one indexed
     statement and it is the release gate's sentence as a function.
+
+    **A worker that is still running is reused, and one that has stopped is
+    replaced.** Reuse is the ordinary case — a second lifespan on the same
+    application object, or a test that enters a ``TestClient`` twice — and it is
+    what keeps two threads from ever claiming the same queue. Replacement is
+    equally necessary: a registered worker whose thread has since exited is a
+    worker that drains nothing, and handing it back would let a process report a
+    started queue while nothing was consuming it. A running worker bound to a
+    *different* store is a third case, and it is a real one in a test session
+    where a previous fixture's bundle is still being drained; it is moved to
+    :data:`_STRANDED` so it stays reachable, and a fresh worker takes its kind.
     """
     started: list[JobWorker] = []
     with _WORKER_LOCK:
         global _WORKERS_STARTED_AT
         _WORKERS_STARTED_AT = time.monotonic()
         for kind, pipeline in PIPELINES.items():
-            if kind in _WORKERS:
-                started.append(_WORKERS[kind])
-                continue
+            existing = _WORKERS.get(kind)
+            if existing is not None and existing.running:
+                if existing.store is store:
+                    started.append(existing)
+                    continue
+                # Registered but still running against a different store: a new
+                # lifespan came up while the previous one's step had not
+                # finished. The kind slot can only hold one worker, so the live
+                # thread moves to `_STRANDED` rather than being overwritten —
+                # overwriting it would be the same defect one level down.
+                _STRANDED.append(existing)
+                logger.warning(
+                    "任务种类 %s 的 worker %s 仍在运行，且绑定的存储与本次启动不同；"
+                    "已把它移入 _STRANDED（仍可被 stop_job_workers 回收），"
+                    "并为新存储另起一个 worker。",
+                    kind,
+                    existing.worker_id,
+                )
+            # A registered worker whose thread has already exited is simply
+            # replaced: the branch above did not `continue`, so the new worker
+            # takes the slot. Reusing it would hand back a worker that drains
+            # nothing while the process reported a started queue.
             worker = JobWorker(store, pipeline, settings=config)
             _WORKERS[kind] = worker
             worker.start()
@@ -766,19 +810,97 @@ def stop_job_workers(timeout: float = 5.0) -> list[JobWorker]:
     the job leased, and the next process recovers it — which is the same path a
     crash takes, so a clean shutdown and a kill are the same thing to the
     database, which is the property that makes the recovery test meaningful.
+
+    **A worker is only forgotten once it has really stopped.** The join is
+    attempted first and the entry is removed afterwards, so a stop whose budget
+    expired leaves a live, *reachable* handle: the next shutdown call — another
+    lifespan teardown, a test's fixture, a later test module in the same session
+    — re-joins it with a fresh budget and collects it. That is what makes a
+    failed shutdown recoverable rather than terminal, and it is why the registry
+    is worth having at all: it is the answer to "did shutdown actually happen?".
+
+    Those that do not stop are logged at ERROR here rather than at DEBUG, because
+    the caller is the lifespan teardown, which is about to report the process as
+    stopped and cannot be expected to second-guess it. :func:`stuck_workers` is
+    the programmatic form of the same question, and it is the only honest way
+    for a caller to distinguish this shutdown from a clean one.
+
+    Returns every worker this call asked to stop — the ones that stopped *and*
+    the ones that did not — because a caller counting "how many workers did this
+    process have" wants the attempt set. Which of them actually stopped is
+    answered by :func:`stuck_workers`, not by the length of the list.
     """
     with _WORKER_LOCK:
-        workers = list(_WORKERS.values())
-        _WORKERS.clear()
-    for worker in workers:
-        worker.stop(timeout=timeout)
-    return workers
+        pending = list(_WORKERS.items())
+    stuck: list[JobWorker] = []
+    for kind, worker in pending:
+        if worker.stop(timeout=timeout):
+            with _WORKER_LOCK:
+                # Only drop the entry if it is still *this* worker. A concurrent
+                # `start_job_worker` may have replaced a worker that had already
+                # exited; removing by key alone would delete the live one.
+                if _WORKERS.get(kind) is worker:
+                    del _WORKERS[kind]
+        else:
+            stuck.append(worker)
+    for worker in stranded_workers():
+        if not worker.stop(timeout=timeout):
+            stuck.append(worker)
+        else:
+            with _WORKER_LOCK:
+                if worker in _STRANDED:
+                    _STRANDED.remove(worker)
+    if stuck:
+        logger.error(
+            "有 %d 个任务 worker 未能在 %.1fs 内停止（%s）；它们仍留在 worker 注册表中，"
+            "可被下一次 stop_job_workers() 再次回收。正在执行的任务会保留租约，"
+            "并由下一次启动的恢复流程接管。",
+            len(stuck),
+            float(timeout),
+            "、".join(sorted(worker.worker_id for worker in stuck)),
+        )
+    return [worker for _kind, worker in pending]
+
+
+def stranded_workers() -> list[JobWorker]:
+    """Workers displaced from the registry that are still running.
+
+    Public because "is there a live thread nobody owns" is a question about the
+    process, not about one worker's kind, and because a test asserting on
+    teardown has to be able to see one to assert that it is gone.
+    """
+    with _WORKER_LOCK:
+        return list(_STRANDED)
+
+
+def stuck_workers() -> list[JobWorker]:
+    """The workers whose threads are still running after a shutdown.
+
+    The question a clean stop and a failed stop used to answer identically. A
+    caller that wants to *be sure* the process drained — a health check, a test
+    asserting teardown, an operator reading a log — asks this, and an empty list
+    is now evidence rather than a tautology. It is a read, not a second stop:
+    nothing here joins, clears, or reorders anything.
+    """
+    with _WORKER_LOCK:
+        return [
+            worker
+            for worker in list(_WORKERS.values()) + list(_STRANDED)
+            if worker.running
+        ]
 
 
 def active_workers() -> list[JobWorker]:
-    """The workers currently running. For a shutdown log line and for tests."""
+    """The workers currently running. For a shutdown log line and for tests.
+
+    A worker that could not be stopped is still running, and is still counted:
+    reporting the process drained while a thread is draining the queue is the
+    symptom this registry was reordered to remove. Stranded workers are included
+    for the same reason — a displaced live thread is more certainly doing work
+    than an idle registered one.
+    """
     with _WORKER_LOCK:
-        return [worker for worker in _WORKERS.values()]
+        return list(_WORKERS.values()) + list(_STRANDED)
 
 
 def resolve_object_store() -> ObjectStore:
