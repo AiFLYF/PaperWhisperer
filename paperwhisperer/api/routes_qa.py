@@ -57,6 +57,7 @@ from paperwhisperer.core.errors import (
     build_sse_headers,
 )
 from paperwhisperer.core.text import redact_secrets
+from paperwhisperer.ingestion.schema import ParsedDocument
 from paperwhisperer.llm.prompts import normalize_answer_mode
 from paperwhisperer.sessions.store import (
     cleanup_expired_sessions,
@@ -90,7 +91,42 @@ def _parse_ask_request(data: dict):
     }, None
 
 
-def build_qa_analyzer(api_key: str, document_content: str) -> DocumentAnalyzer:
+def _registered_document(stores, document_id: str) -> ParsedDocument | None:
+    """The canonical document this session was built from, or ``None``.
+
+    :func:`build_qa_analyzer` resolves this and hands the result to the
+    analyzer as ``qa_document``, which is the whole of the fix for the 404 on
+    every citation click. See that function for why the session's own
+    ``document_id`` is the right thing to retrieve over.
+
+    ``None`` for every reason there is no such document, and they are not
+    distinguished here: a session predating this, a document deleted from the
+    store, a deployment that never registered one. They share one honest
+    outcome — the caller falls back to the text-derived document, which is what
+    it did before this existed and which the analyzer's own ``warnings`` already
+    describe. Guessing between them would mean inventing a document.
+
+    ``record.document`` is checked for *elements*, not merely for presence:
+    ``upsert_document`` backfills an empty ``ParsedDocument`` for a document
+    whose payload carried none, and handing that to the retriever would index a
+    document with no text and answer every question from an empty scope.
+    """
+    if not str(document_id or "").strip():
+        return None
+    try:
+        record = stores.metadata.get_document(str(document_id).strip())
+    except Exception:  # noqa: BLE001 - a store that cannot answer is "no document"
+        logger.warning("读取会话文档失败，Q&A 将退回纯文本重建文档。", exc_info=True)
+        return None
+    document = getattr(record, "document", None) if record is not None else None
+    if document is None or not getattr(document, "elements", None):
+        return None
+    return document
+
+
+def build_qa_analyzer(
+    api_key: str, document_content: str, *, document_id: str = ""
+) -> DocumentAnalyzer:
     """An analyzer wired to retrieve over this session's document.
 
     The store bundle is attached after construction rather than passed to
@@ -112,10 +148,52 @@ def build_qa_analyzer(api_key: str, document_content: str) -> DocumentAnalyzer:
     retriever records the dense leg's abstention as a degradation, so the fact
     is visible rather than inferred. A deployment that has indexed vectors and
     wants them used sets ``analyzer.embedder``.
+
+    **Which document Q&A retrieves over, and why it is the registered one.**
+    A session persists two things about the upload: the flat
+    ``document_content`` the analysis prompts consumed, and the ``document_id``
+    the analysis result published. They are *not* two interchangeable
+    spellings of one upload, and only one of them can own a citation.
+
+    ``document_content`` is a projection. Flattening the parse into prose drops
+    the page boundaries, the bounding boxes, the heading tree and the tables, so
+    the document rebuilt from it (:func:`parsed_document_from_text`) carries
+    ``txt_offset`` locators and nothing else. A citation into that resolves to
+    a character range: no page, no highlight, no page image. The registered
+    document carries ``pdf_page`` locators and ``BoundingBox``es, and is the
+    only one the evidence panel can render.
+
+    They also have different ids, and that is the defect this line fixes. The
+    rebuilt document's id is a content hash of the flat text
+    (``doc_<sha256(text)>``) while the analysis published the parse's own id, so
+    the ``ev_*`` ids the retriever minted were content addresses over *the
+    rebuilt document's chunks* — and the evidence route, correctly scoped to
+    the document named in the URL, had no candidate to match them against.
+    Every citation a reader could click answered ``404 evidence_not_found``,
+    in a product whose pitch is "click a citation and see the passage".
+    Widening the resolver's candidate set would have "fixed" that by letting
+    one document's citation resolve inside another, which is the
+    cross-document leak the route exists to prevent; the mis-addressing was on
+    this side of the seam.
+
+    So the retrieved document is the one this session actually names. When it is
+    present, ``qa_document`` is set and the analyzer prefers it over
+    re-deriving anything (``DocumentAnalyzer._qa_document`` checks
+    ``qa_document`` first), which also means retrieval indexes *that* document
+    and the citations carry real locators. When it is absent — no id, a reaped
+    document, a deployment that never registered one — the previous behaviour
+    stands, and the analyzer's own ``warnings`` say in as many words that the
+    structure is rebuilt from text. That degraded path is why
+    ``routes_v1.ask_about_document`` already had to set ``qa_document`` by hand:
+    this is the same correction, applied where the id was available and unused.
     """
     analyzer = DocumentAnalyzer(api_key)
-    analyzer.store_bundle = get_store_bundle()
+    stores = get_store_bundle()
+    analyzer.store_bundle = stores
     analyzer.document_content = document_content
+    qa_document = _registered_document(stores, document_id)
+    if qa_document is not None:
+        analyzer.qa_document = qa_document
     return analyzer
 
 
@@ -168,7 +246,9 @@ async def ask_question(request: Request):
             data.get("session_id"), data.get("session_token"), require_token=True
         )
         analyzer = build_qa_analyzer(
-            values["resolved_api_key"], get_session_document_content(session_payload)
+            values["resolved_api_key"],
+            get_session_document_content(session_payload),
+            document_id=str(session_payload.get("document_id") or ""),
         )
 
         started_at = time.time()
@@ -250,7 +330,9 @@ async def ask_question_stream(request: Request):
     def produce():
         """Blocking generator driven from a worker thread by ``pump_sync_events``."""
         analyzer = build_qa_analyzer(
-            values["resolved_api_key"], get_session_document_content(session_payload)
+            values["resolved_api_key"],
+            get_session_document_content(session_payload),
+            document_id=str(session_payload.get("document_id") or ""),
         )
         yield {"type": "start", "data": {"session_id": safe_session_id}}
 

@@ -639,7 +639,11 @@ def _answer_stage(context: JobContext) -> None:
     safe_session_id, session_payload = load_validated_session(
         context.job.session_id, payload.get("session_token"), require_token=True
     )
-    analyzer = build_qa_analyzer(api_key, get_session_document_content(session_payload))
+    analyzer = build_qa_analyzer(
+        api_key,
+        get_session_document_content(session_payload),
+        document_id=str(session_payload.get("document_id") or ""),
+    )
     result = as_answer_result(
         analyzer.answer_question(
             str(payload.get("question") or ""),
