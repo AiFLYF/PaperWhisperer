@@ -47,6 +47,7 @@ running them many times, not by faking them.
 
 from __future__ import annotations
 
+import sqlite3
 import threading
 import time
 import uuid
@@ -736,19 +737,76 @@ class TestAWorkerOutlivingItsStore:
         and the bundle is closed a moment later. The worker must survive that
         and finish on its own terms — here, by noticing it was asked to stop and
         leaving the job recoverable — rather than by touching a dead connection.
+
+        **This asserts the ownership rule directly, not merely survival.** The
+        worker publishes the connection it opened for itself, and after the
+        closing thread has run, that connection must still be usable. On the old
+        code another thread had freed it, and the check raises
+        ``sqlite3.ProgrammingError`` — the defect, observed as a value rather
+        than inferred from the absence of a core dump.
+
+        Note what this test is *not* able to do, because it is worth being exact:
+        the worker here is parked in ``release.wait()`` rather than inside
+        ``execute()``, so nothing is in flight across the close and the process
+        does not segfault on the old code — ``close()`` frees the handle and the
+        worker's next store call short-circuits on ``_closed`` before reaching
+        SQLite. The segfault pin is
+        ``test_closing_the_database_under_a_running_worker_does_not_kill_the_process``,
+        which holds a statement in flight on purpose. What this test uniquely
+        sees is the handle itself, and it is the one that failed for a reason
+        unrelated to the fix (below).
+
+        The wait for the orphan to finish is on an :class:`threading.Event` the
+        step sets in its own ``finally``, so it ends when the step has actually
+        finished rather than after a guessed interval. The liveness check is
+        scoped to the thread this test created: the previous version scanned
+        *every* thread in the process named ``job-worker-*``, which couples the
+        test to
+        ``tests/test_e2e_journey.py`` — that module deliberately leaves a worker
+        mid-parse at teardown, and that thread outlives the module, so this
+        test failed on a thread belonging to a file that had already passed.
         """
         harness = self._harness(tmp_path)
         try:
             store = harness.store
             reached = threading.Event()
             release = threading.Event()
+            # This worker's own identity, so the wait below ends on the step
+            # having finished rather than after a guessed interval.
+            orphan = threading.Event()
+            observed: dict[str, str] = {}
+            # The connection the *worker thread* opened for itself, published so
+            # the test can inspect its state after the closing thread has run.
+            worker_connection: list = []
 
             def _step(context: J.JobContext) -> None:
                 # A stage that is still working when `stop()` is called, the
                 # way a multi-minute parse is.
                 reached.set()
+                worker_connection.append(context.store.connection)
                 release.wait(timeout=30)
-                context.heartbeat()  # a store call after the close
+                # A store call after the close. The worker is parked in
+                # `release.wait()` above, not inside `execute()`, so on its own
+                # this call could not detect a freed handle: `connection()`
+                # raises on the `_closed` flag before it ever reaches SQLite.
+                # It is recorded anyway, because what the worker does with the
+                # error — an ordinary exception on this thread, which the loop
+                # can carry on from, rather than the interpreter dying — is the
+                # difference between "the fix held" and "the crash never came
+                # this time".
+                try:
+                    context.heartbeat()
+                except RuntimeError as exc:
+                    observed["heartbeat"] = str(exc)
+                except Exception as exc:  # noqa: BLE001 - recorded and asserted below
+                    observed["heartbeat"] = f"{type(exc).__name__}: {exc}"
+                else:
+                    observed["heartbeat"] = "no error"
+                finally:
+                    # Set from the worker thread itself, so the wait below ends
+                    # on the step having *finished* — not on a guess about how
+                    # long it ought to take.
+                    orphan.set()
 
             pipeline = J.JobPipeline(
                 kind="document_analysis",
@@ -772,23 +830,62 @@ class TestAWorkerOutlivingItsStore:
             # store it was told to stop using. Under the old code the handle was
             # freed here, which either segfaulted the process or raised out of
             # the loop; either way the suite died at teardown.
-            deadline = time.monotonic() + 30.0
-            while time.monotonic() < deadline:
-                alive = [t for t in threading.enumerate() if t.name.startswith("job-worker-")]
-                if not alive:
-                    break
-                time.sleep(0.05)
-            remaining = [t.name for t in threading.enumerate() if t.name.startswith("job-worker-")]
-            assert remaining == [], (
-                f"被 stop() 遗弃的 worker 线程仍在运行：{remaining}。"
-                "stop() 超时后线程被丢弃，没有任何东西能再让它退出。"
+            #
+            # The wait is on `orphan`, which the worker sets in its own `finally`
+            # once the post-close `heartbeat()` has returned. That is a real
+            # signal, not a sleep: the assertion below can no longer be made by a
+            # slow machine or a loaded CI box, and it can no longer be made by
+            # *somebody else's* thread.
+            assert orphan.wait(timeout=30), (
+                "被 stop() 遗弃的 worker 在 30 秒内没有跑完它的步骤；"
+                "join 超时后线程被丢弃，没有任何东西能再让它退出。"
             )
-            # Reaching this line at all is half the assertion: under the old
-            # code, closing the bundle under the still-running worker either
-            # freed its SQLite handle mid-execute (SIGSEGV, process gone before
-            # any summary) or raised `RuntimeError: 数据库连接已关闭。` out of the
-            # loop during this window and aborted the whole run at teardown.
-            # Surviving the window with no live worker left is the fix.
+
+            # The store call the step made after its store was closed came back
+            # as an ordinary exception on the worker thread, rather than taking
+            # the interpreter with it.
+            assert "数据库连接已关闭" in observed.get("heartbeat", ""), (
+                f"关闭后的 store 调用没有按预期报出连接已关闭，而是：{observed.get('heartbeat')!r}。"
+                "这说明 close() 之后的 store 调用没有走 _closed 短路。"
+            )
+
+            # **The assertion that actually pins the fix.** The connection the
+            # worker thread opened for itself must still be open after the main
+            # thread called `close()`. This is the ownership rule stated in
+            # `SqliteDatabase.close`: a handle is released by the thread using
+            # it, or after that thread has finished — never by a second thread
+            # while the first is still running.
+            #
+            # It is also the only way *this* test could have caught the defect,
+            # because the worker here is parked in `release.wait()` rather than
+            # inside `execute()`. Nothing is in flight across the close, so the
+            # process does not segfault on the old code — `close()` frees the
+            # handle and the worker's next call short-circuits on `_closed`
+            # before it ever reaches SQLite. The segfault pin lives in
+            # `test_closing_the_database_under_a_running_worker_does_not_kill_
+            # the_process`, which holds a statement in flight on purpose. What
+            # this test can see, and could not before, is the freed handle
+            # itself: under the old code this execute() raises
+            # `sqlite3.ProgrammingError`, and under the fix it simply works.
+            assert worker_connection, "步骤没有发布它自己的连接，断言无从检查。"
+            try:
+                worker_connection[0].execute("SELECT 1").fetchall()
+            except sqlite3.ProgrammingError as exc:
+                pytest.fail(
+                    "另一个线程在 worker 仍在运行时关闭了它自己的 SQLite 连接"
+                    f"（{exc}）。连接只能由使用它的线程释放，或者在该线程结束之后释放；"
+                    "这正是本次修复所确立的所有权规则。"
+                )
+
+            # And the worker this test created — not any worker in the process —
+            # is gone. Scoped by the thread object rather than by a name prefix
+            # over `threading.enumerate()`, because the prefix is process-global.
+            worker_thread = worker._thread
+            if worker_thread is not None:
+                worker_thread.join(timeout=30)
+                assert not worker_thread.is_alive(), (
+                    f"本用例创建的 worker 线程仍在运行：{worker_thread.name}。"
+                )
         finally:
             _quiesce_before_close(harness)
 
