@@ -114,11 +114,35 @@ def function_body(source: str, name: str) -> str:
     Brace counting is done with string state tracked, so a ``{`` inside a
     template literal or a string does not close the function early — the
     failure mode that turns a structural assertion into a flaky one.
+
+    The opening brace is the first one *outside* the parameter list, so a
+    destructured parameter (``buildHeader(view, { badge })``) is not mistaken
+    for the body. The parameter list is skipped by counting parentheses, which
+    also survives a default value containing one.
     """
     match = re.search(rf"function\s+{re.escape(name)}\s*\(", source)
     assert match, f"function {name}() is missing"
 
-    index = source.index("{", match.end())
+    index = match.end()
+    depth = 1
+    while index < len(source) and depth > 0:
+        char = source[index]
+        if char in "\"'`":
+            quote = char
+            index += 1
+            while index < len(source):
+                if source[index] == "\\":
+                    index += 2
+                    continue
+                if source[index] == quote:
+                    break
+                index += 1
+        elif char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        index += 1
+    index = source.index("{", index)
     depth = 0
     start = index
     while index < len(source):
@@ -941,3 +965,100 @@ def test_the_new_template_markup_is_reachable_and_nested_correctly():
             assert f'id="{element_id}"' in INDEX_HTML, (
                 f"{name} reads #{element_id}, which is not in the template"
             )
+
+
+# ==========================================================================
+#
+# The viewer's language
+# ==========================================================================
+
+
+VIEWER = (JS_DIR / "evidenceViewer.js").read_text(encoding="utf-8")
+VIEWER_BODY = strip_js_comments(VIEWER)
+
+#: Every sentence the panel invents for itself, and the render function that
+#: puts it on screen. Each is asserted to go through the catalogue, because a
+#: partially translated panel is worse than an untranslated one: the reader has
+#: no way to know which half of the evidence they can trust.
+VIEWER_SURFACES = {
+    "buildHeader": ("evidence.view_kind", "evidence.not_a_raster"),
+    "buildHighlightStatus": ("evidence.highlight_drawn", "evidence.highlight_absent"),
+    "buildTruncationNotes": ("evidence.view.blocks_truncated", "evidence.view.omitted_relative"),
+    "renderPageMap": ("evidence.view.preview_truncated",),
+    "renderSlideView": ("evidence.view.no_text",),
+    "renderElementView": ("evidence.paragraph_label", "evidence.view.no_text"),
+    "renderEvidenceView": ("evidence.unsupported_view",),
+}
+
+
+def test_the_viewer_routes_every_interface_string_through_the_catalogue():
+    """One reader-facing sentence per key, and the key is looked up.
+
+    Not a grep for Chinese: the point is that the *lookup* exists, so the string
+    follows the reader's switch. A literal in any of these functions is a
+    sentence that will render in Chinese under an English interface, and the
+    panel is the last surface a reader looks at before deciding to trust a
+    citation.
+    """
+    assert "from './i18n.js'" in VIEWER
+    catalogue = (JS_DIR / "i18n.js").read_text(encoding="utf-8")
+    for function_name, keys in VIEWER_SURFACES.items():
+        body = function_body(VIEWER_BODY, function_name)
+        for key in keys:
+            assert key in body, f"{function_name}() does not use '{key}'"
+            assert key in catalogue, f"{key} is not shipped in the catalogue"
+        # The lookup, not the constant: a table read straight into `textContent`
+        # is the failure this file's whole no-framework section is about.
+        assert re.search(r"\bt\(", body) or "localised(" in body, (
+            f"{function_name}() builds user-visible text with no catalogue lookup"
+        )
+
+
+def test_the_viewer_does_not_route_the_documents_own_words_through_the_catalogue():
+    """The other half of the boundary, and the one that is easy to over-apply.
+
+    Routing the *cited passage* through the catalogue would translate a
+    reader's paper because they switched their interface. So the passage, the
+    block previews, the heading path and the server's own note are passed
+    through untouched. Asserted per call site rather than by grep, because the
+    shapes differ — a block's preview is the third argument of `element()`, the
+    note is the second of `paragraph()` — and a reader who "helpfully" wrapped
+    one of them in `t()` would still leave the other four alone.
+    """
+    cases = {
+        "renderPageMap": "block.text_preview",
+        "renderSlideView": "block.text",
+        "renderElementView": "block.text",
+        "renderEvidenceView": "view.note",
+    }
+    for function_name, expression in cases.items():
+        body = function_body(VIEWER_BODY, function_name)
+        assert expression in body, f"{function_name}() no longer reads {expression}"
+        # Every catalogue call in the function, with its argument list, so the
+        # document expression can be caught *inside* one rather than merely
+        # somewhere on the same line as one.
+        arguments = re.findall(r"\b(?:t|localised)\([^()]*", body)
+        for call in arguments:
+            assert expression not in call, (
+                f"{function_name}() routes {expression} through the catalogue: {call!r}"
+            )
+    # The heading path is the document's own outline, joined as sent.
+    element_view = function_body(VIEWER_BODY, "renderElementView")
+    assert "path.join(' › ')" in element_view
+    assert "view.label" in function_body(VIEWER_BODY, "buildHeader")
+
+
+def test_the_viewer_repaints_the_open_panel_on_a_locale_change():
+    """Structural half of the repaint; `tests/test_i18n.py` runs it.
+
+    Read here so that unsubscribing is caught by this file's structural pass
+    rather than by a behavioural test in another one, and asserted here because
+    this is the file that owns the viewer.
+    """
+    assert "onLocaleChange" in VIEWER
+    match = re.search(r"onLocaleChange\((.*?)\);", VIEWER, re.DOTALL)
+    assert match, "evidenceViewer.js does not register a locale listener"
+    assert "repaintLocalizedView" in match.group(1)
+    assert "repaintLocalizedView" in function_body(VIEWER_BODY, "renderEvidenceView") or (
+        "lastRenderedView" in VIEWER_BODY
+    ), "the repaint has nothing to repaint without the remembered view"

@@ -1984,3 +1984,53 @@ def test_no_module_overwrites_a_translated_container_with_an_english_literal():
         assert key in template, f"{key} is not declared in index.html"
     for key in ("upload.file_meta_empty", "queue.meta", "mode.detail.evidence", "section.empty.summary"):
         assert f"'{key}'" in catalogue, f"{key} is not in the catalogue"
+
+
+def test_switching_language_reaches_the_whole_evidence_panel_and_not_just_its_headline():
+    """The gap this closes was a panel that was half translated, not untranslated.
+
+    The previous change routed the panel's headline, its state banners and the
+    claim chips through the catalogue, and left ``evidenceViewer.js`` — the part
+    that draws the region the citation points at — hardcoded in Chinese. So an
+    English reader got an English panel with Chinese badges, Chinese highlight
+    notes and Chinese paragraph numbers inside it, immediately beside the
+    citation they were deciding whether to trust. That is worse than leaving it
+    in Chinese, because it tells the reader the page is translated when part of
+    it is not.
+
+    Asserted at the join, which is where the defect lived: the panel repaints
+    through ``renderEvidencePayload``, and *that* is what draws the view. A viewer
+    that translated itself but was never re-rendered by the panel's own repaint
+    would pass a test that only looked inside the viewer.
+    """
+    evidence = ALL_JS["evidence.js"]
+    viewer = ALL_JS["evidenceViewer.js"]
+
+    # The panel's repaint must reach the viewer, or the interior is repainted
+    # only by whatever else happens to call it.
+    repaint = re.search(
+        r"function repaintLocalizedSurfaces\(\).*?\n\}", evidence, re.DOTALL
+    )
+    assert repaint, "repaintLocalizedSurfaces() is missing from evidence.js"
+    assert "renderEvidencePayload" in repaint.group(0)
+
+    # And the payload render must draw the view, not merely describe it.
+    payload_render = re.search(r"function renderEvidencePayload\(.*?\n\}", evidence, re.DOTALL)
+    assert payload_render, "renderEvidencePayload() is missing from evidence.js"
+    assert "renderEvidenceView" in payload_render.group(0)
+
+    # The viewer subscribes on its own as well, for the case where the panel's
+    # repaint does not run (the panel closed its payload but the container is
+    # still on screen). Both renders write the same children, so they cannot
+    # disagree.
+    assert "onLocaleChange" in viewer
+    assert "localised(" in viewer and re.search(r"\bt\(", viewer)
+
+    # Every Chinese literal that used to live in this module is gone. A string
+    # that never reaches the interface is not an offender, so this is scoped to
+    # a value written into an element.
+    leftovers = re.findall(r"\.textContent\s*=\s*'([^']{3,})'", viewer)
+    leftovers += re.findall(r"\.title\s*=\s*'([^']{3,})'", viewer)
+    assert not [value for value in leftovers if re.search(r"[一-鿿]", value)], (
+        f"the viewer still writes Chinese directly: {leftovers}"
+    )

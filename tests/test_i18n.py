@@ -51,7 +51,14 @@ INDEX_HTML = TEMPLATE.read_text(encoding="utf-8")
 #: They were the last three renderers whose sentences were produced at render
 #: time and hardcoded, and they are the surfaces where a mixed-language page is
 #: worst, because they sit immediately beside a citation the reader is about to
-#: trust. `evidenceViewer.js` is still unmigrated and is deliberately not listed.
+#: trust.
+#:
+#: `evidenceViewer.js` joined when the *inside* of the evidence panel was
+#: migrated, which closed the gap the previous change left: a panel that
+#: re-rendered its headline in English while its badges, notes and paragraph
+#: numbers stayed Chinese is the partially translated interface, and a reader
+#: has no way to tell which half of the panel to trust. Every remaining module
+#: is still unmigrated and is deliberately not listed.
 MIGRATED_MODULES = (
     "i18n.js",
     "a11y.js",
@@ -62,6 +69,28 @@ MIGRATED_MODULES = (
     "claims.js",
     "evidence.js",
     "parseStatus.js",
+    "evidenceViewer.js",
+)
+
+#: The catalogue keys `evidenceViewer.js` builds at run time, and therefore the
+#: ones no single `t('...')` call in the source can be found by grepping.
+#:
+#: A key assembled from a wire value is the one kind of catalogue reference that
+#: escapes the "no bare literal" and "actually calls `t()`" assertions above:
+#: there is nothing to grep, so a key that stopped existing would only surface
+#: as a dotted string rendered onto a citation panel.
+VIEWER_DYNAMIC_KEYS = (
+    "evidence.view_kind.page_map",
+    "evidence.view_kind.slide_view",
+    "evidence.view_kind.element_view",
+    "evidence.view_kind.fallback",
+    "evidence.no_target.unknown_locator",
+    "evidence.no_target.relative_bbox",
+    "evidence.no_target.missing_bbox",
+    "evidence.no_target.missing_page",
+    "evidence.no_target.malformed_bbox",
+    "evidence.no_target.incomplete_locator",
+    "evidence.view_target_missing",
 )
 
 
@@ -741,6 +770,9 @@ class El {
         this.children = [];
         this.attributes = {};
         this.dataset = {};
+        // `evidenceViewer.js` positions its rectangles by writing `style.left`
+        // and friends, so the shim has to carry an object to write them on.
+        this.style = {};
         this.hidden = false;
         this._text = null;
         this.isConnected = true;
@@ -761,8 +793,13 @@ class El {
     replaceChildren(...nodes) { this.children = []; nodes.forEach(node => this.appendChild(node)); }
     set textContent(value) { this.children = []; this._text = String(value); }
     get textContent() {
-        if (this._text !== null && this.children.length === 0) return this._text;
-        return this.children.map(child => child.textContent).join('');
+        // The shim keeps the assigned text *and* later-appended children, which
+        // is what a real node does: setting `textContent` clears the children,
+        // and appending after that adds to it. Summing them is what lets
+        // `buildHighlightStatus` — which writes its sentence and then appends
+        // the reason code — be read back as one string.
+        const own = this._text === null ? '' : this._text;
+        return own + this.children.map(child => child.textContent).join('');
     }
     addEventListener() {}
     focus() {}
@@ -803,6 +840,31 @@ globalThis.window = {
 };
 globalThis.getComputedStyle = globalThis.window.getComputedStyle;
 globalThis.__el = (tag) => new El(tag);
+// Every element carrying a class, read back out by that class. `evidenceViewer.js`
+// says which sentence belongs to which surface by which element it puts it in,
+// so the surface has to be selectable the same way a reader could see it.
+globalThis.__byClass = (node, className) => {
+    const out = [];
+    const walk = current => {
+        const own = String((current.attributes || {}).class || '').split(/\\s+/);
+        if (own.indexOf(className) >= 0) out.push(current);
+        (current.children || []).forEach(walk);
+    };
+    walk(node);
+    return out.map(current => current.textContent);
+};
+// `title` is text a reader is shown on hover, and the truncated-preview marker
+// lives in nothing else.
+globalThis.__titles = (node, className) => {
+    const out = [];
+    const walk = current => {
+        const own = String((current.attributes || {}).class || '').split(/\\s+/);
+        if (own.indexOf(className) >= 0) out.push(String(current.title || ''));
+        (current.children || []).forEach(walk);
+    };
+    walk(node);
+    return out;
+};
 globalThis.__texts = (node) => {
     const out = [];
     const walk = current => {
@@ -1134,6 +1196,393 @@ def test_the_evidence_and_claim_surfaces_re_render_on_a_locale_change():
             f"the parse-status locale listener does not re-run {call}, so the "
             "reparse control would keep the previous language"
         )
+
+
+def run_viewer_harness(workdir: Path, body: str) -> dict:
+    """Execute `body` against the real `evidenceViewer.js` and `i18n.js`.
+
+    The viewer is imported by absolute path from the shipped file, and it is
+    imported *first* so its own `onLocaleChange` subscription is registered
+    before anything else runs — the ordering the browser has, and the ordering
+    that decides which repaint wins.
+    """
+    (workdir / "dom_shim.mjs").write_text(DOM_SHIM, encoding="utf-8")
+    harness = workdir / "viewer_harness.mjs"
+    harness.write_text(
+        "import './dom_shim.mjs';\n"
+        "const viewer = await import(%r);\n"
+        "const i18n = await import(%r);\n"
+        "let result = null;\n"
+        "try {\n"
+        f"{body}\n"
+        "} catch (error) {\n"
+        "    result = { __threw: String(error && error.message) };\n"
+        "}\n"
+        "process.stdout.write(JSON.stringify(result === undefined ? null : result));\n"
+        % (str(JS_DIR / "evidenceViewer.js"), str(JS_DIR / "i18n.js")),
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        ["node", str(harness)], capture_output=True, text=True, timeout=60, cwd=workdir
+    )
+    assert completed.returncode == 0, f"harness failed: {completed.stderr}"
+    return json.loads(completed.stdout)
+
+
+#: A viewer payload per render branch, each carrying the interface strings this
+#: migration was about and the document strings it must leave alone.
+#:
+#: The block and passage text is deliberately Chinese and deliberately
+#: meaningless: a fixture in English could not distinguish "the document's words
+#: survived the switch" from "the document's words happen to read the same in
+#: both languages".
+VIEWER_VIEWS = """
+const PASSAGE = '本文提出了一种新的检索增强生成方法，并在大规模语料上验证了它的有效性。';
+const pageMap = {
+    kind: 'page_map',
+    label: 'p3',
+    note: '这一页没有原始渲染图，下面是按解析坐标重建的布局。',
+    is_raster: false,
+    coordinate_space: 'pdf_user_space_points',
+    frame: { x: 0, y: 0, width: 600, height: 800 },
+    blocks: [
+        { element_id: 'e1', role: 'text', x: 40, y: 700, width: 500, height: 24, text_preview: PASSAGE, preview_truncated: true },
+        { element_id: 'e2', role: 'text', x: 40, y: 660, width: 200, height: 18, text_preview: '相关工作' }
+    ],
+    target: null,
+    target_rejected: { reason_code: 'relative_bbox', message: '相对坐标，无法定位' },
+    blocks_total: 1204,
+    blocks_shown: 2,
+    blocks_truncated: true,
+    omitted: { relative_bbox: 3, unpositioned: 1 }
+};
+const slideView = {
+    kind: 'slide_view',
+    label: 'slide 4',
+    target: { text: PASSAGE },
+    blocks: [
+        { element_id: 's1', role: 'text', text: PASSAGE, is_target: true },
+        { element_id: 's2', role: 'text', text: '' }
+    ]
+};
+const elementView = {
+    kind: 'element_view',
+    label: '第 3 节',
+    heading_path: ['第三章 方法', '3.2 检索增强'],
+    target: { text: PASSAGE },
+    context: [
+        { paragraph: 41, role: 'text', text: PASSAGE, is_target: true },
+        { paragraph: 42, role: 'text', text: '' }
+    ]
+};
+// Declared in the order the harness renders them, which is not alphabetical:
+// the page map is last, because it is the view left on screen when the switch
+// happens, and it carries every string this migration was about — the badge,
+// the truncation notes and the absent-highlight sentence — except the
+// paragraph numbers.
+const views = { slide_view: slideView, element_view: elementView, page_map: pageMap };
+"""
+
+
+def test_the_inside_of_the_evidence_panel_re_renders_in_the_readers_language(i18n_module):
+    """The gap this migration closed: an English panel that was still Chinese.
+
+    `claims.js`, `evidence.js` and `parseStatus.js` were routed through the
+    catalogue by the previous change; `evidenceViewer.js` was left, and left
+    was worse than untranslated — the panel's headline became English while the
+    badge, the highlight notes, the truncation notes, the paragraph numbers and
+    the "no text" placeholders stayed Chinese, inside the one surface a reader
+    is looking at when deciding whether to trust a citation.
+
+    So this renders all three view branches in Chinese, flips the switch, and
+    asserts that every interface string on screen is the English one.
+    """
+    body = textwrap.dedent(
+        """
+        i18n.setLocale('zh-CN');
+        """
+        + VIEWER_VIEWS
+        + textwrap.dedent(
+            """
+            const container = globalThis.document.getElementById('evidenceViewer');
+
+            // Read the panel back out by class, because which sentence belongs
+            // to which surface is the thing under test.
+            const read = () => ({
+                kinds: __byClass(container, 'evidence-view-kind'),
+                badges: __byClass(container, 'evidence-view-badge'),
+                labels: __byClass(container, 'evidence-view-label'),
+                statuses: __byClass(container, 'evidence-view-status'),
+                truncations: __byClass(container, 'evidence-view-truncation'),
+                numbers: __byClass(container, 'evidence-paragraph-number'),
+                slideText: __byClass(container, 'evidence-slide-text'),
+                paragraphText: __byClass(container, 'evidence-paragraph-text'),
+                pageBlocks: __byClass(container, 'evidence-page-block'),
+                targets: __byClass(container, 'evidence-page-target'),
+                notes: __byClass(container, 'evidence-view-note'),
+                titles: __titles(container, 'evidence-page-block')
+            });
+
+            function renderAll() {
+                const out = {};
+                Object.entries(views).forEach(([kind, view]) => {
+                    viewer.renderEvidenceView(view);
+                    out[kind] = read();
+                });
+                return out;
+            }
+
+            const zh = renderAll();
+
+            // The reader flips the switch. Nothing below calls the repaint
+            // explicitly yet: the panel left on screen is the page map, and if
+            // the viewer's own subscription is missing it is still Chinese here.
+            i18n.setLocale('en');
+            const afterEvent = read();
+
+            // And the repaint is idempotent, exactly as `evidence.js`'s
+            // subscription calling through `renderEvidencePayload` is.
+            viewer.repaintLocalizedView();
+            const afterRepaint = read();
+
+            const en = renderAll();
+
+            result = { zh, afterEvent, afterRepaint, en };
+            """
+        )
+    )
+    result = run_viewer_harness(i18n_module, body)
+    assert "__threw" not in result, result
+
+    # Fixture sanity: the panel really did start in Chinese, so "it is now
+    # English" is a statement about the switch and not about a payload that
+    # happened to be English to begin with.
+    assert result["zh"]["page_map"]["kinds"] == ["页内布局（按解析坐标重建）"]
+    assert result["zh"]["page_map"]["badges"] == ["非原始渲染图"]
+    assert result["zh"]["element_view"]["numbers"] == ["第 41 段", "第 42 段"]
+    assert result["zh"]["slide_view"]["slideText"][1] == "（无文本）"
+    assert result["zh"]["page_map"]["titles"][0] == "（预览已截断）"
+    # Only the first block's preview is clipped; the other carries no title at
+    # all, which is the same in both languages.
+    assert result["zh"]["page_map"]["titles"][1:] == [""]
+
+    # The subscription is the mechanism, so the panel left on screen by the
+    # event alone has to be English before any explicit repaint is called.
+    assert result["afterEvent"]["kinds"] == ["Page layout (rebuilt from parse coordinates)"]
+    assert result["afterEvent"]["badges"] == ["Not a rendered image"]
+
+    # Idempotence: a second repaint must not change anything, so a panel that
+    # repaints twice for one switch still reads once.
+    assert result["afterRepaint"] == result["afterEvent"], (
+        "repainting the open panel twice produced different text"
+    )
+
+    en = result["en"]
+    # Every interface string on every branch, in English.
+    assert en["page_map"]["kinds"] == ["Page layout (rebuilt from parse coordinates)"]
+    assert en["slide_view"]["kinds"] == ["Slide content"]
+    assert en["element_view"]["kinds"] == ["Paragraph location"]
+    assert en["page_map"]["badges"] == ["Not a rendered image"]
+    assert en["page_map"]["titles"] == ["(preview truncated)", ""]
+    assert en["element_view"]["numbers"] == ["Paragraph 41", "Paragraph 42"]
+    assert en["slide_view"]["slideText"][1] == "(no text)"
+    assert en["element_view"]["paragraphText"][1] == "(no text)"
+    assert "relative bounding box" in en["page_map"]["statuses"][0]
+    assert "No highlight box drawn" in en["page_map"]["statuses"][0]
+    assert en["slide_view"]["statuses"] == [
+        "The highlight box comes from this evidence’s own bounding box (absolute "
+        "coordinates), using the same PDF user-space coordinates as the elements "
+        "inside the page."
+    ]
+    assert "1,204" in en["page_map"]["truncations"][0], (
+        "the block count was not localised: " + repr(en["page_map"]["truncations"])
+    )
+    assert "3 elements carry a relative bounding box" in en["page_map"]["truncations"][1]
+    assert "1 elements have no coordinates" in en["page_map"]["truncations"][2]
+
+    # Not one interface string anywhere is still Chinese.
+    for kind, surface in en.items():
+        for name, values in surface.items():
+            if name in ("pageBlocks", "targets", "paragraphText", "slideText", "labels", "notes"):
+                continue  # the document's words and the server's own prose
+            for value in values:
+                assert not re.search(r"[一-鿿]", value), (
+                    f"{kind}.{name} is still Chinese under an English interface: {value!r}"
+                )
+
+
+def test_the_viewer_leaves_the_documents_own_words_where_they_are(i18n_module):
+    """The document-language boundary, on the surface it is easiest to break.
+
+    The same axis `test_switching_language_does_not_relabel_a_chinese_papers_headings`
+    pins for the claim and the passage, applied to the panel's interior: the
+    paragraph furniture around a citation is the interface's, and the paragraph
+    itself is the paper's. Relabelling a reader's paper because they switched
+    their interface is a worse failure than an untranslated button.
+    """
+    body = textwrap.dedent(
+        """
+        i18n.setLocale('zh-CN');
+        """
+        + VIEWER_VIEWS
+        + textwrap.dedent(
+            """
+            const container = globalThis.document.getElementById('evidenceViewer');
+            const read = () => ({
+                pageBlocks: __byClass(container, 'evidence-page-block'),
+                targets: __byClass(container, 'evidence-page-target'),
+                paragraphText: __byClass(container, 'evidence-paragraph-text'),
+                slideText: __byClass(container, 'evidence-slide-text'),
+                headings: __byClass(container, 'evidence-heading-path'),
+                labels: __byClass(container, 'evidence-view-label'),
+                notes: __byClass(container, 'evidence-view-note'),
+                numbers: __byClass(container, 'evidence-paragraph-number')
+            });
+            const zh = {};
+            Object.entries(views).forEach(([kind, view]) => {
+                viewer.renderEvidenceView(view);
+                zh[kind] = read();
+            });
+            i18n.setLocale('en');
+            viewer.repaintLocalizedView();
+            const en = {};
+            Object.entries(views).forEach(([kind, view]) => {
+                viewer.renderEvidenceView(view);
+                en[kind] = read();
+            });
+            result = { zh, en };
+            """
+        )
+    )
+    result = run_viewer_harness(i18n_module, body)
+    assert "__threw" not in result, result
+
+    document_surfaces = (
+        "pageBlocks",
+        "targets",
+        "paragraphText",
+        "slideText",
+        "headings",
+        "labels",
+        "notes",
+    )
+    #: Where each branch keeps the document's own words. One passage string is
+    #: used across all three fixtures, so one check covers them.
+    passage_by_kind = {
+        "page_map": "pageBlocks",
+        "slide_view": "slideText",
+        "element_view": "paragraphText",
+    }
+    for kind in ("page_map", "slide_view", "element_view"):
+        for name in document_surfaces:
+            expected = list(result["zh"][kind][name])
+            if name in ("paragraphText", "slideText"):
+                # Index 0 is the document's own words and must not move; the
+                # rest are the "no text" placeholder, which is the interface's
+                # and is asserted to have switched by the test above.
+                expected = expected[:1]
+            assert result["en"][kind][name][: len(expected)] == expected, (
+                f"{kind}.{name} was rewritten by the language switch: "
+                f"{expected!r} became {result['en'][kind][name]!r}"
+            )
+        # Fixture sanity: the paper is Chinese, so a translation would be
+        # visible as the text losing its ideographs.
+        assert re.search(r"[一-鿿]", result["en"][kind][passage_by_kind[kind]][0]), (
+            f"{kind}: the cited passage should still be Chinese"
+        )
+    # And the furniture around it really did move, or the assertions above are
+    # passing because the switch did nothing.
+    assert result["en"]["element_view"]["numbers"] == ["Paragraph 41", "Paragraph 42"]
+    assert result["zh"]["element_view"]["numbers"] == ["第 41 段", "第 42 段"]
+
+
+def test_a_viewer_string_with_no_catalogue_key_falls_back_to_a_sentence(i18n_module):
+    """A missing key must not become a dotted key or an empty element.
+
+    `t()` returns the key itself for an entry the catalogue does not carry,
+    which is right while reviewing the source and wrong on the page: a badge
+    reading `evidence.not_a_raster` reads as a broken control, and a note
+    reading nothing reads as a statement there is nothing to say. So the
+    sentence the module was migrated *from* is kept as a floor.
+    """
+    body = textwrap.dedent(
+        """
+        i18n.setLocale('en');
+        """
+        + VIEWER_VIEWS
+        + textwrap.dedent(
+            """
+            const container = globalThis.document.getElementById('evidenceViewer');
+            viewer.renderEvidenceView(views.page_map);
+            const before = __byClass(container, 'evidence-view-badge');
+
+            // Remove the entry from both locales, which is what a build that
+            // lost the key actually looks like: `t()` has nothing left and
+            // answers with the key.
+            delete i18n.CATALOGUE['en']['evidence.not_a_raster'];
+            delete i18n.CATALOGUE['zh-CN']['evidence.not_a_raster'];
+            const viaKey = i18n.t('evidence.not_a_raster');
+
+            viewer.renderEvidenceView(views.page_map);
+            const after = __byClass(container, 'evidence-view-badge');
+
+            // The same question asked with no code at all, and with a code this
+            // build has never heard of: both must still say something.
+            const noCode = viewer.describeMissingHighlight({});
+            const unknownCode = viewer.describeMissingHighlight({
+                target_rejected: { reason_code: 'a_code_from_a_future_build' }
+            });
+            const knownCode = viewer.describeMissingHighlight({
+                target_rejected: { reason_code: 'relative_bbox' }
+            });
+
+            result = { before, viaKey, after, noCode, unknownCode, knownCode };
+            """
+        )
+    )
+    result = run_viewer_harness(i18n_module, body)
+    assert "__threw" not in result, result
+
+    assert result["before"] == ["Not a rendered image"]
+    assert result["viaKey"] == "evidence.not_a_raster", (
+        "the premise of this test is that `t()` answers with the key itself"
+    )
+    assert result["after"] == ["非原始渲染图"], (
+        "a missing catalogue key must degrade to the sentence, not to the key "
+        f"and not to nothing: {result['after']!r}"
+    )
+    assert result["after"] != result["viaKey"]
+    for name in ("noCode", "unknownCode", "knownCode"):
+        value = result[name]
+        assert value.strip(), f"{name} rendered as an empty string"
+        assert not value.startswith("evidence."), (
+            f"{name} fell through to a catalogue key: {value!r}"
+        )
+    assert result["knownCode"] == (
+        "This evidence carries a relative bounding box. Mapped onto the page it "
+        "would highlight the wrong region, so no highlight box is offered."
+    ), (
+        "a code the client knows must be described in the reader's language "
+        f"from the catalogue, not from the server's prose: {result['knownCode']!r}"
+    )
+
+
+def test_the_viewer_subscribes_to_locale_changes_and_repainits_the_open_panel():
+    """The subscription, asserted on the source; the effect, asserted above.
+
+    Splitting it this way is deliberate: reading `onLocaleChange` out of the
+    file catches a module that unsubscribed, and running the module catches one
+    that subscribes and forgets to re-render. Neither alone is the guarantee.
+    """
+    viewer = (JS_DIR / "evidenceViewer.js").read_text(encoding="utf-8")
+    assert "from './i18n.js'" in viewer, "the viewer does not import the catalogue"
+    match = re.search(r"onLocaleChange\((.*?)\);", viewer, re.DOTALL)
+    assert match, "evidenceViewer.js does not register a locale listener"
+    assert "repaintLocalizedView" in match.group(1)
+    assert "repaintLocalizedView" in viewer, (
+        "the repaint must be exported so a test can drive it, as evidence.js "
+        "exports repaintLocalizedSurfaces"
+    )
 
 
 # --------------------------------------------------------------------------

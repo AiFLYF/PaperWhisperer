@@ -7,6 +7,59 @@ import {
     VIEW_TARGET_MISSING_CODE,
     VIEW_TARGET_MISSING_MESSAGE
 } from './config.js';
+import { formatNumber, onLocaleChange, t } from './i18n.js';
+
+/**
+ * The catalogue key prefix for the sentence about a reason code.
+ *
+ * Two vocabularies meet in {@link reasonCatalogueKey} and neither is derived
+ * from the other: the server sends a `reason_code`, and `config.js` holds this
+ * client's copy of the code vocabulary. The key is built *from* the code, but
+ * only after the client recognises the code — a key built from a code nobody
+ * recognises renders as `evidence.no_target.something_new` on the page.
+ */
+const REASON_CODE_KEY_PREFIX = 'evidence.no_target.';
+
+/** The one code that means "the region resolved, the block is not in it". */
+const TARGET_MISSING_KEY = 'evidence.view_target_missing';
+
+/**
+ * The floor for the placeholder that stands in for an empty block.
+ *
+ * Not interface copy in the catalogue sense — it stands for the *absence* of
+ * the document's own text — but it is still a sentence the interface chose, so
+ * it is translated like one and falls back to this rather than to a key.
+ */
+const NO_TEXT_PLACEHOLDER = '（无文本）';
+
+/**
+ * `t()`, with a floor under it.
+ *
+ * `t()` already falls back to the Chinese catalogue and then to the key
+ * itself. The key is right for a reviewer reading the page source and wrong for
+ * a reader looking at the page: a badge that says `evidence.not_a_raster` reads
+ * as a broken button, which is the opposite of the reassurance it carries. So
+ * every sentence this module migrated away from a `config.js` constant keeps
+ * that constant as its floor, and a catalogue entry that goes missing degrades
+ * to a sentence — never to a dotted key and never to a blank element.
+ *
+ * The floors are unreachable while the catalogue carries every key, and
+ * `tests/test_i18n.py` asserts that it does, in both languages.
+ */
+function localised(key, floor) {
+    const text = t(key);
+    return text === key ? floor : text;
+}
+
+/** The reason code the resolver sent, resolved to a catalogue key or `null`. */
+function reasonCatalogueKey(code) {
+    if (code === VIEW_TARGET_MISSING_CODE) {
+        return TARGET_MISSING_KEY;
+    }
+    // `NO_TARGET_MESSAGES` is the client's vocabulary, and membership in it is
+    // what says this build can describe the code at all.
+    return NO_TARGET_MESSAGES[code] ? `${REASON_CODE_KEY_PREFIX}${code}` : null;
+}
 
 /**
  * The evidence view: the region a citation points at, drawn.
@@ -40,9 +93,22 @@ import {
  * of two independent gates on the same failure, because a highlight over the
  * wrong lines is a wrong citation that looks completely right.
  *
- * Everything user-facing is Chinese, and every degraded state is a visible
- * element with a `data-state` — the panel never answers "could not locate
- * this" with an empty box, because an empty box reads as a load failure.
+ * **Interface copy is localised; the document's words are not.** Every sentence
+ * this module puts in front of a reader — the view kind, the badge, the two
+ * highlight notes, the truncation notes, the paragraph numbers, the "no text"
+ * placeholders, the unsupported-kind notice — goes through `t()` and is re-read
+ * on a locale change. The things it does *not* translate are the ones that are
+ * not the interface's: the cited passage, a page block's preview, a heading
+ * path, `view.label`, and `view.note`. Those are the document's words or the
+ * server's own prose, and an English reader looking at a Chinese paper must
+ * still see them in the paper's language — see `documentLocale` in `i18n.js`.
+ * Getting that boundary wrong in the *other* direction is the worse error,
+ * which is why the two are kept visibly apart below: interface strings are
+ * looked up by key, document strings are copied byte for byte.
+ *
+ * Every degraded state is a visible element with a `data-state` — the panel
+ * never answers "could not locate this" with an empty box, because an empty
+ * box reads as a load failure.
  */
 
 /**
@@ -112,25 +178,35 @@ function paragraph(className, text) {
 /**
  * The sentence explaining a missing highlight.
  *
- * Prefers the reason the view shipped, falls back to the reason vocabulary
- * keyed by its code, and only then to the view-local "the block is not in the
- * region". The order is not cosmetic: the view's own reason is the one that
- * describes *this* absence, and a generic fallback would describe a different
- * one.
+ * The reason code is looked up **before** the sentence the view shipped, and
+ * the order is the point. The code is the stable, language-neutral half of the
+ * contract and every code this build knows has a sentence in the reader's own
+ * language; `target_rejected.message` is the server's prose, whose language is
+ * an assumption rather than a fact. So the code decides, and the server's
+ * sentence is used only for a code this build has never heard of — which is
+ * exactly the order `errorPresentation()` in `i18n.js` uses for backend
+ * errors, and for the same reason: an English interface that strands a Chinese
+ * sentence beside it is the mixed-language page, not a translated one.
+ *
+ * The last resort is the view-local "this evidence has no drawable
+ * coordinates", and it is a *visible* sentence rather than an empty element.
  */
 function describeMissingHighlight(view) {
     const rejected = view?.target_rejected || {};
     const code = String(rejected.reason_code || '');
+    const key = reasonCatalogueKey(code);
+    if (key) {
+        return localised(
+            key,
+            code === VIEW_TARGET_MISSING_CODE
+                ? VIEW_TARGET_MISSING_MESSAGE
+                : NO_TARGET_MESSAGES[code]
+        );
+    }
     if (rejected.message) {
         return String(rejected.message);
     }
-    if (NO_TARGET_MESSAGES[code]) {
-        return NO_TARGET_MESSAGES[code];
-    }
-    if (code === VIEW_TARGET_MISSING_CODE || code) {
-        return VIEW_TARGET_MISSING_MESSAGE;
-    }
-    return '该证据没有可绘制的定位坐标。';
+    return localised('evidence.view.no_drawable_target', '该证据没有可绘制的定位坐标。');
 }
 
 /**
@@ -145,7 +221,9 @@ function describeMissingHighlight(view) {
 function buildHighlightStatus(view, drawn, reason) {
     const status = element('p', 'evidence-view-status');
     status.dataset.highlight = drawn ? 'drawn' : 'absent';
-    status.textContent = drawn ? HIGHLIGHT_DRAWN_NOTE : `${reason} ${HIGHLIGHT_ABSENT_NOTE}`;
+    status.textContent = drawn
+        ? localised('evidence.highlight_drawn', HIGHLIGHT_DRAWN_NOTE)
+        : `${reason} ${localised('evidence.highlight_absent', HIGHLIGHT_ABSENT_NOTE)}`;
     if (!drawn) {
         const code = element('span', 'evidence-view-reason-code');
         code.dataset.reasonCode = String(view?.target_rejected?.reason_code || '');
@@ -161,37 +239,58 @@ function buildHighlightStatus(view, drawn, reason) {
  * blocks to fit its payload, clipped a preview or refused to place a mirrored
  * box says so. A viewer that quietly shows 40 of 400 blocks teaches the reader
  * that the page has 40 blocks.
+ *
+ * The counts are the reader's numbers, so they go through `formatNumber`: a
+ * four-figure block count grouped the English way and not the Chinese way is
+ * the sort of detail that makes an interface look translated rather than
+ * localised, and this is one of the few places it is visible at all.
  */
 function buildTruncationNotes(view) {
     const notes = [];
     if (view.blocks_truncated) {
-        notes.push(
-            `本页共 ${Number(view.blocks_total || 0)} 个带坐标的元素，` +
-            `布局中只画出前 ${Number(view.blocks_shown || 0)} 个，其余已省略。`
-        );
+        notes.push(t('evidence.view.blocks_truncated', {
+            total: formatNumber(Number(view.blocks_total || 0)),
+            shown: formatNumber(Number(view.blocks_shown || 0))
+        }));
     }
     const omitted = view.omitted || {};
     const relativeCount = Number(omitted.relative_bbox || 0);
     const unpositionedCount = Number(omitted.unpositioned || 0);
     if (relativeCount) {
-        notes.push(`${relativeCount} 个元素是相对坐标框，无法确定位置，未画入布局。`);
+        notes.push(t('evidence.view.omitted_relative', { count: formatNumber(relativeCount) }));
     }
     if (unpositionedCount) {
-        notes.push(`${unpositionedCount} 个元素没有坐标，未画入布局。`);
+        notes.push(t('evidence.view.omitted_unpositioned', { count: formatNumber(unpositionedCount) }));
     }
     return notes;
 }
 
+/**
+ * The header: what this view is, what it is labelled, and whether it is a
+ * rendering of the page.
+ *
+ * `view.kind` is a wire value this build may not know. An unknown kind gets the
+ * generic "located view" sentence rather than the key it would otherwise print,
+ * because the alternative is a header reading `evidence.view_kind.something_new`
+ * to someone who has just clicked a citation.
+ */
 function buildHeader(view, { badge }) {
     const head = element('div', 'evidence-view-head');
-    const kind = element('span', 'evidence-view-kind', VIEW_KIND_LABELS[view.kind] || '定位视图');
+    const kind = element('span', 'evidence-view-kind', t(
+        VIEW_KIND_LABELS[view.kind] ? `evidence.view_kind.${view.kind}` : 'evidence.view_kind.fallback'
+    ));
     kind.dataset.kind = String(view.kind || '');
     head.appendChild(kind);
     if (view.label) {
+        // The server's own label for the region ("p3", "slide 4"). It names the
+        // document's own coordinate, so it is shown as sent.
         head.appendChild(element('span', 'evidence-view-label', view.label));
     }
     if (badge) {
-        const marker = element('span', 'evidence-view-badge', VIEW_NOT_A_RASTER_BADGE);
+        const marker = element('span', 'evidence-view-badge', localised(
+            'evidence.not_a_raster',
+            VIEW_NOT_A_RASTER_BADGE
+        ));
         marker.dataset.raster = 'false';
         head.appendChild(marker);
     }
@@ -236,7 +335,7 @@ function renderPageMap(view, root) {
         applyPlacement(node, placement);
         if (block.preview_truncated) {
             node.dataset.previewTruncated = 'true';
-            node.title = '（预览已截断）';
+            node.title = t('evidence.view.preview_truncated');
         }
         canvas.appendChild(node);
     });
@@ -289,7 +388,13 @@ function renderSlideView(view, root) {
         if (block.text_truncated) {
             item.dataset.textTruncated = 'true';
         }
-        item.appendChild(element('span', 'evidence-slide-text', block.text || '（无文本）'));
+        // `block.text` is the document's own words and is copied as sent; the
+        // placeholder only stands in when there are none.
+        item.appendChild(element(
+            'span',
+            'evidence-slide-text',
+            block.text || localised('evidence.view.no_text', NO_TEXT_PLACEHOLDER)
+        ));
         list.appendChild(item);
     });
     list.dataset.blocksShown = String(blocks.length);
@@ -327,8 +432,19 @@ function renderElementView(view, root) {
         if (block.text_truncated) {
             item.dataset.textTruncated = 'true';
         }
-        item.appendChild(element('span', 'evidence-paragraph-number', `第 ${block.paragraph} 段`));
-        item.appendChild(element('span', 'evidence-paragraph-text', block.text || '（无文本）'));
+        // The number is interface furniture around the document's words, so it
+        // is the one half of this row that follows the reader's switch; the
+        // text beside it never does.
+        item.appendChild(element(
+            'span',
+            'evidence-paragraph-number',
+            t('evidence.paragraph_label', { label: block.paragraph })
+        ));
+        item.appendChild(element(
+            'span',
+            'evidence-paragraph-text',
+            block.text || localised('evidence.view.no_text', NO_TEXT_PLACEHOLDER)
+        ));
         list.appendChild(item);
     });
     list.dataset.blocksShown = String(context.length);
@@ -338,6 +454,18 @@ function renderElementView(view, root) {
     root.appendChild(buildHighlightStatus(view, drawable, describeMissingHighlight(view)));
     return root;
 }
+
+/**
+ * The view this container is currently showing.
+ *
+ * Remembered for exactly the reason `evidence.js` remembers which host it
+ * rendered a claim into: this module produces its text at render time, so a
+ * locale change can only be honoured by re-rendering, and a re-render needs
+ * the payload the last render used. `null` means "nothing is on screen", which
+ * is different from "something is on screen and it is empty" — so a repaint
+ * after a deliberate hide does nothing rather than resurrecting the view.
+ */
+let lastRenderedView = null;
 
 /**
  * Render one evidence's view into the panel.
@@ -359,6 +487,7 @@ function renderEvidenceView(view) {
     if (!view || typeof view !== 'object') {
         container.hidden = true;
         container.dataset.kind = '';
+        lastRenderedView = null;
         return null;
     }
 
@@ -372,6 +501,11 @@ function renderEvidenceView(view) {
         // element rather than a `title` tooltip because a reader who cannot
         // see it would read the layout as the page, which is the mistake the
         // badge and this note exist together to prevent.
+        //
+        // It is also the one sentence in this panel this module does *not*
+        // own: the server chose it, and it carries no code beside it to key a
+        // translation on. It is shown as sent, which is the honest reading —
+        // the alternative is guessing at which of the server's notes this is.
         note.dataset.role = 'disclaimer';
         root.appendChild(note);
     }
@@ -384,13 +518,49 @@ function renderEvidenceView(view) {
         renderElementView(view, root);
     } else {
         root.dataset.kind = 'unsupported';
-        root.appendChild(paragraph('evidence-view-note', '该定位类型没有可展示的视图。'));
+        root.appendChild(paragraph('evidence-view-note', t('evidence.unsupported_view')));
     }
 
     container.appendChild(root);
     container.hidden = false;
+    lastRenderedView = view;
     return root;
 }
 
+/**
+ * Repaint the open panel in the new language.
+ *
+ * This is the same shape as `repaintLocalizedSurfaces()` in `evidence.js`:
+ * remember what was rendered, re-render it on `onLocaleChange`, and do nothing
+ * when there is nothing on screen. `evidence.js` owns the panel and repaints
+ * through `renderEvidencePayload`, which calls this module — so the panel-open
+ * case is already covered there. This subscription covers the rest: the panel
+ * is open but its payload repaint did not run, and a viewer left showing the
+ * previous language beside an interface in the new one, which is worse than no
+ * translation at all because the reader has no way to know which half to trust.
+ *
+ * Both renders write the same children into the same container and the last one
+ * wins, so the two subscriptions cannot disagree.
+ */
+function repaintLocalizedView() {
+    if (!lastRenderedView) return;
+    const panel = document.getElementById('evidencePanel');
+    // The panel carries the viewer's visibility. A closed panel is hidden with
+    // its contents, and repainting a subtree nobody can see buys nothing and
+    // risks resurrecting a view the reader has already dismissed.
+    if (panel && panel.hidden) return;
+    renderEvidenceView(lastRenderedView);
+}
 
-export { describeMissingHighlight, isDrawableBox, placeBox, renderEvidenceView };
+// A module is a singleton in the ES module graph, so this runs once per page
+// and needs no `localeBound` flag: `evidence.js` guards its own subscription
+// because it subscribes from an initialiser that may run more than once.
+onLocaleChange(repaintLocalizedView);
+
+export {
+    describeMissingHighlight,
+    isDrawableBox,
+    placeBox,
+    renderEvidenceView,
+    repaintLocalizedView
+};

@@ -273,6 +273,20 @@ const ZH_CN = {
     'evidence.not_a_raster': VIEW_NOT_A_RASTER_BADGE,
     'evidence.unsupported_view': '这种定位类型没有可展示的视图。',
 
+    // --- evidenceViewer.js: the inside of the panel ------------------------
+    //
+    // These are the sentences that made an English interface a Chinese panel.
+    // Two of them carry numbers, and those go through `formatNumber` rather
+    // than `String(n)`, because a block count is one of the few places a
+    // reader sees a digit group and the grouping is part of the language.
+    'evidence.paragraph_label': '第 {label} 段',
+    'evidence.view.no_drawable_target': '该证据没有可绘制的定位坐标。',
+    'evidence.view.blocks_truncated': '本页共 {total} 个带坐标的元素，布局中只画出前 {shown} 个，其余已省略。',
+    'evidence.view.omitted_relative': '{count} 个元素是相对坐标框，无法确定位置，未画入布局。',
+    'evidence.view.omitted_unpositioned': '{count} 个元素没有坐标，未画入布局。',
+    'evidence.view.preview_truncated': '（预览已截断）',
+    'evidence.view.no_text': '（无文本）',
+
     // --- recommendations ---------------------------------------------------
     'recommend.signal.cited_by': RECOMMENDATION_SIGNAL_LABELS.cited_by,
     'recommend.signal.citing': RECOMMENDATION_SIGNAL_LABELS.citing,
@@ -589,6 +603,16 @@ const EN = {
     'evidence.highlight_absent': 'No highlight box drawn: the positions below cannot be given provably correct coordinates, so none is offered. The passage is still shown underneath.',
     'evidence.not_a_raster': 'Not a rendered image',
     'evidence.unsupported_view': 'This kind of location has no view to show.',
+
+    // --- evidenceViewer.js: the inside of the panel ------------------------
+    // The counterpart of the `zh-CN` block above, sentence for sentence.
+    'evidence.paragraph_label': 'Paragraph {label}',
+    'evidence.view.no_drawable_target': 'This evidence has no drawable coordinates.',
+    'evidence.view.blocks_truncated': 'This page has {total} positioned elements in total; only the first {shown} are drawn in the layout, and the rest are left out.',
+    'evidence.view.omitted_relative': '{count} elements carry a relative bounding box, so their position cannot be determined and they are not drawn into the layout.',
+    'evidence.view.omitted_unpositioned': '{count} elements have no coordinates and are not drawn into the layout.',
+    'evidence.view.preview_truncated': '(preview truncated)',
+    'evidence.view.no_text': '(no text)',
 
     'recommend.signal.cited_by': 'Cited by',
     'recommend.signal.citing': 'Citing',
