@@ -14,11 +14,9 @@ So this file performs it. The three rules it follows:
   ``POST /api/ask/stream`` emits. An ``ev_…`` string assembled here would prove
   only that this file agrees with itself, which is exactly the failure mode that
   let D1 survive a green suite the first time.
-* **The document id is not chosen either.** It is the one
-  :func:`persist_document` registered — the document a reader's upload *is* in
-  this product — and it is the one the browser pairs with: ``sections.js:150``
-  reads ``data.document_id`` off the analysis result into
-  ``state.currentDocumentId``, and ``evidence.js:303`` builds
+* **The document id is not chosen either.** It is the id the browser pairs
+  with: ``sections.js:150`` reads ``data.document_id`` off the analysis result
+  into ``state.currentDocumentId``, and ``evidence.js:303`` builds
   ``/v1/documents/{that}/evidence/{chip's evidence id}``. That exact URL is
   what :func:`citation_click_url` reproduces.
 * **No model, no network.** The endpoint answered 429 for an entire previous
@@ -27,14 +25,31 @@ So this file performs it. The three rules it follows:
   the ``ev_…`` ids out of the prompt it was handed and cites one — so it proves
   the plumbing end to end, and proves it on a machine with no route to a model.
 
-The isolation test at the bottom is deliberately *not* a variant of the failing
-one. It asserts that an evidence id genuinely belonging to a **different paper**
-is still refused, so a future "just widen the candidate set" fix cannot pass by
-making every citation resolve.
+**And a second defect this file now also covers.** Fixing the id/document pairing
+was not enough, because there was a case in which the document was not in the
+store at all: ``/api/analyze`` published a ``document_id`` it never registered
+(``attach_document_identity`` copies the parse's id because a chip addresses
+``/v1/documents/{id}/evidence/{id}``, and the job stage declared ``indexing`` a
+passthrough). The uploaded walkthrough never saw this code — it went through
+``POST /v1/documents``, which does register — so every citation it checked was
+addressing a document that happened to exist for an unrelated reason. The
+browser's real path returned ``404 document_not_found`` instead.
+
+The last four tests therefore drive ``POST /api/analyze`` over the real
+application and the real job pipeline, and assert what a reader gets:
+analyze-ask-click resolves; a re-analysis does not embed twice; a failed
+registration still returns the analysis with a notice on the surface the
+interface renders; and **an evidence id genuinely belonging to a different
+paper is still refused** against the document the analysis registered. That last
+one is deliberately not a variant of the passing case: "every id resolves
+somewhere" is not a fix, it is a much worse product — a reader clicking a
+citation would be shown a passage from a document they did not open, and one
+whose text happened to align would look correct.
 """
 
 from __future__ import annotations
 
+import io
 import json
 import re
 from pathlib import Path
@@ -47,6 +62,7 @@ from fastapi.testclient import TestClient
 from paperwhisperer.analysis import orchestrator
 from paperwhisperer.api import routes_evidence, routes_qa
 from paperwhisperer.api.routes_v1 import persist_document
+from paperwhisperer.core import config
 from paperwhisperer.infra.stores import build_sqlite_bundle
 from paperwhisperer.ingestion.schema import Element, ParsedDocument, SourceLocator
 
@@ -492,98 +508,460 @@ def test_a_guessed_evidence_id_is_refused_and_reveals_nothing(client, store, reg
 
 
 # --------------------------------------------------------------------------
-# A second, independent defect — found while looking for the first
+# The browser's own path, end to end: analyze, ask, click
 # --------------------------------------------------------------------------
+#
+# Everything above composes the two halves by hand. This section drives the path
+# a reader actually walks, over the real application, with the real job
+# pipeline:
+#
+#   POST /api/analyze -> POST /api/ask/stream -> GET /v1/documents/{id}/evidence/{ev}
+#
+# The first leg is where the second defect lived. ``/api/analyze`` publishes a
+# ``document_id`` on its result and the browser reads it into
+# ``state.currentDocumentId`` (``sections.js:150``); the citation chip pairs it
+# with the ``ev_*`` id the Q&A stream emits (``evidence.js:303``). Until the
+# analysis path registered the document it published, that URL addressed a
+# document the store had never heard of and answered ``404
+# document_not_found``. The walkthrough never saw this code precisely because it
+# uploaded through ``/v1/documents``, which does register -- so the test below
+# takes no shortcut around ``/api/analyze``. The id it reads is the id the route
+# published, the registration is the one the analysis performed, and the click
+# resolves against the same process-wide bundle the evidence route reads.
+
+#: The real paper the walkthrough used. A module constant because three tests
+#: upload it and a path computed three times is three chances to mistype it.
+CORPUS = Path(__file__).resolve().parents[1] / "eval" / "corpus" / (
+    "digital_single_col/hinton_distillation.pdf"
+)
+
+#: A key the process does not hold, and long enough for
+#: ``register_ephemeral_secret`` to park it, so the job stage bills the caller's
+#: key and never the environment's. Never reaches a socket: ``scripted_model``
+#: has already replaced ``orchestrator.LLMClient``.
+BROWSER_KEY = "test-key-browser-citation"
 
 
-def test_the_browser_analyze_path_never_registers_the_document_it_publishes(
-    store, scripted_model
-):
-    """``/api/analyze`` publishes a ``document_id`` it never puts in the store.
+class CountingEmbedder:
+    """A real embedder that keeps a count, so "did we embed twice?" is answerable.
 
-    **A separate defect from the one above, and it is not fixed here.** The
-    citation-click fix resolves the ``ev_*`` id against the right document — but
-    only if the document is *there*. In the browser's own flow it is not.
+    Declares no identity, so ``_assert_embedder_matches_index`` does not hold it
+    to a provider/model/dimension this test never configured -- its whole job is
+    to be counted. It still returns well-formed vectors, because the store's
+    dimension guard and ``index_document_for_retrieval``'s "are the vectors
+    already there?" check both depend on real rows existing. That check is the
+    mechanism that makes a second registration cheap, so a double that left the
+    store empty would make the idempotence test pass for the wrong reason.
 
-    ``/api/analyze`` runs the analysis and ``attach_document_identity``
-    (``analysis/service.py:76``) copies ``ParseOutcome.document.document_id``
-    onto the result. That is deliberate: its docstring says the id is there
-    because "a citation chip addresses
-    ``GET /v1/documents/{document_id}/evidence/{evidence_id}``". The browser
-    reads it into ``state.currentDocumentId`` (``sections.js:150``) and every
-    citation click addresses it.
-
-    Nothing on that path registers the document. ``routes_jobs`` declares
-    ``indexing`` a **passthrough** — "本任务不建立索引：文档检索由 /v1/documents
-    负责", on the stated reasoning that "the ``/api`` surface analyses a file
-    for a browser and has no retrieval layer to write to". So the id the browser
-    publishes names a document the store has never heard of, and the click 404s
-    ``document_not_found`` — which is what this assertion records.
-
-    The walkthrough saw ``evidence_not_found`` instead of ``document_not_found``
-    only because it uploaded through ``POST /v1/documents`` first, which *does*
-    register. Drive the browser's real path and the second code is what you get.
-    That is why this defect is invisible to the walkthrough's own repro and
-    would survive a fix for the first one.
-
-    **Why this is reported rather than fixed.** Registering here means writing
-    to the retrieval index and the vector store from the analysis surface — an
-    architectural decision ``routes_jobs.py:396-411`` makes explicitly and in
-    writing, and one whose cost (an embedding call per chunk on every upload) is
-    a deployment decision. The two modules currently disagree: ``routes_jobs``
-    says the analysis surface does not index, and ``attach_document_identity``
-    publishes an index-only id to the browser as though it had. Resolving that is
-    the owner's call — either the analysis registers, or the browser is routed
-    through ``/v1/documents`` — and either way the change is in a file this
-    task does not own.
-
-    The assertion is a characterisation of current behaviour, not a wish, so a
-    fix turns it into a failure that has to be acknowledged.
+    ``embed_documents`` is the batched path ``_embed_chunk_texts`` prefers, so
+    one indexing pass is one entry in ``calls`` and a query embedding (which
+    goes through ``embed_query``) never pollutes the count.
     """
-    import os
 
-    from paperwhisperer.analysis.service import analyze_saved_file
+    def __init__(self, width: int = 8):
+        self.width = width
+        #: One entry per *indexing* pass, holding the texts it was asked to embed.
+        self.calls: list[list[str]] = []
 
-    corpus = Path(__file__).resolve().parents[1] / "eval" / "corpus" / (
-        "digital_single_col/hinton_distillation.pdf"
-    )
-    if not corpus.exists():
+    def embed_documents(self, texts):
+        batch = list(texts)
+        self.calls.append(batch)
+        return [[0.05 * ((index % 5) + 1)] * self.width for index, _ in enumerate(batch)]
+
+    def embed_query(self, text):
+        # Present so the double is a usable embedder, and deliberately not
+        # counted: a query is not an indexing pass, and letting it land in
+        # ``calls`` would make the count a number nobody can argue about.
+        return [0.05] * self.width
+
+
+@pytest.fixture
+def corpus():
+    """The corpus PDF, or a skip that names the claim it cannot make."""
+    if not CORPUS.exists():
         pytest.skip("the corpus PDF is not present; this asserts about the real parse")
+    return CORPUS
 
-    # The suite-wide ``no_unstubbed_job_stage_model`` tripwire refuses to build a
-    # real ``DocumentAnalyzer`` unless a credential is present, so an analysis
-    # test has to opt in. The opt-in does not open a socket here: the
-    # ``scripted_model`` fixture has already replaced ``LLMClient``, and every
-    # completion is answered locally. The variable is restored below either way.
-    previous_key = os.environ.get("OPENAI_API_KEY")
-    os.environ["OPENAI_API_KEY"] = "test-key"
+
+@pytest.fixture
+def object_store(tmp_path):
+    from paperwhisperer.infra.object_store import FilesystemObjectStore
+
+    built = FilesystemObjectStore(tmp_path / "browser-objects", fsync=False)
+    built.initialize()
+    yield built
+    built.close()
+
+
+@pytest.fixture
+def browser(runtime_dirs, store, object_store, monkeypatch, scripted_model):
+    """The real application with only the storage seams replaced.
+
+    Four things point at one bundle on purpose: ``routes_evidence`` (the store
+    the citation click reads), ``orchestrator._QA_STORES`` (the store Q&A
+    retrieves over), the ``get_store_bundle`` dependency, and the registration
+    ``register_analysis_document`` resolves for itself. They are one bundle in a
+    deployment; a fixture that gave each its own would not compose the seam
+    that failed and could pass with the defect still present.
+
+    ``routes_jobs.resolve_object_store`` is monkeypatched rather than
+    dependency-overridden because the job stages resolve it themselves: a stage
+    runs on a worker thread with no request, which is exactly why that function
+    exists separately from ``get_object_store``.
+
+    The lifespan is deliberately **not** entered. No background worker means
+    the waiting request claims the job itself, so these tests observe the work
+    rather than racing a poll interval to catch it afterwards.
+    """
+    from paperwhisperer.api import routes_evidence, routes_jobs, routes_v1
+    from paperwhisperer.app import app
+    from paperwhisperer.infra import jobs as J
+
+    monkeypatch.setattr(config, "PARSER_CACHE_ENABLED", False)
+    monkeypatch.setattr(routes_jobs, "resolve_object_store", lambda: object_store)
+    monkeypatch.setattr(routes_evidence, "_STORES", store)
+
+    # The suite-wide ``no_unstubbed_job_stage_model`` tripwire refuses to build
+    # a real ``DocumentAnalyzer`` unless a credential is present, and these tests
+    # need the real one -- it is what owns ``parse_outcome``, which is what the
+    # registration reads. Restoring a key is the opt-in the tripwire documents.
+    # It opens no socket: ``scripted_model`` has already replaced
+    # ``orchestrator.LLMClient``, so every completion is answered in-process,
+    # and ``monkeypatch`` puts the environment back when the test ends.
+    monkeypatch.setenv("OPENAI_API_KEY", BROWSER_KEY)
+
+    job_store = J.build_job_store(bundle=store)
+    overrides = {
+        routes_evidence.get_store_bundle: lambda: store,
+        routes_v1.get_object_store: lambda: object_store,
+        routes_jobs.get_object_store: lambda: object_store,
+        routes_jobs.get_job_store: lambda: job_store,
+    }
+    app.dependency_overrides.update(overrides)
     try:
-        result = analyze_saved_file(
-            file_path=str(corpus),
-            original_filename=corpus.name,
-            api_key="test-key",
-            generate_mermaid_bool=False,
-            generate_evaluation_bool=False,
-            generate_research_brief_bool=False,
-            session_id="analyze-path-session",
-        )
+        yield TestClient(app)
     finally:
-        if previous_key is None:
-            os.environ.pop("OPENAI_API_KEY", None)
-        else:
-            os.environ["OPENAI_API_KEY"] = previous_key
+        for dependency in overrides:
+            app.dependency_overrides.pop(dependency, None)
 
-    document_id = str(result.get("document_id") or "")
-    assert document_id, "the analysis published no document id for a citation to address"
 
-    # Today: the published id names nothing the evidence API can read. When the
-    # analysis registers the document, this becomes truth and this test fails,
-    # which is the signal that the second defect has been fixed.
-    assert store.metadata.get_document(document_id) is None, (
-        "the analysis path now registers the document it publishes — the second "
-        "defect is fixed. Retire this characterisation and, if the browser flow "
-        "still mis-pairs an id, re-check the citation-click fix."
+@pytest.fixture
+def lexical_only(monkeypatch):
+    """No dense leg, so a hermetic test never loads a 384 MB model.
+
+    ``fastembed`` is available and the shipped configuration enables it, which
+    would make every test here download and load a model to answer a question
+    about routing. The dense leg is not what any of these tests is about: the
+    click resolves over chunks, and the one test that *does* care about vectors
+    installs its own counting double.
+    """
+    monkeypatch.setattr(orchestrator, "_configured_embedder", lambda: None)
+    monkeypatch.setattr(orchestrator, "_QA_RETRIEVERS", {})
+
+
+def analyze_document(browser, corpus, *, session_id: str = "", **form):
+    """``POST /api/analyze`` — what the bundled browser posts.
+
+    Returns ``(status_code, body)`` rather than just the body, because the two
+    statuses this route legitimately answers are two different claims: ``200``
+    carries the analysis the browser renders, and ``202`` says the work finished
+    elsewhere or was recognised as a request already made. Collapsing them here
+    would let the idempotency test assert on a job id it never actually read.
+
+    The failure message names the envelope rather than a missing key, because an
+    error body read as an analysis with no ``document_id`` fails several
+    assertions away from its cause.
+    """
+    response = browser.post(
+        "/api/analyze",
+        files={"file": (corpus.name, io.BytesIO(corpus.read_bytes()), "application/pdf")},
+        data={"api_key": BROWSER_KEY, "session_id": session_id, **form},
     )
+    body = response.json()
+    assert response.status_code in {200, 202}, response.text[:600]
+    return response.status_code, body
+
+
+def analyzed(browser, corpus, *, session_id: str = "", **form) -> dict:
+    """The same call, insisting on the status that carries a rendered analysis.
+
+    Used wherever the test is about the analysis the reader got. The one test
+    that is about deduplication uses :func:`analyze_document` and reads both
+    statuses itself.
+    """
+    status, body = analyze_document(browser, corpus, session_id=session_id, **form)
+    assert status == 200, f"expected the analysis itself, got {status}: {body!r}"
+    return body
+
+
+def test_the_browser_path_analyze_ask_click_resolves(
+    browser, store, corpus, lexical_only
+):
+    """The whole promise, in the order a reader walks it.
+
+    **This test fails without the analysis path registering its own document.**
+    Every id here is read off the wire — the ``document_id`` off the analyze
+    response, the ``ev_*`` id off the ``done`` event of the real SSE stream — so
+    an id hand-assembled in this file could not pass it.
+
+    Four claims, and the middle two are what stop a cheap fix:
+
+    1. The analysis published a ``document_id`` *and* put it in the store, so the
+       citation has something to address.
+    2. The click answers ``200`` with a passage, from the store the *evidence
+       route* reads rather than a bundle this test happens to be holding.
+    3. The passage is the one the citation named — the ``chunk_id`` the answer
+       carried is the ``chunk_id`` the click opened — so the panel did not open
+       *some* passage, it opened *that* one.
+    4. The passage carries a page, so the panel has something to point a
+       highlight at. A chunk resolved with ``txt_offset`` would open and still
+       be unrenderable.
+    """
+    analysis = analyzed(browser, corpus)
+    document_id = str(analysis.get("document_id") or "")
+    assert document_id, f"the analysis published no document id: {analysis!r}"
+
+    # 1. The id the analysis published is a document the store now holds.
+    assert store.metadata.get_document(document_id) is not None, (
+        "the analysis published a document_id the store cannot find, so every "
+        "citation chip in this run addresses nothing"
+    )
+    assert store.metadata.list_chunks(document_id), "the registered document has no chunks"
+
+    payload = ask(browser, (analysis.get("session_id"), analysis.get("session_token")))
+    evidence_ids = chip_evidence_ids(payload)
+    assert evidence_ids, (
+        "the answer carried no citable evidence id, so there was nothing for the "
+        f"chip to address. Answer was: {payload.get('answer')!r}"
+    )
+    citation_chunks = {
+        str(item.get("evidence_id")): str(item.get("chunk_id") or "")
+        for item in payload.get("citations") or []
+        if isinstance(item, dict)
+    }
+
+    for evidence_id in evidence_ids:
+        response = browser.get(citation_click_url(document_id, evidence_id))
+        assert response.status_code == 200, (
+            "a citation the reader can click did not open. The analysis path "
+            "publishes a document_id the store never received, so the URL the "
+            "browser builds resolves to nothing.\n"
+            f"  document: {document_id}\n"
+            f"  evidence: {evidence_id}\n"
+            f"  body: {response.text[:400]}"
+        )
+        body = response.json()
+        assert "error" not in body
+        assert body["document_id"] == document_id
+
+        # 3. The same passage the answer cited, not merely a passage.
+        assert citation_chunks.get(evidence_id), (
+            "the answer cited an evidence id with no chunk behind it; the retriever "
+            "or this file's expectations changed and they are no longer paired"
+        )
+        assert body["chunk_id"] == citation_chunks[evidence_id], (
+            "the click opened a different passage than the citation named — the "
+            "right shape with the wrong text is the worse failure"
+        )
+
+        # 4. And a locator the panel can render.
+        locator = body.get("locator") or {}
+        assert locator.get("page"), (
+            f"the passage opened with no page ({locator!r}); the panel would have "
+            "nothing to point a highlight at"
+        )
+
+
+def test_a_re_analysis_does_not_embed_the_document_twice(
+    browser, store, corpus, monkeypatch
+):
+    """Running the analysis again over the same paper costs no second embedding.
+
+    Two layers have to hold, and the test names both because either one alone
+    would leave the reader paying twice:
+
+    * **The submission.** Two uploads of the same bytes into the same session
+      with the same switches are one request sent twice -- a double-clicked
+      button, a retried fetch. ``routes_jobs.analysis_idempotency_key`` is what
+      says so, and ``deduplicated`` on the second response is what proves it.
+    * **The registration.** Even when a job *does* run again, it must not pay to
+      embed a paper the index already holds.
+      ``index_document_for_retrieval`` answers that before chunking, so a
+      re-analysis re-reads a row and returns.
+
+    The assertion is on the embedding counter, not on the job id: a deduplicated
+    job that still re-ran its stage, or a stage that re-embedded before the
+    second submission was recognised, both leave every other observable correct
+    and the reader paying for the same vectors twice.
+    """
+    embedder = CountingEmbedder()
+    monkeypatch.setattr(orchestrator, "_configured_embedder", lambda: embedder)
+    monkeypatch.setattr(orchestrator, "_QA_RETRIEVERS", {})
+
+    first_status, first = analyze_document(
+        browser, corpus, session_id="rerun-session"
+    )
+    assert first_status == 200, first
+    embedded_after_first = len(embedder.calls)
+    second_status, second = analyze_document(
+        browser, corpus, session_id="rerun-session"
+    )
+
+    assert second_status == 202, (
+        "the second submission should not have re-run the analysis, so it has no "
+        f"result of its own to hand back; got {second_status}: {second!r}"
+    )
+    assert second.get("deduplicated") is True, (
+        "the second submission was answered as fresh work, so a double-clicked "
+        f"button is paying for a second analysis: {second!r}"
+    )
+    assert second.get("job_id") == first.get("job_id"), (
+        "the two submissions were not recognised as one request, so the "
+        "idempotency key has stopped deduplicating and a double-click now costs "
+        "a whole re-analysis"
+    )
+    assert embedded_after_first == 1, (
+        "the first analysis did not embed the document at all; this test would "
+        "otherwise pass on a broken counter"
+    )
+    assert len(embedder.calls) == embedded_after_first, (
+        f"the document was embedded {len(embedder.calls) - embedded_after_first} "
+        "more time(s) for one paper; the registration is not idempotent"
+    )
+
+    document_id = str(first.get("document_id") or "")
+    assert len(store.metadata.list_chunks(document_id)) == int(
+        (first.get("document_registration") or {}).get("chunk_count") or 0
+    ), "the re-analysis changed the chunk set under the reader's citation"
+
+
+def test_a_failed_registration_still_returns_the_analysis_with_a_notice(
+    browser, corpus, lexical_only, monkeypatch
+):
+    """A reader who got their summary keeps it when indexing dies.
+
+    The failure is injected at the one seam that could plausibly take the whole
+    analysis down with it -- the store write that does the embedding -- because
+    a test that broke something else would not have tested the promise. The
+    analysis is still the expensive, real one: a real parse and six real
+    sections.
+
+    The notice is asserted in both places it can be read from, because the
+    reader reaches it in one of them and a client in the other.
+    ``result["parse"]["warnings"]`` is what the shipped front end renders under
+    the Parse Status card (``parseStatus.js``), and
+    ``result["document_registration"]`` is what a client branches on. A notice
+    in only one is a notice half its readers never see.
+    """
+    from paperwhisperer.api import routes_v1
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("the store is down")
+
+    monkeypatch.setattr(routes_v1, "persist_document", unavailable)
+
+    analysis = analyzed(browser, corpus)
+
+    # The analysis, whole.
+    assert analysis.get("summary"), "a store outage cost the reader their summary"
+    assert analysis.get("sections"), "a store outage cost the reader their sections"
+    assert analysis.get("char_count"), "a store outage emptied the analysis"
+    assert analysis.get("session_id") and analysis.get("session_token"), (
+        "a store outage cost the reader their session, so their next question "
+        "has nothing to retrieve from"
+    )
+
+    registration = analysis.get("document_registration") or {}
+    assert registration.get("status") == "failed", registration
+    assert registration.get("code") == "document_indexing_failed", registration
+    notice = str(registration.get("notice") or "")
+    assert notice, "a failed registration reported no notice at all"
+
+    warnings = list((analysis.get("parse") or {}).get("warnings") or [])
+    assert notice in warnings, (
+        "the failure was not surfaced on the surface the interface renders, so a "
+        f"reader would click a citation, get a 404, and be told nothing: {warnings}"
+    )
+    # And the notice has to say the summary survived. A sentence that only named
+    # the failure would read as "your analysis is unreliable", which is the one
+    # claim it must not make: the analysis completed and is returned in full.
+    assert "分析结果本身完整" in notice, (
+        f"the notice does not tell the reader their analysis survived: {notice!r}"
+    )
+    assert "索引" in notice, f"the notice does not say what failed: {notice!r}"
+
+
+def test_an_evidence_id_from_another_paper_is_still_refused_after_registration(
+    browser, store, corpus, lexical_only
+):
+    """Registration did not buy any id the store did not already mint.
+
+    Not a variant of the test above. That one asserts a citation whose evidence
+    belongs to *this* upload opens; this one asserts an id that genuinely names
+    a chunk of a **different** paper is still refused, and that the refusal
+    leaks nothing.
+
+    The distinction is the whole safety argument. "Every id resolves somewhere"
+    is not a fix for the click above -- it is a fix for a different, much worse
+    product: a reader clicking a citation would be shown a passage from a
+    document they did not open, and one whose text happened to align would look
+    correct. So the assertion is on the *code* as well as the status: the
+    response must be the refusal, and the foreign paper's text must not appear
+    anywhere in the body.
+
+    The foreign id is minted by the real retriever over a real second document
+    under the real QA plan, so a resolver that had genuinely learned to leak
+    would be caught here rather than in production. The reader's own document is
+    registered by the **analysis path** rather than by hand, because that is the
+    registration whose scope this test is checking.
+    """
+    from paperwhisperer.api.routes_v1 import persist_document
+    from paperwhisperer.rag.retrieve import TASK_QA, HybridRetriever, plan_for
+
+    # A different paper, registered and indexed so it mints real ids.
+    foreign_document = _paper(
+        "doc_parsed_other_after_registration",
+        first=f"Results: {FOREIGN_FRAGMENT}.",
+        last="This line belongs to a different paper entirely.",
+    )
+    persist_document(store, foreign_document, {"status": "ok"})
+
+    # The reader's document, registered the way the browser's analysis does it.
+    analysis = analyzed(browser, corpus)
+    document_id = str(analysis.get("document_id") or "")
+    assert document_id
+
+    retriever = HybridRetriever(store, embeddings=None, reranker=None)
+    retrieved = retriever.retrieve(
+        "What top-1 accuracy did the other paper report?",
+        plan=plan_for(TASK_QA),
+        document_ids=[foreign_document.document_id],
+    )
+    assert retrieved.evidence, "the foreign document was not retrievable; the fixture is wrong"
+    foreign_id = retrieved.evidence[0].evidence_id
+    assert foreign_id.startswith("ev_")
+
+    # Sanity, in the direction that must keep working: the id *is* a real
+    # citation, and resolves against the document it was minted over. Without
+    # this, the refusal below would only prove the store was empty.
+    owner = browser.get(citation_click_url(foreign_document.document_id, foreign_id))
+    assert owner.status_code == 200, (
+        "the control failed: a real citation against its own document should open. "
+        f"Got {owner.status_code} {owner.text[:300]}"
+    )
+    assert FOREIGN_FRAGMENT in owner.json()["snippet"]["text"]
+
+    # The refusal, against the document the analysis path registered.
+    response = browser.get(citation_click_url(document_id, foreign_id))
+    assert response.status_code == 404, (
+        "an evidence id belonging to another paper resolved against the document "
+        f"the analysis registered — cross-document isolation is broken. Got "
+        f"{response.status_code} {response.text[:300]}"
+    )
+    body = response.json()
+    assert body.get("code") in {"evidence_not_found", "evidence_not_in_document"}, body
+    assert FOREIGN_FRAGMENT not in response.text, "the refusal body leaked the other paper's text"
+    assert "snippet" not in body, body
 
 
 # --------------------------------------------------------------------------

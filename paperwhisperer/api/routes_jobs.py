@@ -396,18 +396,35 @@ def resolve_stage_api_key(job_id: str, context: JobContext | None = None) -> str
 #: The stages between parsing and analysing, declared and doing nothing.
 #:
 #: The state machine's spine is seven states and the pipeline's contiguity check
-#: is what makes a missing stage a loud error at construction. A document
-#: analysis genuinely does not normalise or index — the ``/api`` surface analyses
-#: a file for a browser and has no retrieval layer to write to — so those four
-#: stages are declared as passthroughs. The alternative, a
-#: ``quality_check → analyzing`` shortcut, would let a pipeline skip a stage
+#: is what makes a missing stage a loud error at construction. The alternative,
+#: a ``quality_check -> analyzing`` shortcut, would let a pipeline skip a stage
 #: nobody noticed and the trail would show a job that went straight from parsing
 #: to analysing as though that were the plan.
+#:
+#: **``normalizing`` and ``indexing`` are empty because of where they sit, not
+#: because this pipeline declines to index.** Both are *before* ``analyzing`` in
+#: the spine, so filling them in would make every reader wait on a full
+#: embedding pass before the first section of their summary existed. The
+#: document is chunked and indexed instead at the tail of
+#: :func:`paperwhisperer.analysis.service.finalize_analysis_result`, by
+#: :func:`paperwhisperer.analysis.service.register_analysis_document`: after the
+#: analysis, after the report on disk, and idempotently, so the cost is paid
+#: once per document rather than once per analysis.
+#:
+#: These two reasons used to say the opposite — that "文档检索由 /v1/documents
+#: 负责" — while :func:`~paperwhisperer.analysis.service.attach_document_identity`
+#: published a ``/v1/documents``-only ``document_id`` to the browser as though
+#: this surface had registered it. Two modules disagreed and the reader's
+#: citation chip was what found out: after analyze, ask and a click, the store
+#: had never heard of the document and every chip answered ``404
+#: document_not_found``. The reason strings are data a job trail renders, so a
+#: stale one is not a comment problem; it is the product still asserting
+#: something untrue about itself.
 DOCUMENT_ANALYSIS_PLACEHOLDERS = (
     ("quality_check", "本任务不建立质量门：解析器自身已按质量阈值决定是否升级。"),
     ("fallback", "本任务的解析阶段已包含解析器自身的升级策略。"),
-    ("normalizing", "本任务不切分文档：/api 分析面不写入检索索引。"),
-    ("indexing", "本任务不建立索引：文档检索由 /v1/documents 负责。"),
+    ("normalizing", "本阶段不切分文档：切分在分析完成之后进行，以免读者先等嵌入才看到摘要。"),
+    ("indexing", "本阶段不建立索引：文档由 finalize_analysis_result 在分析完成后登记并建索引。"),
 )
 
 
@@ -536,6 +553,16 @@ def _analyse_stage(context: JobContext) -> None:
     of not reaching inside is one cache read, which is the cheapest available
     alternative to owning a second copy of the escalation policy.
 
+    **The document is registered by the finaliser, after the analysis.** This
+    stage does not index, and the reason is ordering rather than a division of
+    labour: ``indexing`` is a spine state that runs *before* ``analyzing``, so
+    an embedding pass there would delay the reader's summary. ``finalize`` calls
+    :func:`~paperwhisperer.analysis.service.register_analysis_document` after
+    the report is written and before the session is persisted, so the
+    ``document_id`` this pipeline publishes names a document the Evidence API
+    can find, and a failure to index costs the citation surface and nothing
+    else. The stage only reports what that call decided.
+
     **Sections are published into the scratch as they arrive.** That is what lets
     a streaming client follow a job rather than the other way round: the legacy
     ``/api/analyze/stream`` keeps emitting its ``section`` events, but they now
@@ -601,14 +628,34 @@ def _analyse_stage(context: JobContext) -> None:
     # process gets the job and reads the session instead — see
     # :func:`take_job_result`.
     register_job_result(context.job.job_id, result)
+
+    # What happened to the citation surface, in the job's own words. The
+    # analysis succeeded either way -- the notice is on the result the caller
+    # receives -- but a job row that said only "分析结果已写入会话" would tell
+    # an operator reading the trail that everything worked while every citation
+    # in that analysis addressed a document the store had never heard of.
+    registration = dict(result.get("document_registration") or {})
+    indexed_chunks = int(registration.get("chunk_count") or 0)
     context.update(
         result={
             **(dict(context.job.result or {})),
             "session_id": str(result.get("session_id") or ""),
             "section_count": len(sections),
+            "document_registration": str(registration.get("status") or ""),
+            "indexed_chunks": indexed_chunks,
         }
     )
-    context.log("分析结果已写入会话。")
+    if str(registration.get("status") or "") == "registered":
+        context.log(
+            f"分析结果已写入会话；文档 {registration.get('document_id') or ''} "
+            f"已登记并建立索引（{indexed_chunks} 个片段）。"
+        )
+    else:
+        # Not a failure of the job, and deliberately not `StepFailed`: the
+        # summary the reader came for exists and is on the result. The trail
+        # says which half of the product is missing, in the words
+        # `register_analysis_document` shows the reader.
+        context.log(f"分析结果已写入会话。{registration.get('notice') or ''}")
 
 
 def _answer_stage(context: JobContext) -> None:

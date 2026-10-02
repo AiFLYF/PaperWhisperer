@@ -142,6 +142,170 @@ def attach_parse_quality(result: dict, parse_outcome: Any = None) -> dict:
     parse["quality"] = quality.to_dict() if quality is not None else None
     return result
 
+
+#: The three answers ``result["document_registration"]["status"]`` can give.
+#:
+#: Named rather than spelled inline because a caller branches on them, and a
+#: typo in a bare string is a silent behaviour change. ``REGISTERED`` is the
+#: only one of the three that means a citation will open.
+REGISTRATION_REGISTERED = "registered"
+REGISTRATION_SKIPPED = "skipped"
+REGISTRATION_FAILED = "failed"
+
+#: What the reader is told when the analysis path could not index the document.
+#:
+#: Two sentences, and both are load-bearing. The first says what broke; the
+#: second says what did **not**, because the reader is looking at a complete
+#: summary and the thing that failed is invisible to them. A notice that only
+#: named the failure would read as "your analysis is unreliable", which is the
+#: one claim this notice must not make -- the analysis completed and is
+#: returned in full either way.
+REGISTRATION_FAILED_NOTICE = (
+    "分析结果本身完整，但这份文档未能写入检索索引：其中的引用可能打不开原文。"
+    "可以在索引恢复后重新分析，或改用 /v1/documents 上传同一份文件来建立索引。"
+)
+
+#: The notice for a parse that produced no structured document at all.
+#:
+#: Distinct from :data:`REGISTRATION_FAILED` because nothing was attempted and
+#: nothing failed: there was no document to write. Saying "索引失败" here would
+#: blame a component that was never asked to do anything.
+REGISTRATION_SKIPPED_NOTICE = (
+    "本次解析没有产出结构化文档，因此没有可登记的原文：引用无法打开原文。"
+)
+
+
+def register_analysis_document(result: dict, parse_outcome: Any = None) -> dict:
+    """Put the analysed document in the store, so the id this result publishes resolves.
+
+    :func:`attach_document_identity` publishes ``ParseOutcome.document.document_id``
+    on the result, and its own docstring says why: "a citation chip addresses
+    ``GET /v1/documents/{document_id}/evidence/{evidence_id}``". A citation chip
+    can only address a document the Evidence API can *find*, and the Evidence API
+    only finds documents the store holds. Publishing the id without registering
+    the document is therefore not a degraded citation -- it is an unaddressable
+    one: after ``/api/analyze`` -> ``/api/ask/stream`` -> click, the store had
+    never heard of the document and every chip answered ``404
+    document_not_found``.
+
+    **The registration is :func:`paperwhisperer.api.routes_v1.persist_document`,
+    not a second implementation of it.** That function already owns the chunk
+    write, the lexical write and the vector write, and re-calling it here would
+    be a second answer to "is this document retrievable yet". It is imported
+    inside this function because ``routes_v1`` imports this module; the same
+    cycle already forces every other stage-level import in this codebase to be
+    deferred, and this one is no different.
+
+    **Idempotence is inherited, not re-implemented.** ``persist_document`` calls
+    ``index_document_for_retrieval``, whose early return -- *before* chunking and
+    before any embedding call -- fires when the document is already indexed at
+    the current index version and its vectors are present. Re-running an analysis
+    over a document that is already registered therefore re-reads a row and
+    returns; it does not pay for a second embedding of the same paper. The guard
+    lives with the code that would otherwise have to be duplicated, which is the
+    only place a reader changing ``index_version`` will look for it.
+
+    **Where it runs is the whole latency contract.** ``finalize_analysis_result``
+    calls it after the six sections are generated and the Markdown report is on
+    disk, and before the session is written. Not earlier: the job spine runs
+    ``indexing`` *before* ``analyzing``, so an embedding pass earlier in the
+    pipeline would make the reader wait on it before a single word of their
+    summary existed. Not later: the export route renders from the stored session
+    rather than from this dict, so a notice added afterwards would never reach
+    an exported report whose every citation link is about to 404.
+
+    **It can never fail the analysis.** Every side effect a reader came for is
+    already on disk by the time this runs, every exception is caught and logged,
+    and the outcome is a notice. There is no path from a failed embedding to a
+    missing summary.
+
+    **The notice rides ``result["parse"]["warnings"]`` deliberately.** That list
+    is the one channel the shipped interface renders as reader-facing notices --
+    ``parseStatus.js`` renders each entry as a ``<li>`` under the Parse Status
+    card -- and this task does not own the templates. It is a poor home: the
+    failure was not in the parse, and the honest fix is a dedicated field on
+    that card. Until then a reader is told the truth rather than left holding a
+    chip that silently 404s, which is the trade this function makes knowingly.
+    A result with no ``parse`` block at all gets no list entry -- the block is
+    not invented for it -- and carries the notice on ``document_registration``
+    alone, which is where a client reads it.
+
+    The store is not a parameter. It is resolved from
+    :func:`paperwhisperer.api.routes_evidence.get_store_bundle` -- the same
+    process-wide bundle the Evidence API itself reads -- because a document
+    written into some *other* bundle is a document the citation click still
+    cannot find, and taking a bundle as an argument would make it possible to
+    get that wrong for the sake of a convenience no caller has.
+    """
+    # Only ever append to a ``parse`` block that already exists, and for the same
+    # reason ``attach_parse_quality`` returns early when it does not: an empty
+    # dict is what the orchestrator returns when there was no parse, and a
+    # front end reads its emptiness as "no parse information was reported"
+    # (``parseStatus.js`` keys on ``Object.keys(parse).length``). Inventing the
+    # block here would turn that into a card whose only content is our notice.
+    parse = result.get("parse")
+    if not isinstance(parse, dict):
+        parse = None
+    document = getattr(parse_outcome, "document", None)
+    document_id = str(getattr(document, "document_id", "") or "")
+
+    if document is None or not document_id:
+        # Nothing to write, so nothing failed. Its own status and its own
+        # sentence, rather than folded into ``failed``: a caller deciding
+        # whether to retry must not retry these two the same way.
+        result["document_registration"] = {
+            "status": REGISTRATION_SKIPPED,
+            "document_id": document_id,
+            "chunk_count": 0,
+            "index_version": "",
+            "code": "no_parsed_document",
+            "notice": REGISTRATION_SKIPPED_NOTICE,
+        }
+        if parse is not None:
+            parse.setdefault("warnings", []).append(REGISTRATION_SKIPPED_NOTICE)
+        return result
+
+    try:
+        from paperwhisperer.api.routes_evidence import get_store_bundle
+        from paperwhisperer.api.routes_v1 import parse_report, persist_document
+
+        stores = get_store_bundle()
+        record = persist_document(stores, document, parse_report(parse_outcome))
+        # The count the reader is given is the store's answer, not the indexer's
+        # return value: this is how many passages a citation can actually be
+        # resolved against, which is the number that matters here.
+        chunks = list(stores.metadata.list_chunks(record.document_id))
+    except Exception:  # noqa: BLE001 - an analysis must survive a side task
+        logger.warning(
+            "分析已完成，但为文档 %s 建立检索索引失败；分析结果本身不受影响。",
+            document_id,
+            exc_info=True,
+        )
+        result["document_registration"] = {
+            "status": REGISTRATION_FAILED,
+            "document_id": document_id,
+            "chunk_count": 0,
+            "index_version": "",
+            "code": "document_indexing_failed",
+            "notice": REGISTRATION_FAILED_NOTICE,
+        }
+        if parse is not None:
+            parse.setdefault("warnings", []).append(REGISTRATION_FAILED_NOTICE)
+        return result
+
+    result["document_registration"] = {
+        "status": REGISTRATION_REGISTERED,
+        "document_id": document_id,
+        "chunk_count": len(chunks),
+        "index_version": str(record.index_version or ""),
+        "code": "",
+        # No notice on the success branch, and that is information rather than
+        # an omission: a reader whose citations open needs nothing said about
+        # how they came to open.
+        "notice": "",
+    }
+    return result
+
 #: Where the run record has to be written, and where the fact layer has to be
 #: written, once T2.2 lands. Stated here rather than only in
 #: :meth:`paperwhisperer.analysis.paper_facts.AnalysisRun.as_analysis_run_columns`
@@ -2047,6 +2211,17 @@ def finalize_analysis_result(
     here rather than in each path's own finalizer is the point: a citation
     chip addresses a document, and a field only one of two paths fills in is a
     bug that appears on exactly the path somebody switched to.
+
+    **The id is attached here and the document is registered here**, one step
+    later, because publishing an id the store has never heard of is what made
+    every citation the reader could click answer ``404 document_not_found``.
+    :func:`register_analysis_document` is called after the session and the
+    report are written rather than before, so the registration is the last
+    thing paid for and its failure cannot cost the reader their analysis. Both
+    paths go through this function, so neither can end up publishing an
+    unaddressable document id while the other cannot -- which is the same
+    "a field only one of two paths fills in" failure the paragraph above is
+    about, one level up.
     """
     safe_session_id = build_session_id(session_id)
     session_token = generate_session_token()
@@ -2075,6 +2250,22 @@ def finalize_analysis_result(
     result["session_id"] = safe_session_id
     result["session_token"] = session_token
     result["source_filename"] = original_filename
+
+    # After the analysis and after the report, and before the session is
+    # written. The ordering is the whole of the latency contract: the spine
+    # runs ``indexing`` *before* ``analyzing``, so a registration placed in the
+    # indexing stage would make the reader wait on an embedding before a single
+    # word of their summary was produced. Here the six sections are already
+    # generated and the Markdown report is already on disk, so the embedding is
+    # the last thing paid for.
+    #
+    # Before the session write, so that a registration failure reaches the
+    # stored session and therefore ``/api/export`` -- a report whose every
+    # citation link 404s, with nothing saying why, is the exact failure this
+    # notice exists to prevent, and the export renders from the session rather
+    # than from this dict. The registration cannot raise, so nothing a reader
+    # came for is at risk from standing here.
+    register_analysis_document(result, parse_outcome)
 
     write_session_payload(
         safe_session_id,
