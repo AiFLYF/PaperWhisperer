@@ -214,7 +214,22 @@ class LLMClient:
         choices = payload.get("choices") or []
         if not choices:
             return ""
-        delta = choices[0].get("delta") or {}
+        choice = choices[0]
+        # A stream carries the same envelope the non-streaming path already
+        # inspects, and it was not inspecting it: a tool-calling reply arrived
+        # as a well-formed chunk with empty content, which the caller could
+        # only read as "the model returned nothing" — so the one case with a
+        # precise diagnosis was the one case the two paths disagreed about.
+        # Sides other than ``delta`` are intentionally not touched: a
+        # transcript, not a control channel.
+        if str(choice.get("finish_reason") or "") == "tool_calls" or choice.get(
+            "delta", {}
+        ).get("tool_calls"):
+            raise NonRetryableError(
+                "模型尝试调用本产品不提供的工具，且未给出可用回复。"
+                "请重试，或在提示中明确要求直接作答、不要使用工具。"
+            )
+        delta = choice.get("delta") or {}
         return delta.get("content") or ""
 
     @staticmethod
