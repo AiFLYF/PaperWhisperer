@@ -1,7 +1,7 @@
 {
   "schema": "paperwhisperer-release-gates-report/1",
   "gates_version": "1.0",
-  "generated_at": "2026-09-30T21:06:55+00:00",
+  "generated_at": "2026-10-03T00:47:07+00:00",
   "corpus": {
     "available": true,
     "reason": "",
@@ -38,7 +38,7 @@
         "重排引语 117/136 对齐（19 条因换行连字符降级，属预期）"
       ],
       "notes": [],
-      "duration_ms": 14956
+      "duration_ms": 15256
     },
     {
       "gate": "citation_locator_resolvable",
@@ -61,7 +61,7 @@
         "零正文元素：paper_en_formulas.pdf",
         "零正文元素：paper_en_twocol.pdf"
       ],
-      "duration_ms": 68869
+      "duration_ms": 70312
     },
     {
       "gate": "local_only_cloud_egress",
@@ -77,7 +77,7 @@
         "node id：6 组"
       ],
       "notes": [],
-      "duration_ms": 2162
+      "duration_ms": 2622
     },
     {
       "gate": "silent_truncation",
@@ -99,7 +99,7 @@
         "deck_with_notes_and_charts.pptx: page_coverage、text_density 为已登记缺陷的误报",
         "project_review_deck.pptx: page_coverage、text_density 为已登记缺陷的误报"
       ],
-      "duration_ms": 534
+      "duration_ms": 570
     },
     {
       "gate": "citation_precision",
@@ -143,7 +143,7 @@
       "notes": [
         "Hosted 档未执行：未设置 PAPERWHISPERER_TEST_PG_DSN。docker compose up -d db 后设置该变量即可在 PostgreSQL 上跑同一套契约。"
       ],
-      "duration_ms": 2123
+      "duration_ms": 2169
     }
   ]
 }

@@ -1,7 +1,7 @@
 # Release gates report / 发布门禁报告
 
 - gates_version: `1.0`
-- generated_at: `2026-09-30T21:06:55+00:00`
+- generated_at: `2026-10-03T00:47:07+00:00`
 - corpus: 52/52 在场，`corpus_version` `sha256:0dfe319761a7cc9d0…`
 
 | Gate | 要求 | 阈值 | 实测 | 状态 | 依据 |
