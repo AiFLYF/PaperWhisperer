@@ -152,7 +152,12 @@ function finalizeAnalysisResultState(data, fileName) {
     // T3.4: which parser read this file, and did it leave the machine. Rendered
     // from the result payload, which carries it as `parse`.
     state.currentParseProvenance = data.parse || null;
-    renderParseStatus(state.currentParseProvenance);
+    // The registration verdict rides beside the provenance rather than inside
+    // it: it is not a property of the parse (the parse succeeded either way),
+    // it is the answer to whether the citations on this run will resolve. Both are
+    // rendered together because they are one card.
+    state.currentDocumentRegistration = data.document_registration || null;
+    renderParseStatus(state.currentParseProvenance, state.currentDocumentRegistration);
 
     renderSmartPrompts(state.currentSuggestedQuestions);
     renderNextActions(state.currentNextActions);
@@ -255,6 +260,7 @@ function captureWorkspaceState() {
         currentSeedPaper: state.currentSeedPaper ? { ...state.currentSeedPaper } : null,
         currentDocumentId: state.currentDocumentId,
         currentParseProvenance: state.currentParseProvenance,
+        currentDocumentRegistration: state.currentDocumentRegistration,
         html: {
             summary: document.getElementById('summary').innerHTML,
             quotes: document.getElementById('quotes').innerHTML,
@@ -315,6 +321,12 @@ function restoreWorkspaceState(snapshot) {
     renderRecommendationSignals(state.currentRecommendationSignals, state.currentRecommendationDuplicates);
     state.currentDocumentId = snapshot.currentDocumentId || '';
     state.currentParseProvenance = snapshot.currentParseProvenance || null;
+    // Restored next to the provenance and *not* re-read out of the markup the
+    // snapshot saved: the copy is resolved from the catalogue at render time, so
+    // restoring rendered HTML would bring back the sentence in the language that
+    // was active when the snapshot was taken — and the server warning string,
+    // untranslated, would come back with it.
+    state.currentDocumentRegistration = snapshot.currentDocumentRegistration || null;
 
     document.getElementById('summary').innerHTML = snapshot.html.summary;
     document.getElementById('quotes').innerHTML = snapshot.html.quotes;
@@ -365,6 +377,7 @@ function resetResultView() {
     resetParseStatus();
     state.currentDocumentId = '';
     state.currentParseProvenance = null;
+    state.currentDocumentRegistration = null;
     // The seed is the bibliographic record of the paper that was *imported*.
     // A document uploaded from disk has no identifier set, and a new analysis
     // replaces the workspace, so carrying the previous import DOI forward

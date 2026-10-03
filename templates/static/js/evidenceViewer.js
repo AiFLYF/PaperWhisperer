@@ -24,6 +24,41 @@ const REASON_CODE_KEY_PREFIX = 'evidence.no_target.';
 const TARGET_MISSING_KEY = 'evidence.view_target_missing';
 
 /**
+ * The catalogue key prefix for a view's disclaimer note.
+ *
+ * Same shape as {@link REASON_CODE_KEY_PREFIX} and the same reason for it: the
+ * key is built from a wire value the server sends (`view.note_code`), so it is
+ * only safe to build it after this build has recognised the code. A key built
+ * from a code nobody recognises renders as `evidence.view_note.something_new`
+ * on a citation panel.
+ */
+const NOTE_CODE_KEY_PREFIX = 'evidence.view_note.';
+
+/**
+ * The note codes this build can describe, kept beside {@link REASON_CODE_KEY_PREFIX}
+ * for the same reason `NO_TARGET_MESSAGES` lives in `config.js`: it is *this
+ * client's* copy of the vocabulary, and membership in it is what says the
+ * build can translate the code at all.
+ *
+ * Note that there is deliberately no Chinese sentence beside any of these. The
+ * fallback for a note is the server's own `view.note`, which travels in the
+ * payload — duplicating it here would be a second copy that could drift, which
+ * is exactly the failure the code beside the note exists to remove.
+ */
+const VIEW_NOTE_CODES = new Set([
+    'page_map',
+    'slide',
+    'element',
+    'page_raster',
+    'page_render_unavailable'
+]);
+
+/** The note code the server sent, resolved to a catalogue key or `null`. */
+function noteCatalogueKey(code) {
+    return VIEW_NOTE_CODES.has(code) ? `${NOTE_CODE_KEY_PREFIX}${code}` : null;
+}
+
+/**
  * The floor for the placeholder that stands in for an empty block.
  *
  * Not interface copy in the catalogue sense — it stands for the *absence* of
@@ -62,6 +97,36 @@ function reasonCatalogueKey(code) {
 }
 
 /**
+ * The disclaimer above the drawing, in the reader's language.
+ *
+ * This sentence used to be the one surface in the panel this module did not
+ * own: the server sent Chinese prose, it rendered as sent, and an English
+ * reader got a Chinese sentence above an English panel — with no way to know
+ * which half to trust. The server now ships `note_code` beside it, so the note
+ * is resolved the way every other sentence here is resolved: the code decides,
+ * and the server's own words are the floor for a code this build has never
+ * heard of. That order is {@link describeMissingHighlight}'s order, and for
+ * the same reason.
+ *
+ * The `documentLocale()` argument does *not* apply to this sentence. That rule
+ * exists so that switching interface language never rewrites a reader's
+ * *paper*; this note is not the paper's, it is a statement about what the
+ * viewer just drew, and it has to follow the reader's switch. The two are kept
+ * apart by *which key a sentence is read through*, not by one shared rule
+ * covering both.
+ */
+function describeViewNote(view) {
+    const serverText = String(view?.note || '');
+    const key = noteCatalogueKey(String(view?.note_code || ''));
+    if (key) {
+        return localised(key, serverText);
+    }
+    // No code at all, or a code from a build this one has never heard of: the
+    // server's own sentence, as sent.
+    return serverText;
+}
+
+/**
  * The evidence view: the region a citation points at, drawn.
  *
  * This module exists because T3.3's acceptance criterion — "三种格式 citation
@@ -96,15 +161,21 @@ function reasonCatalogueKey(code) {
  * **Interface copy is localised; the document's words are not.** Every sentence
  * this module puts in front of a reader — the view kind, the badge, the two
  * highlight notes, the truncation notes, the paragraph numbers, the "no text"
- * placeholders, the unsupported-kind notice — goes through `t()` and is re-read
- * on a locale change. The things it does *not* translate are the ones that are
- * not the interface's: the cited passage, a page block's preview, a heading
- * path, `view.label`, and `view.note`. Those are the document's words or the
- * server's own prose, and an English reader looking at a Chinese paper must
- * still see them in the paper's language — see `documentLocale` in `i18n.js`.
- * Getting that boundary wrong in the *other* direction is the worse error,
- * which is why the two are kept visibly apart below: interface strings are
- * looked up by key, document strings are copied byte for byte.
+ * placeholders, the unsupported-kind notice, and the view's disclaimer — goes
+ * through `t()` and is re-read on a locale change. The things it does *not*
+ * translate are the ones that are not the interface's: the cited passage, a
+ * page block's preview, a heading path and `view.label`. Those are the
+ * document's words, and an English reader looking at a Chinese paper must
+ * still see them in the paper's language — see `documentLocale` in
+ * `i18n.js`. Getting that boundary wrong in the *other* direction is the worse
+ * error, which is why the two are kept visibly apart below: interface strings
+ * are looked up by key, document strings are copied byte for byte.
+ *
+ * The view's disclaimer (`view.note`) is the case where that boundary is easy
+ * to get wrong, because it *does* travel inside the payload. It is still the
+ * interface's sentence — it describes the drawing, not the paper — and it now
+ * travels with a `note_code` so it can be translated like everything else. The
+ * server's string stays as its floor; see {@link describeViewNote}.
  *
  * Every degraded state is a visible element with a `data-state` — the panel
  * never answers "could not locate this" with an empty box, because an empty
@@ -495,18 +566,22 @@ function renderEvidenceView(view) {
     root.dataset.kind = String(view.kind || '');
     root.dataset.highlight = 'absent';
 
-    if (view.note) {
-        const note = paragraph('evidence-view-note', view.note);
+    const noteText = describeViewNote(view);
+    if (noteText) {
+        const note = paragraph('evidence-view-note', noteText);
         // The note is the "this is a schematic" statement. It is a visible
         // element rather than a `title` tooltip because a reader who cannot
         // see it would read the layout as the page, which is the mistake the
         // badge and this note exist together to prevent.
         //
-        // It is also the one sentence in this panel this module does *not*
-        // own: the server chose it, and it carries no code beside it to key a
-        // translation on. It is shown as sent, which is the honest reading —
-        // the alternative is guessing at which of the server's notes this is.
+        // The sentence is read through `evidence.view_note.<note_code>`, so it
+        // follows the reader's switch like every other sentence here. The code
+        // is copied onto the element as well: it is the only way a reader (or a
+        // test, or a support answer) can say *which* sentence this is when the
+        // same panel shows a schematic note on one citation and a raster note
+        // on the next.
         note.dataset.role = 'disclaimer';
+        note.dataset.noteCode = String(view.note_code || '');
         root.appendChild(note);
     }
 
@@ -559,6 +634,7 @@ onLocaleChange(repaintLocalizedView);
 
 export {
     describeMissingHighlight,
+    describeViewNote,
     isDrawableBox,
     placeBox,
     renderEvidenceView,

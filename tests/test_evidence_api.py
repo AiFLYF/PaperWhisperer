@@ -1090,3 +1090,102 @@ def test_no_visual_targeting_response_has_a_shape_a_client_cannot_misread(client
         "target",
         "page_image",
     }
+
+
+# --------------------------------------------------------------------------
+# The view's disclaimer carries a code, not just a sentence
+# --------------------------------------------------------------------------
+
+
+def test_every_view_ships_a_machine_readable_code_beside_its_note(client, store):
+    """The note a reader sees is localised; the code beside it is how.
+
+    Each view's `note` is a statement about the *viewer* — a schematic is not a
+    rendering, a slide has no pixel coordinates, a DOCX has no page grid — so it
+    belongs to the interface and has to follow the reader's language switch. The
+    server cannot translate it, so it ships a stable `note_code` next to the
+    sentence and lets the client do the translating, exactly as it already does
+    for `reason_code`. A note with no code beside it is a sentence frozen in one
+    language forever, and the language switch cannot reach it.
+
+    Asserted per kind through the real router rather than against a hand-built
+    view, so this pins what a browser would actually receive. The code is
+    checked for membership in the module's own vocabulary rather than against a
+    restated list: a typo that produced a code nothing recognises would pass a
+    literal comparison that happened to repeat the typo.
+    """
+    from paperwhisperer.rag import evidence as evidence_module
+
+    known_codes = {
+        getattr(evidence_module, name)
+        for name in dir(evidence_module)
+        if name.startswith("VIEW_NOTE_")
+    }
+    assert len(known_codes) >= 3, f"the note vocabulary collapsed: {known_codes}"
+
+    cases = {
+        "page_map": SourceLocator(kind="pdf_page", page=2, bbox=BoundingBox(50.0, 600.0, 550.0, 640.0)),
+        "slide_view": SourceLocator(kind="slide", slide=3),
+        "element_view": SourceLocator(kind="docx_element", paragraph=5, heading_path=("Method", "Setup")),
+    }
+
+    for expected_kind, locator in cases.items():
+        chunk_id = f"chunk_note_{expected_kind}"
+        _seed_document(store)
+        _seed_chunk(store, "doc_1", chunk_id, locator)
+
+        body = _get(client, "doc_1", chunk_id).json()
+        view = body["view"]
+        assert view is not None, f"{expected_kind}: no view was built"
+        assert view["kind"] == expected_kind
+
+        # The sentence is still there, still readable, still Chinese: a consumer
+        # that reads `note` and knows nothing about codes keeps working.
+        assert view["note"].strip(), f"{expected_kind}: the note went missing"
+        # And the code is beside it, not in place of it.
+        code = view.get("note_code")
+        assert code, f"{expected_kind}: the view ships a note with no note_code"
+        assert code in known_codes, (
+            f"{expected_kind}: note_code {code!r} is not a code this build defines "
+            f"({sorted(known_codes)}), so a client would fall back to the "
+            "server's sentence and the note would never be translated"
+        )
+
+
+def test_the_page_image_descriptor_ships_a_note_code_for_both_render_outcomes(
+    client, store
+):
+    """`visual_targeting.page_image` is the other place a note is shown.
+
+    It has two mutually exclusive notes — a real render, and the sentence for a
+    build that cannot rasterise — and they say the *opposite* things about
+    whether the reader is looking at the page. So the code has to distinguish
+    them, and it has to be the same code whichever one the descriptor carries.
+    """
+    from paperwhisperer.rag import evidence as evidence_module
+
+    _seed_document(store)
+    _seed_chunk(
+        store,
+        "doc_1",
+        "chunk_page_image",
+        SourceLocator(kind="pdf_page", page=2, bbox=BoundingBox(50.0, 600.0, 550.0, 640.0)),
+    )
+
+    body = _get(client, "doc_1", "chunk_page_image").json()
+    descriptor = body["visual_targeting"]["page_image"]
+    assert descriptor["note"].strip()
+    code = descriptor.get("note_code")
+    assert code, "the page-image descriptor ships a note with no note_code"
+    assert code in {
+        evidence_module.VIEW_NOTE_PAGE_RASTER,
+        evidence_module.VIEW_NOTE_PAGE_RENDER_UNAVAILABLE,
+    }, f"page_image.note_code is neither render outcome: {code!r}"
+
+    # The code has to follow the note it describes. With a rasteriser the two
+    # must move together; without one, the descriptor must say so rather than
+    # keep claiming a rendering the build cannot produce.
+    if descriptor["renderer"] != "none":
+        assert code == evidence_module.VIEW_NOTE_PAGE_RASTER
+    else:
+        assert code == evidence_module.VIEW_NOTE_PAGE_RENDER_UNAVAILABLE

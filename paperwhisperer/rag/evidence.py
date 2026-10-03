@@ -183,6 +183,28 @@ VIEW_TARGET_MISSING_MESSAGE = (
     "因此无法在视图中标出它的位置。"
 )
 
+#: The machine-readable half of each note, shipped beside it as ``note_code``.
+#:
+#: These notes are statements about *the viewer* — what this drawing is and is
+#: not — and not about the paper, so they belong to the interface and follow
+#: the reader's language switch. That is the contract the error catalogue
+#: already uses: the server keeps its own sentence (a consumer that reads
+#: ``note`` keeps working, and the Chinese default renders exactly the string
+#: it rendered before), and a client that can translate maps ``note_code`` to
+#: the reader's language, keeping the server's sentence as a floor. A note with
+#: no code beside it is stuck in one language forever.
+#:
+#: Named after what is drawn rather than after the format it describes, because
+#: ``page_map`` and ``page_raster`` are two renderings of the same PDF saying
+#: the *opposite* things about whether the reader is looking at the page.
+VIEW_NOTE_PAGE_MAP = "page_map"
+VIEW_NOTE_SLIDE = "slide"
+VIEW_NOTE_ELEMENT = "element"
+VIEW_NOTE_PAGE_RASTER = "page_raster"
+#: The same word :data:`paperwhisperer.api.routes_evidence.PAGE_RENDER_CODE`
+#: uses for its 501: one code for one fact about the build.
+VIEW_NOTE_PAGE_RENDER_UNAVAILABLE = "page_render_unavailable"
+
 #: Hard caps on the view. Every one of them **states** that it bit, because
 #: "silent truncation on the eval corpus: 0" is a release gate and a view that
 #: quietly dropped 300 blocks to fit a payload would be the same defect wearing
@@ -400,14 +422,6 @@ VIEW_PAGE_RASTER_NOTE = (
     "（原点左下、y 向上），因此可以直接叠加在页图上定位。"
 )
 
-#: What ``view`` says when there is still no rasteriser. Kept verbatim from the
-#: build that had none, so a deployment that upgrades the extra does not have to
-#: recognise a second "no" wording.
-VIEW_PAGE_SCHEMATIC_ONLY_NOTE = (
-    "这是按解析得到的元素坐标重建的页内布局，不是原始 PDF 的渲染图："
-    "方块与高亮框使用同一套 PDF 用户空间坐标，因此彼此的相对位置与页面一致。"
-)
-
 
 def _page_image(
     kind: str, field_name: str, value: Any, document_id: str
@@ -486,6 +500,12 @@ def _page_image(
         "origin": "top-left" if can_render else None,
         "y_axis": "down" if can_render else None,
         "note": VIEW_PAGE_RASTER_NOTE if can_render else PAGE_RENDER_UNAVAILABLE_NOTE,
+        # The code is what a client translates on; the sentence above is what
+        # a client that cannot translate shows, and what the Chinese default
+        # renders either way. See :data:`VIEW_NOTE_PAGE_RASTER`.
+        "note_code": (
+            VIEW_NOTE_PAGE_RASTER if can_render else VIEW_NOTE_PAGE_RENDER_UNAVAILABLE
+        ),
     }
 
 
@@ -1296,6 +1316,7 @@ def _page_map_view(
         "coordinate_space": "pdf_user_space_points",
         "is_raster": False,
         "note": VIEW_PAGE_MAP_NOTE,
+        "note_code": VIEW_NOTE_PAGE_MAP,
         "frame": frame,
         "blocks": blocks,
         "target": target,
@@ -1369,6 +1390,7 @@ def _slide_view(
         "label": resolution.label,
         "slide": slide,
         "note": VIEW_SLIDE_NOTE,
+        "note_code": VIEW_NOTE_SLIDE,
         "blocks": blocks,
         "target": target,
         "target_rejected": None if target is not None else _missing_target(resolution),
@@ -1447,6 +1469,7 @@ def _element_view(
         "paragraph": paragraph,
         "heading_path": list(locator.heading_path),
         "note": VIEW_ELEMENT_NOTE,
+        "note_code": VIEW_NOTE_ELEMENT,
         "context": context,
         "target": target,
         "target_rejected": None if target is not None else _missing_target(resolution),

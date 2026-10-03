@@ -1019,17 +1019,22 @@ def test_the_viewer_does_not_route_the_documents_own_words_through_the_catalogue
 
     Routing the *cited passage* through the catalogue would translate a
     reader's paper because they switched their interface. So the passage, the
-    block previews, the heading path and the server's own note are passed
-    through untouched. Asserted per call site rather than by grep, because the
-    shapes differ — a block's preview is the third argument of `element()`, the
-    note is the second of `paragraph()` — and a reader who "helpfully" wrapped
-    one of them in `t()` would still leave the other four alone.
+    block previews and the heading path are passed through untouched. Asserted
+    per call site rather than by grep, because the shapes differ — a block's
+    preview is the third argument of `element()`, the passage is the second of
+    `element()` too, and a reader who "helpfully" wrapped one of them in `t()`
+    would still leave the other three alone.
+
+    The view's `note` used to be in this list and is not any more: it travels
+    inside the payload, which is what made it look like the document's words,
+    and it is not. It is a statement about the drawing, so it is translated —
+    see {@link test_the_views_disclaimer_is_looked_up_by_code} for the other
+    side of that move.
     """
     cases = {
         "renderPageMap": "block.text_preview",
         "renderSlideView": "block.text",
         "renderElementView": "block.text",
-        "renderEvidenceView": "view.note",
     }
     for function_name, expression in cases.items():
         body = function_body(VIEWER_BODY, function_name)
@@ -1046,6 +1051,55 @@ def test_the_viewer_does_not_route_the_documents_own_words_through_the_catalogue
     element_view = function_body(VIEWER_BODY, "renderElementView")
     assert "path.join(' › ')" in element_view
     assert "view.label" in function_body(VIEWER_BODY, "buildHeader")
+
+
+def test_the_views_disclaimer_is_looked_up_by_code_and_only_speaks_if_cannot():
+    """The note is read through a key, with the server's own sentence as its floor.
+
+    This is the structural half of the fix for the one Chinese sentence the
+    language switch could not reach. The payload carries `note_code`; the
+    viewer turns that code into `evidence.view_note.<code>` and looks it up, so
+    the sentence follows the reader's switch. The server's `note` is not
+    discarded — it is what renders when there is no code, when the code is one
+    this build has never heard of, or when the catalogue entry has been lost —
+    because a disclaimer that degrades to nothing tells a reader the layout is
+    the page.
+
+    `describeViewNote()` is asserted separately from the render site because
+    the two failures are different: a viewer that forgets to *call* it renders
+    the server's Chinese sentence, and one that calls it without a floor renders
+    a dotted key.
+    """
+    describe = function_body(VIEWER_BODY, "describeViewNote")
+    assert "view?.note" in describe or "view.note" in describe, (
+        "describeViewNote() no longer reads the server's sentence"
+    )
+    assert "view?.note_code" in describe or "view.note_code" in describe, (
+        "describeViewNote() does not read the code the server sent beside the note"
+    )
+    # The lookup, and the server's sentence as its second argument. `localised()`
+    # returning the key itself is exactly the case the floor exists for.
+    calls = re.findall(r"\blocalised\([^;]*", describe)
+    assert calls, "describeViewNote() never calls localised()"
+    assert any("serverText" in call for call in calls), (
+        "describeViewNote() looks the note up without keeping the server's "
+        f"sentence as a floor: {calls!r}"
+    )
+    assert re.search(r"const NOTE_CODE_KEY_PREFIX = 'evidence\.view_note\.';", VIEWER), (
+        "the key prefix the disclaimer is assembled from has moved or changed"
+    )
+
+    render = function_body(VIEWER_BODY, "renderEvidenceView")
+    assert "describeViewNote(view)" in render, (
+        "renderEvidenceView() no longer puts the disclaimer through "
+        "describeViewNote()"
+    )
+    # The note is only added when there is a sentence to show: a view with no
+    # note and no code must not grow an empty element, which reads as a layout
+    # with nothing to say about itself.
+    assert re.search(r"if \(noteText\)", render), (
+        "the disclaimer is appended without checking it has text"
+    )
 
 
 def test_the_viewer_repaints_the_open_panel_on_a_locale_change():

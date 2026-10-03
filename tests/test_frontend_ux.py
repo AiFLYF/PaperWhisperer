@@ -2034,3 +2034,412 @@ def test_switching_language_reaches_the_whole_evidence_panel_and_not_just_its_he
     assert not [value for value in leftovers if re.search(r"[一-鿿]", value)], (
         f"the viewer still writes Chinese directly: {leftovers}"
     )
+
+
+# ==========================================================================
+#
+# `document_registration`: the verdict the card used to throw away
+#
+# ==========================================================================
+#
+# `POST /api/analyze` writes the analysed document into the retrieval store
+# (`register_analysis_document`, `analysis/service.py`) and publishes the
+# outcome as `result["document_registration"]` — `status`, `code`,
+# `chunk_count`, `document_id`, `notice`. No client code read it. The reader
+# learned about a broken index only because the backend *also* stuffed a notice
+# into `parse["warnings"]`, which this card renders verbatim: one Chinese
+# literal from `analysis/service.py`, untranslatable, untyped, indistinguishable
+# from a parser's own warning.
+#
+# This is the failure mode the whole file is written against, one level up from
+# the last one: not a missing signal, but a signal arriving through a channel
+# that cannot carry it. So the assertions below are executed against the real
+# module against the real record shape, and they check what the *reader gets* —
+# a toned notice, in their language, that says what will not work — rather than
+# that a branch exists. A grep for `document_registration` passes just as
+# happily on a client that reads the field and renders nothing.
+
+#: The verdict records `analysis/service.py` actually produces, taken from the
+#: branch that builds them rather than invented: `REGISTRATION_*` for the
+#: statuses, and the two codes those branches write.
+SERVER_NOTICE = (
+    "分析结果本身完整，但这份文档未能写入检索索引：其中的引用可能打不开原文。"
+    "可以在索引恢复后重新分析，或改用 /v1/documents 上传同一份文件来建立索引。"
+)
+
+REGISTRATION_RECORDS = {
+    "registered": {
+        "status": "registered",
+        "document_id": "doc-1",
+        "chunk_count": 42,
+        "index_version": "v3",
+        "code": "",
+        "notice": "",
+    },
+    "failed": {
+        "status": "failed",
+        "document_id": "doc-1",
+        "chunk_count": 0,
+        "index_version": "",
+        "code": "document_indexing_failed",
+        "notice": SERVER_NOTICE,
+    },
+    "skipped": {
+        "status": "skipped",
+        "document_id": "",
+        "chunk_count": 0,
+        "index_version": "",
+        "code": "no_parsed_document",
+        "notice": "本次解析没有产出结构化文档，因此没有可登记的原文：引用无法打开原文。",
+    },
+}
+
+#: The `parse` block that travels with the record, taken from
+#: `build_parse_provenance`. `warnings` carries the backend's duplicate notice,
+#: which is the wire shape this section exists to fix, so it is reproduced here
+#: rather than tidied away.
+PARSE_FOR_FAILED_REGISTRATION = {
+    "status": "success",
+    "parsed_by": "legacy",
+    "used_cloud": False,
+    "cloud_attempted": False,
+    "touched_network": True,
+    "media_type": "application/pdf",
+    "warnings": [SERVER_NOTICE],
+}
+
+
+def run_parse_card(body: str, tmp_path: Path) -> dict:
+    """Render the real Parse Status card under node against a stub DOM.
+
+    The card is exercised rather than extracted, because every property worth
+    asserting about it is a *join*: the record resolves to a tone, the tone
+    reaches ``appendNotice``, the sentence is looked up in the catalogue, and the
+    container is emptied first. Lifting ``describeDocumentRegistration`` out on
+    its own would test the decision and none of the drawing, which is exactly
+    the split that let the field ship unread.
+
+    The DOM is the smallest one the shipped render path touches: containers,
+    elements, a ``dataset``, and enough of an event target for
+    ``document.dispatchEvent`` — because the locale-change assertion below goes
+    through the module's own subscription rather than calling the render a
+    second time by hand. Calling ``renderParseStatus`` twice would pass whether
+    or not anything actually repaints on a language switch, which is the defect.
+    """
+    stub = (
+        "class El {\n"
+        "  constructor(tag) { this.tag = tag; this.children = []; this.dataset = {};"
+        " this.className = ''; this._text = ''; }\n"
+        "  set textContent(value) { this._text = String(value); this.children = []; }\n"
+        "  get textContent() { return this._text; }\n"
+        "  set innerHTML(value) { this._html = value; this.children = []; }\n"
+        "  get innerHTML() { return this._html || ''; }\n"
+        "  setAttribute() {}\n"
+        "  addEventListener() {}\n"
+        "  append(...kids) { kids.forEach(kid => this.children.push(kid)); }\n"
+        "  appendChild(kid) { this.children.push(kid); return kid; }\n"
+        "  replaceChildren(...kids) { this.children = kids; }\n"
+        "  remove() { this.removed = true; }\n"
+        "  querySelectorAll() { return []; }\n"
+        "  querySelector() { return null; }\n"
+        "  get text() { return this._text || this.children.map(kid => kid.text || kid.tag).join('|'); }\n"
+        "}\n"
+        "const byId = {};\n"
+        "const listeners = {};\n"
+        "globalThis.document = {\n"
+        "  createElement: tag => new El(tag),\n"
+        "  createDocumentFragment: () => new El('fragment'),\n"
+        "  getElementById: id => (byId[id] = byId[id] || new El('div')),\n"
+        "  querySelectorAll: () => [],\n"
+        "  querySelector: () => null,\n"
+        "  documentElement: new El('html'),\n"
+        "  activeElement: null,\n"
+        "  addEventListener: (type, fn) => { (listeners[type] = listeners[type] || []).push(fn); },\n"
+        "  dispatchEvent: event => { (listeners[event.type] || []).forEach(fn => fn(event)); return true; }\n"
+        "};\n"
+    )
+    script = (
+        "%s"
+        "const parseStatus = await import(%r);\n"
+        "const i18n = await import(%r);\n"
+        "const stateModule = await import(%r);\n"
+        "const result = {};\n%s\n"
+        "console.log(JSON.stringify(result));\n"
+        % (
+            stub,
+            str(JS_DIR / "parseStatus.js"),
+            str(JS_DIR / "i18n.js"),
+            str(JS_DIR / "state.js"),
+            body,
+        )
+    )
+    return run_node(script, tmp_path)
+
+
+def registration_card(
+    locale: str,
+    outcome: str,
+    tmp_path: Path,
+    registration: dict | None = None,
+    parse: dict | None = None,
+) -> dict:
+    """The card a reader in ``locale`` sees for one registration verdict.
+
+    Rendered through ``initializeParseStatus`` so the module's own locale
+    subscription is live, and through ``state`` so the path the interface
+    actually takes is the one under test — the same two calls
+    ``finalizeAnalysisResultState`` makes.
+    """
+    record = REGISTRATION_RECORDS[outcome] if registration is None else registration
+    payload = PARSE_FOR_FAILED_REGISTRATION if parse is None else parse
+    body = textwrap.dedent(
+        """
+        i18n.setLocale(%r);
+        parseStatus.initializeParseStatus();
+        const card = document.getElementById('parseStatus');
+        const paint = () => parseStatus.renderParseStatus(%s, %s);
+        stateModule.state.currentParseProvenance = %s;
+        stateModule.state.currentDocumentRegistration = %s;
+        paint();
+        const notices = () => card.children
+            .filter(node => node.dataset && node.dataset.tone)
+            .map(node => ({ tone: node.dataset.tone, text: node.textContent }));
+        const rows = () => card.children
+            .flatMap(node => node.children || [])
+            .filter(node => node.className === 'parse-fact')
+            .map(row => [row.children[0].textContent, row.children[1].textContent, row.children[1].dataset.tone]);
+        const listItems = () => card.children
+            .filter(node => node.className === 'parse-warning-list')
+            .flatMap(node => node.children.map(item => item.textContent));
+
+        result.initial = { notices: notices(), rows: rows(), warnings: listItems(),
+                           registration: card.dataset.registrationStatus };
+        // A language switch goes through the module's own subscription rather
+        // than a second hand-made render call.
+        i18n.setLocale(%r);
+        result.afterLocaleChange = { notices: notices(), rows: rows(),
+                                    warnings: listItems(), registration: card.dataset.registrationStatus };
+        """
+        % (
+            locale,
+            json.dumps(payload),
+            json.dumps(record),
+            json.dumps(payload),
+            json.dumps(record),
+            "en" if locale != "en" else "zh-CN",
+        )
+    )
+    card = run_parse_card(body, tmp_path)
+    # The post-switch view lives beside the first one rather than under a second
+    # key, so every assertion below reads one card.
+    return {**card["initial"], "afterLocaleChange": card["afterLocaleChange"]}
+
+
+def toned_notices(card: dict, tones: tuple[str, ...]) -> list[str]:
+    return [notice["text"] for notice in card["notices"] if notice["tone"] in tones]
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en"])
+def test_a_failed_registration_is_a_toned_notice_about_the_citation(tmp_path, locale):
+    """The one degraded state that looks completely fine everywhere else.
+
+    A failed registration leaves the summary whole, the parse status green and
+    every chip rendered — and every click on a chip answering `404`. A notice
+    that named the component ("indexing failed") would be true and useless; the
+    copy has to name what the reader loses. So the assertion is on the *consequence*
+    the sentence mentions, not on the fact that a sentence exists: a card that
+    grew a "the index failed" line would pass a test that only checked for one.
+    """
+    card = registration_card(locale, "failed", tmp_path)
+    failures = toned_notices(card, ("fail",))
+    assert len(failures) == 1, (
+        f"{locale}: a failed registration must raise exactly one failing notice, "
+        f"got {card['notices']}"
+    )
+    sentence = failures[0]
+    assert ("引用" in sentence) if locale == "zh-CN" else ("citation" in sentence.lower()), (
+        f"{locale}: the notice does not say what the reader loses: {sentence!r}"
+    )
+    assert "document_indexing_failed" not in sentence, (
+        f"{locale}: the notice shows the reader an internal code: {sentence!r}"
+    )
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en"])
+def test_the_card_never_shows_the_servers_untranslated_notice(locale, tmp_path):
+    """The backend's `notice` is a Chinese literal; the client must not print it.
+
+    The Chinese is not incidental — it is the *default* locale's language, so a
+    reader who never switched would see the same sentence twice and conclude two
+    things broke, while an English reader gets one Chinese line in an English
+    card. Both readings are wrong, and neither is visible to a test that only
+    checks the localisation keys exist.
+
+    This is asserted against the rendered card rather than against the module's
+    source, because the defect was never the absence of a key: it was the key
+    being bypassed at the one place the text was written into the page.
+    """
+    card = registration_card(locale, "failed", tmp_path)
+    everything = json.dumps(card, ensure_ascii=False)
+    assert SERVER_NOTICE not in everything, (
+        f"{locale}: the card renders the server's own Chinese notice verbatim, so the "
+        f"reader gets an untranslated line beside the translated one: {everything}"
+    )
+    # Its duplicate in `parse.warnings` goes with it, which is the other half:
+    # the same sentence in the warnings list and again as a notice.
+    assert SERVER_NOTICE not in card["warnings"], (
+        f"{locale}: the server's notice is still rendered in the warning list: {card['warnings']}"
+    )
+    # Stated generally rather than as one known string: any Chinese reaching an
+    # English card is the same defect, and the server may add strings. The
+    # default locale is Chinese, so a reader who never switched was getting the
+    # same sentence twice and would read it as two failures. Scoped to the
+    # first paint — the harness's second view is deliberately Chinese.
+    if locale == "en":
+        first_paint = json.dumps(
+            {key: value for key, value in card.items() if key != "afterLocaleChange"},
+            ensure_ascii=False,
+        )
+        han = re.findall(r"[一-鿿]+", first_paint)
+        assert not han, f"an English card carries Chinese: {han}"
+
+
+@pytest.mark.parametrize("locale", ["zh-CN", "en"])
+def test_a_failed_registration_repaints_when_the_reader_switches_language(tmp_path, locale):
+    """The notice is a catalogue key, so it is re-*looked-up*, not re-drawn.
+
+    Re-rendering alone is not enough — the card holds rendered strings, and a
+    re-render of the same string in the previous language is exactly the defect
+    this section is fixing. So the switch goes through the module's own
+    subscription and the sentence after it must be the other language's.
+    """
+    card = registration_card(locale, "failed", tmp_path)
+    other = "en" if locale == "zh-CN" else "zh-CN"
+    before = toned_notices(card, ("fail",))
+    after = toned_notices(card["afterLocaleChange"], ("fail",))
+    assert before and after, f"{locale}: the notice did not survive the language switch"
+    assert before[0] != after[0], (
+        f"a reader who switched to {other} still sees the {locale} notice: {after[0]!r}"
+    )
+    if other == "zh-CN":
+        assert "引用" in after[0], f"the Chinese notice does not name the citation: {after[0]!r}"
+    else:
+        assert "citation" in after[0].lower(), (
+            f"the English notice does not name the citation: {after[0]!r}"
+        )
+
+
+def test_a_skipped_registration_warns_and_does_not_blame_the_index(tmp_path):
+    """`skipped` is a different fact from `failed`, and takes a different tone.
+
+    Nothing failed: the parse produced no document, so there was nothing to
+    write. Rendering it in the fail tone would put the index on trial for a
+    component it was never asked to touch, and would teach the reader that this
+    card's red means "the analysis is wrong" — which is never what it means.
+    """
+    card = registration_card("en", "skipped", tmp_path)
+    assert toned_notices(card, ("fail",)) == [], (
+        f"a skipped registration is not a failure: {card['notices']}"
+    )
+    warnings = toned_notices(card, ("warn",))
+    assert len(warnings) == 1, f"a skipped registration must warn once: {card['notices']}"
+    assert "citation" in warnings[0].lower(), (
+        f"the warning does not say what the reader loses: {warnings[0]!r}"
+    )
+
+
+def test_a_registered_document_is_a_fact_and_raises_no_notice(tmp_path):
+    """The healthy case must stay quiet, and must still be visible.
+
+    Quiet because a notice above every document would train the reader to
+    dismiss the card, and because the backend deliberately says nothing on this
+    branch. Visible because a fact the reader cannot see is the same silence
+    this card exists to remove — the reader is being told whether their
+    citations work, and "nothing at all" is an answer they have to guess.
+    """
+    card = registration_card("en", "registered", tmp_path)
+    assert toned_notices(card, ("fail", "warn")) == [], (
+        f"a registered document must raise no degraded notice: {card['notices']}"
+    )
+    rows = card["rows"]
+    assert any("citation" in value.lower() for _, value, _ in rows), (
+        f"a registered document says nothing about its citations: {rows}"
+    )
+    assert card["registration"] == "registered", (
+        "the card must publish the verdict it rendered, so a stale one cannot outlive it"
+    )
+
+
+def test_an_outcome_this_build_cannot_name_says_so_rather_than_guessing(tmp_path):
+    """An unknown verdict is reported as unknown, in the same direction as the cloud.
+
+    The `document_registration` vocabulary lives in the server and a client can
+    be older than it. Guessing "fine" would show a reader whose citations 404 a
+    clean card; guessing "broken" above every healthy document is the other way
+    to be wrong about the reader's own paper. So the build says what it knows.
+    """
+    card = registration_card(
+        "en", None, tmp_path, registration={"status": "quantum_flux", "code": "", "notice": ""}
+    )
+    assert toned_notices(card, ("fail", "warn")) == [], (
+        f"an unrecognised verdict must not be dressed as a known failure: {card['notices']}"
+    )
+    assert toned_notices(card, ("unknown",)), (
+        f"an unrecognised verdict is reported as unrecognised, not silently: {card['notices']}"
+    )
+
+
+def test_a_record_with_only_a_status_still_says_something(tmp_path):
+    """The status is the fallback, so a record that drops `code` is not mute.
+
+    A client keyed only on `code` would show nothing at all for a record that
+    carries a perfectly good `status` — and "nothing" reads as "your citations
+    are fine". This is the shape the two halves of the record disagreeing about
+    looks like, and the fallback is the whole defence.
+    """
+    for status, tone in (("failed", "fail"), ("skipped", "warn")):
+        card = registration_card(
+            "en", None, tmp_path, registration={"status": status, "code": "", "notice": ""}
+        )
+        assert toned_notices(card, (tone,)), (
+            f"status {status!r} with no code renders nothing: {card['notices']}"
+        )
+
+
+def test_the_verdict_survives_the_workspace_snapshot():
+    """A restored workspace must not lose the notice it had while it was live.
+
+    The card's contents are captured as rendered HTML, so a restored workspace
+    would otherwise come back showing markup from the moment of capture — the
+    previous language, and with it the server's untranslated warning string. The
+    record is what makes the card re-derivable, so the record is what the
+    snapshot has to carry; asserted statically because the restore path is four
+    assignments in a long function, and the property is that a name appears in
+    all of them rather than that one line behaves.
+    """
+    sections = strip_js_comments((JS_DIR / "sections.js").read_text(encoding="utf-8"))
+    state = strip_js_comments((JS_DIR / "state.js").read_text(encoding="utf-8"))
+    parse_status = strip_js_comments((JS_DIR / "parseStatus.js").read_text(encoding="utf-8"))
+
+    assert "currentDocumentRegistration" in state, (
+        "the verdict has nowhere to live between the analyze response and the render"
+    )
+    assert "state.currentDocumentRegistration = data.document_registration" in sections, (
+        "finalizeAnalysisResultState must take the verdict off the analyze response"
+    )
+    # Capture and restore, or the notice vanishes on every upload that was
+    # interrupted and resumed.
+    capture = function_body(sections, "captureWorkspaceState")
+    assert "currentDocumentRegistration: state.currentDocumentRegistration" in capture
+    restore = function_body(sections, "restoreWorkspaceState")
+    assert "state.currentDocumentRegistration = snapshot.currentDocumentRegistration" in restore
+    # And a reset must clear it, or a new document inherits the last one's verdict.
+    reset = function_body(sections, "resetResultView")
+    assert "state.currentDocumentRegistration = null" in reset
+
+    # The card reads it from state on a language switch, which is the one repaint
+    # that happens without a new analyze response.
+    assert re.search(
+        r"renderParseStatus\(state\.currentParseProvenance,\s*state\.currentDocumentRegistration\)",
+        parse_status,
+    ), "the locale subscription must re-render the verdict, not only the parse"

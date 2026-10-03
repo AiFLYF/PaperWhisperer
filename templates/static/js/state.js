@@ -114,6 +114,13 @@ export const state = {
     // collapsing them to one `cloud: true` is how a deployment ends up billing
     // for a result it threw away without saying so.
     currentParseProvenance: null,
+    // Whether the analysed document reached the retrieval store, which is the
+    // only thing that decides whether a citation click resolves. Kept beside
+    // the provenance and carried through the workspace snapshot with it,
+    // because the notice it produces is part of the same card and would
+    // otherwise vanish on restore — leaving a reader whose citations 404 with
+    // a card that claims the parse was clean.
+    currentDocumentRegistration: null,
     currentDocumentId: '',
     reparseController: null,
 

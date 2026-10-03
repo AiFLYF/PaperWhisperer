@@ -79,6 +79,9 @@ MIGRATED_MODULES = (
 #: escapes the "no bare literal" and "actually calls `t()`" assertions above:
 #: there is nothing to grep, so a key that stopped existing would only surface
 #: as a dotted string rendered onto a citation panel.
+#:
+#: It is asserted against the shipped catalogue by
+#: {@link test_every_key_the_viewer_builds_at_run_time_exists_in_both_languages}.
 VIEWER_DYNAMIC_KEYS = (
     "evidence.view_kind.page_map",
     "evidence.view_kind.slide_view",
@@ -91,6 +94,11 @@ VIEWER_DYNAMIC_KEYS = (
     "evidence.no_target.malformed_bbox",
     "evidence.no_target.incomplete_locator",
     "evidence.view_target_missing",
+    "evidence.view_note.page_map",
+    "evidence.view_note.slide",
+    "evidence.view_note.element",
+    "evidence.view_note.page_raster",
+    "evidence.view_note.page_render_unavailable",
 )
 
 
@@ -1238,10 +1246,15 @@ def run_viewer_harness(workdir: Path, body: str) -> dict:
 #: both languages".
 VIEWER_VIEWS = """
 const PASSAGE = '本文提出了一种新的检索增强生成方法，并在大规模语料上验证了它的有效性。';
+// Each view carries a `note_code` beside its `note`, exactly as the server
+// ships them. The note text here is deliberately *not* the sentence the
+// catalogue holds for the code, so a viewer that kept rendering `view.note`
+// verbatim would be visible in every assertion below that reads `notes`.
 const pageMap = {
     kind: 'page_map',
     label: 'p3',
     note: '这一页没有原始渲染图，下面是按解析坐标重建的布局。',
+    note_code: 'page_map',
     is_raster: false,
     coordinate_space: 'pdf_user_space_points',
     frame: { x: 0, y: 0, width: 600, height: 800 },
@@ -1259,6 +1272,8 @@ const pageMap = {
 const slideView = {
     kind: 'slide_view',
     label: 'slide 4',
+    note: '这张幻灯片没有像素坐标，下面列出全部文本元素。',
+    note_code: 'slide',
     target: { text: PASSAGE },
     blocks: [
         { element_id: 's1', role: 'text', text: PASSAGE, is_target: true },
@@ -1268,6 +1283,8 @@ const slideView = {
 const elementView = {
     kind: 'element_view',
     label: '第 3 节',
+    note: 'DOCX 没有页码坐标，下面按段落序号给出上下文。',
+    note_code: 'element',
     heading_path: ['第三章 方法', '3.2 检索增强'],
     target: { text: PASSAGE },
     context: [
@@ -1278,8 +1295,8 @@ const elementView = {
 // Declared in the order the harness renders them, which is not alphabetical:
 // the page map is last, because it is the view left on screen when the switch
 // happens, and it carries every string this migration was about — the badge,
-// the truncation notes and the absent-highlight sentence — except the
-// paragraph numbers.
+// the truncation notes, the absent-highlight sentence and the disclaimer —
+// except the paragraph numbers.
 const views = { slide_view: slideView, element_view: elementView, page_map: pageMap };
 """
 
@@ -1400,11 +1417,33 @@ def test_the_inside_of_the_evidence_panel_re_renders_in_the_readers_language(i18
     assert "3 elements carry a relative bounding box" in en["page_map"]["truncations"][1]
     assert "1 elements have no coordinates" in en["page_map"]["truncations"][2]
 
-    # Not one interface string anywhere is still Chinese.
+    # The disclaimer. It ships inside the payload, so it was the one sentence in
+    # the panel the language switch could not reach; it is now read through
+    # `evidence.view_note.<note_code>` and comes back in the reader's language.
+    # The fixture's own `note` is Chinese and is *not* the catalogue's English,
+    # so these assertions fail for a viewer that still renders `view.note`.
+    for kind in ("page_map", "slide_view", "element_view"):
+        assert en[kind]["notes"], f"{kind}: the disclaimer is missing"
+        assert not re.search(r"[一-鿿]", en[kind]["notes"][0]), (
+            f"{kind}: the disclaimer is still the server's Chinese sentence under "
+            f"an English interface: {en[kind]['notes'][0]!r}"
+        )
+        assert re.search(r"[一-鿿]", result["zh"][kind]["notes"][0]), (
+            f"{kind}: the disclaimer should read Chinese in the default locale"
+        )
+    assert "not a rendering of the original PDF" in en["page_map"]["notes"][0]
+    assert "不是原始 PDF 的渲染图" in result["zh"]["page_map"]["notes"][0], (
+        "the Chinese disclaimer should be the catalogue's own sentence for the "
+        "code, which is the one the server ships"
+    )
+    assert en["page_map"]["notes"][0] != result["zh"]["page_map"]["notes"][0]
+
+    # Not one interface string anywhere is still Chinese. The disclaimer is in
+    # this list now: it is a statement about the drawing, not about the paper.
     for kind, surface in en.items():
         for name, values in surface.items():
-            if name in ("pageBlocks", "targets", "paragraphText", "slideText", "labels", "notes"):
-                continue  # the document's words and the server's own prose
+            if name in ("pageBlocks", "targets", "paragraphText", "slideText", "labels"):
+                continue  # the document's own words
             for value in values:
                 assert not re.search(r"[一-鿿]", value), (
                     f"{kind}.{name} is still Chinese under an English interface: {value!r}"
@@ -1419,6 +1458,12 @@ def test_the_viewer_leaves_the_documents_own_words_where_they_are(i18n_module):
     paragraph furniture around a citation is the interface's, and the paragraph
     itself is the paper's. Relabelling a reader's paper because they switched
     their interface is a worse failure than an untranslated button.
+
+    The view's disclaimer is the other half of that boundary and is asserted
+    here for the same reason: it travels inside the payload, which is exactly
+    what made it look like the document's words, and it is not. It describes the
+    drawing, so it must move with the switch — otherwise it is the Chinese
+    sentence stranded beside an English panel.
     """
     body = textwrap.dedent(
         """
@@ -1464,7 +1509,6 @@ def test_the_viewer_leaves_the_documents_own_words_where_they_are(i18n_module):
         "slideText",
         "headings",
         "labels",
-        "notes",
     )
     #: Where each branch keeps the document's own words. One passage string is
     #: used across all three fixtures, so one check covers them.
@@ -1494,6 +1538,15 @@ def test_the_viewer_leaves_the_documents_own_words_where_they_are(i18n_module):
     # passing because the switch did nothing.
     assert result["en"]["element_view"]["numbers"] == ["Paragraph 41", "Paragraph 42"]
     assert result["zh"]["element_view"]["numbers"] == ["第 41 段", "第 42 段"]
+    # The disclaimer is furniture, not paper: it describes the drawing, so it
+    # moves with the switch on every branch. Listed separately rather than in
+    # `document_surfaces` because this test is the one place that says which
+    # side of that line it is on — and it used to be on the wrong side, which
+    # is what stranded a Chinese sentence in an English panel.
+    for kind in ("page_map", "slide_view", "element_view"):
+        assert result["en"][kind]["notes"] != result["zh"][kind]["notes"], (
+            f"{kind}: the disclaimer did not follow the language switch"
+        )
 
 
 def test_a_viewer_string_with_no_catalogue_key_falls_back_to_a_sentence(i18n_module):
@@ -1536,7 +1589,20 @@ def test_a_viewer_string_with_no_catalogue_key_falls_back_to_a_sentence(i18n_mod
                 target_rejected: { reason_code: 'relative_bbox' }
             });
 
-            result = { before, viaKey, after, noCode, unknownCode, knownCode };
+            // The same question asked of the view's disclaimer: a note whose
+            // code is missing, and one whose code is present but whose
+            // catalogue entry has been lost.
+            const serverNote = '服务端随负载送来的这一句说明。';
+            const noteNoCode = viewer.describeViewNote({ note: serverNote });
+            const noteUnknownCode = viewer.describeViewNote({
+                note: serverNote, note_code: 'a_code_from_a_future_build'
+            });
+            delete i18n.CATALOGUE['en']['evidence.view_note.page_map'];
+            delete i18n.CATALOGUE['zh-CN']['evidence.view_note.page_map'];
+            const noteLostKey = viewer.describeViewNote(views.page_map);
+
+            result = { before, viaKey, after, noCode, unknownCode, knownCode,
+                      noteNoCode, noteUnknownCode, noteLostKey };
             """
         )
     )
@@ -1564,6 +1630,117 @@ def test_a_viewer_string_with_no_catalogue_key_falls_back_to_a_sentence(i18n_mod
     ), (
         "a code the client knows must be described in the reader's language "
         f"from the catalogue, not from the server's prose: {result['knownCode']!r}"
+    )
+    # The disclaimer's floors. A note with no code, and a note with a code this
+    # build has never heard of, both fall back to the server's own sentence —
+    # visible prose, never a dotted key. And a *known* code whose catalogue
+    # entry has been lost degrades to that same floor rather than to the key,
+    # which is the only reason the `localised()` helper exists.
+    assert result["noteNoCode"] == "服务端随负载送来的这一句说明。"
+    assert result["noteUnknownCode"] == "服务端随负载送来的这一句说明。"
+    assert result["noteLostKey"] == "这一页没有原始渲染图，下面是按解析坐标重建的布局。", (
+        "a note code the catalogue lost must degrade to the server's sentence, "
+        f"not to a dotted key and not to nothing: {result['noteLostKey']!r}"
+    )
+    for name in ("noteNoCode", "noteUnknownCode", "noteLostKey"):
+        assert not result[name].startswith("evidence.view_note"), (
+            f"{name} fell through to a catalogue key: {result[name]!r}"
+        )
+
+
+def test_every_key_the_viewer_builds_at_run_time_exists_in_both_languages():
+    """The allowlist is wired into a real assertion, in both directions.
+
+    A key assembled at run time is invisible to the "no bare literal" and
+    "actually calls `t()`" passes, so the list of them has to be asserted
+    against the shipped catalogue by hand — and a hand-written list that nothing
+    reads is worse than no list, because it looks like coverage.
+
+    Both directions are asserted, because the two failures are different. A key
+    on the allowlist that is not in the catalogue is a rendered dotted string;
+    a key the module builds that is *not* on the allowlist is a catalogue entry
+    nothing checks, which is how the list silently stops describing the module.
+    The set is therefore compared against the module's own vocabulary, which is
+    read out of the shipped source rather than restated here.
+    """
+    viewer = (JS_DIR / "evidenceViewer.js").read_text(encoding="utf-8")
+    config = (JS_DIR / "config.js").read_text(encoding="utf-8")
+
+    # `VIEW_NOTE_CODES`, as data.
+    codes = re.findall(
+        r"const VIEW_NOTE_CODES = new Set\(\[(.*?)\]\);", viewer, re.DOTALL
+    )
+    assert len(codes) == 1, "VIEW_NOTE_CODES is not declared once in evidenceViewer.js"
+    note_codes = re.findall(r"'([^']+)'", codes[0])
+    assert note_codes, "VIEW_NOTE_CODES is empty, so no note can ever be translated"
+
+    # The prefix they are rendered through, read from the same source.
+    prefix = re.findall(r"const NOTE_CODE_KEY_PREFIX = '([^']+)';", viewer)
+    assert len(prefix) == 1, "NOTE_CODE_KEY_PREFIX is not declared in evidenceViewer.js"
+
+    # The two vocabularies that live in config.js, for the same reason.
+    def _keys_of(name: str) -> list[str]:
+        block = re.search(rf"export const {name} = \{{(.*?)\n\}};", config, re.DOTALL)
+        assert block, f"{name} is missing from config.js"
+        return re.findall(r"^    (\w+):", block.group(1), re.MULTILINE)
+
+    expected = {
+        *(f"{prefix[0]}{code}" for code in note_codes),
+        *(f"evidence.view_kind.{kind}" for kind in _keys_of("VIEW_KIND_LABELS")),
+        "evidence.view_kind.fallback",
+        *(f"evidence.no_target.{code}" for code in _keys_of("NO_TARGET_MESSAGES")),
+        "evidence.view_target_missing",
+    }
+    assert set(VIEWER_DYNAMIC_KEYS) == expected, (
+        "the dynamically-built key allowlist no longer describes the module; "
+        f"only on the allowlist: {sorted(set(VIEWER_DYNAMIC_KEYS) - expected)}; "
+        f"only in the module: {sorted(expected - set(VIEWER_DYNAMIC_KEYS))}"
+    )
+
+    zh = catalogue_table("ZH_CN")
+    en = catalogue_table("EN")
+    for key in VIEWER_DYNAMIC_KEYS:
+        assert key in zh, f"{key} is assembled at run time but absent from zh-CN"
+        assert key in en, f"{key} is assembled at run time but absent from en"
+        assert zh[key] != en[key], f"{key} reads identically in both languages"
+
+
+def test_every_note_code_the_server_can_send_is_one_this_build_can_translate():
+    """The two vocabularies on either side of the wire are the same set.
+
+    The server sends `view.note_code`; the client recognises a code before it
+    builds a key from it, and a code it does not recognise degrades to the
+    server's Chinese sentence. That degradation is exactly the defect this
+    change fixed, so a code the server can send and the client cannot describe
+    is the same untranslated note, one release later.
+
+    Read out of the shipped sources rather than restated, so adding a note to
+    the server without translating it fails here instead of in a browser.
+    """
+    from paperwhisperer.rag import evidence as evidence_module
+
+    server_codes = {
+        getattr(evidence_module, name)
+        for name in dir(evidence_module)
+        if name.startswith("VIEW_NOTE_")
+    }
+    assert server_codes, "no note codes are declared on the server"
+
+    viewer = (JS_DIR / "evidenceViewer.js").read_text(encoding="utf-8")
+    block = re.search(r"const VIEW_NOTE_CODES = new Set\(\[(.*?)\]\);", viewer, re.DOTALL)
+    assert block, "evidenceViewer.js no longer declares the note codes it can render"
+    client_codes = set(re.findall(r"'([^']+)'", block.group(1)))
+
+    assert client_codes == server_codes, (
+        "the note codes the client recognises and the ones the server sends are "
+        f"not the same set: server-only {sorted(server_codes - client_codes)}, "
+        f"client-only {sorted(client_codes - server_codes)}"
+    )
+    # Sanity on the set itself: a vocabulary that collapsed to one member would
+    # satisfy the equality above while describing almost nothing.
+    assert len(client_codes) >= 3, (
+        f"only {len(client_codes)} note codes are recognised: "
+        f"{sorted(client_codes)}"
     )
 
 

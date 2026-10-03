@@ -287,6 +287,18 @@ const ZH_CN = {
     'evidence.view.preview_truncated': '（预览已截断）',
     'evidence.view.no_text': '（无文本）',
 
+    // The view's disclaimer, keyed by the `note_code` the server sends beside
+    // `view.note`. These are statements about the *viewer* — what the drawing
+    // is and is not — so they follow the reader's switch; the cited passage and
+    // the heading path beside them do not. The Chinese here is the server's
+    // own `note` verbatim, so the default locale renders byte for byte what it
+    // rendered before the code existed.
+    'evidence.view_note.page_map': '这是按解析得到的元素坐标重建的页内布局，不是原始 PDF 的渲染图：方块与高亮框使用同一套 PDF 用户空间坐标，因此彼此的相对位置与页面一致。',
+    'evidence.view_note.slide': '幻灯片没有像素坐标，因此这里列出该 slide 上的全部文本元素，并标出被引用的那个。',
+    'evidence.view_note.element': 'DOCX 没有页码坐标，因此按段落序号给出目标段落及其前后文，标题路径是读者在文档里找到它的依据。',
+    'evidence.view_note.page_raster': '这是原始 PDF 页面的真实渲染图：高亮框使用与解析结果相同的 PDF 用户空间坐标（原点左下、y 向上），因此可以直接叠加在页图上定位。',
+    'evidence.view_note.page_render_unavailable': '本版本不提供页图/幻灯片光栅图：运行环境没有安装可选的 PDF 渲染依赖（pypdfium2）。面板改用解析得到的元素坐标重建页内布局来定位，并在视图上标明它不是原始渲染图。',
+
     // --- recommendations ---------------------------------------------------
     'recommend.signal.cited_by': RECOMMENDATION_SIGNAL_LABELS.cited_by,
     'recommend.signal.citing': RECOMMENDATION_SIGNAL_LABELS.citing,
@@ -511,6 +523,18 @@ const ZH_CN = {
     'parse.quality.clean': '已检查的规则全部通过。',
     'parse.quality.rule_fallback': '规则',
 
+    // --- 原文索引（document_registration） ---------------------------------
+    //
+    // 键名按服务端给出的 `code` 取，按 `status` 兜底。服务端那句 `notice` 是
+    // 中文写死的原始字符串，读者换成英文也读不到，所以这里的每一句都是本
+    // 地化重新写的；写的是读者遇到的后果（点击引用打不开原文），不是失败
+    // 的内部代号。
+    'parse.registration.field': '原文索引',
+    'parse.registration.registered': '原文已建立索引，引用可以打开原文。',
+    'parse.registration.document_indexing_failed': '分析结果本身是完整的，但这份文档没能存进原文索引，因此点击引用打不开原文。索引恢复后可以重新分析，或用 /v1/documents 上传同一份文件来建立索引。',
+    'parse.registration.no_parsed_document': '这次解析没有产出可引用的结构化原文，因此点击引用打不开原文；分析结果本身不受影响。',
+    'parse.registration.unknown': '服务端报告了一个本版本不认识的索引结果，因此无法判断引用能否打开原文。',
+
     // --- the reparse control -----------------------------------------------
     //
     // The parser menu labels each choice with what it *requires*, not merely
@@ -613,6 +637,11 @@ const EN = {
     'evidence.view.omitted_unpositioned': '{count} elements have no coordinates and are not drawn into the layout.',
     'evidence.view.preview_truncated': '(preview truncated)',
     'evidence.view.no_text': '(no text)',
+    'evidence.view_note.page_map': 'This is the page layout rebuilt from the parsed element coordinates, not a rendering of the original PDF: the blocks and the highlight box share one set of PDF user-space coordinates, so their positions relative to each other match the page.',
+    'evidence.view_note.slide': 'A slide has no pixel coordinates, so every text element on this slide is listed here, with the cited one marked.',
+    'evidence.view_note.element': 'A DOCX has no page-grid coordinates, so the target paragraph is given by its paragraph number with the paragraphs around it; the heading path is how you find it in the document.',
+    'evidence.view_note.page_raster': 'This is a real rendering of the original PDF page: the highlight box uses the same PDF user-space coordinates as the parse (origin bottom-left, y upward), so it can be laid straight over the page image.',
+    'evidence.view_note.page_render_unavailable': 'This build does not provide page or slide rasters: the optional PDF rendering dependency (pypdfium2) is not installed here. The panel locates the passage by rebuilding the in-page layout from the parsed element coordinates instead, and marks clearly that it is not a rendered image.',
 
     'recommend.signal.cited_by': 'Cited by',
     'recommend.signal.citing': 'Citing',
@@ -814,6 +843,20 @@ const EN = {
     'parse.quality.heading': 'Parse quality: {status}',
     'parse.quality.clean': 'Every checked rule passed.',
     'parse.quality.rule_fallback': 'rule',
+
+    // --- the source-text index (`document_registration`) -------------------
+    //
+    // The server's own `notice` on a failed registration is a Chinese string
+    // baked into `analysis/service.py`; rendering it here would leave an
+    // English reader with one Chinese sentence in an otherwise English card.
+    // So the client names the outcome it was told (`code`, falling back to
+    // `status`) and looks it up, and the copy says what it costs the reader —
+    // the citation will not open — rather than what the component failed to do.
+    'parse.registration.field': 'Source-text index',
+    'parse.registration.registered': 'The source text is indexed, so citations will open the original passage.',
+    'parse.registration.document_indexing_failed': 'The analysis itself is complete, but this document was not written to the source-text index, so clicking a citation will not open the original passage. Re-analyse once the index is back, or upload the same file to /v1/documents to build it.',
+    'parse.registration.no_parsed_document': 'This parse produced no structured source text to index, so clicking a citation will not open the original passage. The analysis itself is unaffected.',
+    'parse.registration.unknown': 'The server reported an indexing result this version does not know, so this client cannot tell whether citations will open the original passage.',
 
     'reparse.parser.default': 'The deployment’s configured route (chosen per file type)',
     'reparse.parser.docling': 'Docling (local)',

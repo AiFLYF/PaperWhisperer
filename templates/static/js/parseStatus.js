@@ -88,6 +88,18 @@ import { setControlDisabled, updateStatus } from './dom.js';
  * subscribes to the locale event and rebuilds the card, the parser menu and the
  * last reparse result together. What the card says is unchanged by this: the
  * same facts, the same tone, in whichever language the reader chose.
+ *
+ * **On the source-text index.** `document_registration` is the backend's answer
+ * to "will a citation click resolve", and it is the one degraded state here
+ * that leaves every other signal on the card green: the document parsed, the
+ * summary is complete, and every chip is about to answer `404`. The backend
+ * also puts a notice on that record — a Chinese literal in
+ * `analysis/service.py` — and duplicates it into `parse["warnings"]`, which is
+ * rendered here verbatim. Neither is shown: the verdict is resolved to a
+ * catalogue key from the `status`/`code` the server already branches on, and
+ * the server string is filtered out of the warnings list so the reader
+ * sees one sentence, in their language, instead of that sentence twice with
+ * half of it untranslated.
  */
 
 /** How each parse status maps onto the tones the stylesheet already defines. */
@@ -271,6 +283,136 @@ function appendCloudOutcomeRow(facts, outcome) {
 }
 
 /**
+ * The two degraded registration verdicts, keyed on the `code` the server writes.
+ *
+ * Named rather than spelled inline because the code is a contract the server
+ * branches on too (`REGISTRATION_FAILED` / `REGISTRATION_SKIPPED` in
+ * `analysis/service.py`), and a typo in a bare string here would be a silent
+ * behaviour change. `document_indexing_failed` is the only one that means
+ * something the reader can act on, and it is the one wearing the fail tone:
+ * `no_parsed_document` says there was nothing to index, which is a weaker and
+ * differently-caused thing than an index that refused a write.
+ */
+const REGISTRATION_PRESENTATIONS = {
+    document_indexing_failed: {
+        key: 'parse.registration.document_indexing_failed',
+        tone: 'fail'
+    },
+    no_parsed_document: {
+        key: 'parse.registration.no_parsed_document',
+        tone: 'warn'
+    }
+};
+
+/** What each `status` means when the record carries no `code` we know. */
+const REGISTRATION_STATUS_FALLBACKS = {
+    failed: REGISTRATION_PRESENTATIONS.document_indexing_failed,
+    skipped: REGISTRATION_PRESENTATIONS.no_parsed_document
+};
+
+/**
+ * Read one `document_registration` and say what it means for a citation click.
+ *
+ * The analysis path writes the analysed document into the retrieval store so
+ * that the `document_id` this result publishes can be addressed by
+ * `GET /v1/documents/{id}/evidence/{id}`. That write is the only thing standing
+ * between a rendered citation chip and a `404 document_not_found`, and it can
+ * fail without failing the analysis — which is exactly why it needs a sentence
+ * of its own.
+ *
+ * The server sends both a machine-readable `status`/`code` and a `notice`
+ * written in Chinese inside `analysis/service.py`. Only the first two are read
+ * here. The raw string is untranslatable, so an English reader would be shown
+ * one Chinese line in an otherwise English card — the mixed-language defect
+ * this module header is written against — and it is separately dropped
+ * from the warnings list for the same reason (see `renderParseStatus`).
+ *
+ * An *empty* status is silence, not a failure: a build that does not report
+ * registration at all has not told us anything went wrong, and announcing a
+ * broken index above every healthy document is the same loud wrong this module
+ * refuses for the cloud outcome. An unrecognised non-empty one degrades to
+ * saying so, for the same reason `CLOUD_OUTCOME_UNKNOWN` exists.
+ *
+ * Pure, and exported for the same reason `describeCloudOutcome` is: the tone
+ * and the sentence are a decision, and a decision only ever checked by reading
+ * it is a decision that drifts.
+ *
+ * @returns {{status: string, code: string, tone: string, reports: boolean,
+ *            sentenceKey: string}}
+ */
+function describeDocumentRegistration(registration) {
+    const raw = registration && typeof registration === 'object' ? registration : {};
+    const status = String(raw.status ?? '').trim().toLowerCase();
+    const code = String(raw.code ?? '').trim().toLowerCase();
+
+    // The code is the more specific of the two and is what the server
+    // tests branch on, so it wins when it is one we know. The status is the
+    // fallback, which is what lets a record that carries only a status — an
+    // older server, or one whose indexing seam changed — still say something
+    // rather than falling through to "unknown".
+    const presentation = REGISTRATION_PRESENTATIONS[code] || REGISTRATION_STATUS_FALLBACKS[status] || null;
+    if (presentation) {
+        return {
+            status,
+            code,
+            tone: presentation.tone,
+            reports: true,
+            sentenceKey: presentation.key
+        };
+    }
+
+    if (status && status !== 'registered') {
+        return {
+            status,
+            code,
+            tone: 'unknown',
+            reports: true,
+            sentenceKey: 'parse.registration.unknown'
+        };
+    }
+
+    // Success, or nothing reported at all. Both are a fact rather than a notice
+    // — the backend deliberately says nothing on the registered branch, and a
+    // reader whose citations open needs nothing said about how they came to
+    // open. It is still *shown* as a row, because a fact the reader cannot see
+    // is the silence this card exists to remove.
+    return {
+        status,
+        code,
+        tone: 'pass',
+        reports: false,
+        sentenceKey: 'parse.registration.registered'
+    };
+}
+
+/**
+ * Show the registration verdict in the card: a fact row when the citations
+ * resolve, a toned notice when they will not.
+ *
+ * A failed registration is the one degraded state in this product where the
+ * reader is *looking at something complete* while a specific interaction is
+ * broken, so the notice is toned `fail` and says what will not work rather
+ * than what broke. `skipped` is `warn` and not `fail` because nothing was
+ * attempted: there was no document to write, and blaming the index for that
+ * would name the wrong component.
+ *
+ * The verdict is also published on `data-registration-status`, for the same
+ * reason `data-cloud-outcome` is: the card is re-rendered for a new document
+ * with no other way to clear it, and a stale attribute outlives the card that
+ * set it.
+ */
+function appendRegistration(container, facts, registration) {
+    const outcome = describeDocumentRegistration(registration);
+    container.dataset.registrationStatus = outcome.status;
+    if (outcome.reports) {
+        appendNotice(container, t(outcome.sentenceKey), outcome.tone);
+        return outcome;
+    }
+    appendFact(facts, t('parse.registration.field'), t(outcome.sentenceKey), outcome.tone);
+    return outcome;
+}
+
+/**
  * Render every signal the parse outcome carries, degraded or not.
  *
  * Nothing is collapsed into a single "OK". A document that was parsed
@@ -279,7 +421,7 @@ function appendCloudOutcomeRow(facts, outcome) {
  * telling them less is what the section 7 gate — "截断/低质量必须是可见警告或
  * 失败态" — is written against.
  */
-function renderParseStatus(parse) {
+function renderParseStatus(parse, registration) {
     const container = document.getElementById('parseStatus');
     if (!container) {
         return;
@@ -293,6 +435,7 @@ function renderParseStatus(parse) {
         dismissCloudOutcomeNotice();
         appendNotice(container, t('parse.unknown_notice'), 'unknown');
         container.dataset.state = 'unknown';
+        container.dataset.registrationStatus = '';
         return;
     }
 
@@ -326,6 +469,14 @@ function renderParseStatus(parse) {
     appendCloudOutcomeRow(facts, cloudOutcome);
     container.appendChild(facts);
 
+    // --- whether a citation click will resolve ------------------------------
+    //
+    // Placed above the cloud notices rather than below them because this is the
+    // only sentence on the card about the next thing the reader does, and it is
+    // one that fails without anything else on the card looking wrong: the
+    // summary is complete, the parse succeeded, and every chip is about to 404.
+    appendRegistration(container, facts, registration);
+
     // --- the cloud question, in three parts --------------------------------
     if (parse.used_cloud) {
         appendNotice(container, t('parse.notice.used_cloud'), 'cloud');
@@ -347,7 +498,20 @@ function renderParseStatus(parse) {
     renderParseQuality(container, parse.quality);
 
     // --- warnings ----------------------------------------------------------
-    const warnings = Array.isArray(parse.warnings) ? parse.warnings.filter(Boolean) : [];
+    //
+    // The registration verdict is dropped from this list rather than appended
+    // next to the localised notice above, for two reasons that are one reason:
+    // it would say the same thing twice in one render (and a doubled failure
+    // reads as two failures), and the server copy is a Chinese literal in
+    // `analysis/service.py`, so an English reader would get one untranslated
+    // line inside an English card. Matching on the server string is exact
+    // rather than fuzzy: it is the only warning this card did not produce
+    // itself, and a substring match would silently eat a real parser warning
+    // that happened to mention indexing.
+    const serverNotice = String(registration?.notice ?? '').trim();
+    const warnings = (Array.isArray(parse.warnings) ? parse.warnings : [])
+        .filter(Boolean)
+        .filter(message => !serverNotice || String(message).trim() !== serverNotice);
     if (warnings.length) {
         const list = document.createElement('ul');
         list.className = 'parse-warning-list';
@@ -589,7 +753,14 @@ async function submitReparse() {
         });
 
         if (payload?.parse && typeof payload.parse === 'object' && Object.keys(payload.parse).length) {
-            renderParseStatus(payload.parse);
+            // Both halves of the new parse are stored, not just rendered: the
+            // locale subscription below re-renders from state, so a card that
+            // showed a reparse's registration verdict while state still held the
+            // previous run's would repaint to the wrong document on a language
+            // switch — the verdict would simply disappear.
+            state.currentParseProvenance = payload.parse;
+            state.currentDocumentRegistration = payload.document_registration || null;
+            renderParseStatus(state.currentParseProvenance, state.currentDocumentRegistration);
         }
         setReparseResult('reparse.result.finished', null, 'pass');
         updateStatus(t('reparse.status.finished'), 'success');
@@ -675,7 +846,7 @@ function initializeParseStatus() {
             if (lastReparseResult) {
                 setReparseResult(lastReparseResult.key, lastReparseResult.params, lastReparseResult.tone);
             }
-            renderParseStatus(state.currentParseProvenance);
+            renderParseStatus(state.currentParseProvenance, state.currentDocumentRegistration);
         });
     }
 }
@@ -689,6 +860,7 @@ function resetParseStatus() {
 
 
 export { describeCloudOutcome };
+export { describeDocumentRegistration };
 export { initializeParseStatus };
 export { renderParseQuality };
 export { renderParseStatus };
