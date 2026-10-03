@@ -363,6 +363,7 @@ const ZH_CN = {
     'skip.to_result': '跳到分析工作区',
     'brand.subtitle': '研究工作台',
     'hero.copy': '上传一篇论文，抽取结构、生成结构图，并在同一个工作台里持续追问。这个页面现在更像一张研究桌，而不是一次性表单。',
+    'hero.stats_label': '工作台要点',
     'hero.stats.types': '文档类型',
     'hero.stats.streaming': '章节流式输出',
     'hero.stats.followups': '智能追问',
@@ -370,6 +371,7 @@ const ZH_CN = {
     'nav.paper_search': '论文检索',
     'nav.reading_queue': '阅读队列',
     'nav.analysis': '分析工作台',
+    'nav.github_label': '打开 GitHub 仓库',
     'status.waiting': '等待文档',
 
     // --- static markup: upload workspace ------------------------------------
@@ -426,6 +428,7 @@ const ZH_CN = {
     'export.submit': '导出会话',
     'export.hint': '导出件会带上每条引用的证据链接、文档版本与分析元数据（模型、提示词版本、证据版本、成本），这样几个月后再打开这个文件，仍然能说清它是怎么生成的。',
     'export.preview_empty': '成功运行后，可以导出当前分析、问答记录、研究轨迹与 Mermaid 资源。',
+    'result.workspace_label': '分析结果工作区',
     'result.overview': '概览',
     'result.citations': '关键引用',
     'result.structure': '文本结构',
@@ -875,6 +878,7 @@ const EN = {
     'skip.to_result': 'Skip to analysis workspace',
     'brand.subtitle': 'Research Workspace',
     'hero.copy': 'Upload a paper, extract structure, generate a map, and keep asking follow-up questions in the same workspace. This page now behaves more like a research desk than a single-use form.',
+    'hero.stats_label': 'workspace highlights',
     'hero.stats.types': 'document types',
     'hero.stats.streaming': 'section streaming',
     'hero.stats.followups': 'follow-ups',
@@ -882,6 +886,7 @@ const EN = {
     'nav.paper_search': 'Paper Search',
     'nav.reading_queue': 'Reading Queue',
     'nav.analysis': 'Analysis Workspace',
+    'nav.github_label': 'open the GitHub repository',
     'status.waiting': 'Waiting for document',
 
     'upload.workspace_title': 'Document upload workspace',
@@ -936,6 +941,7 @@ const EN = {
     'export.submit': 'Export Session',
     'export.hint': 'Exports carry each citation’s evidence link, the document version and the analysis metadata (model, prompt version, evidence version, cost), so a file opened months later still states what produced it.',
     'export.preview_empty': 'Export the current analysis, Q&A history, research trace, and Mermaid assets after a successful run.',
+    'result.workspace_label': 'analysis results workspace',
     'result.overview': 'Overview',
     'result.citations': 'Key Citations',
     'result.structure': 'Text Structure',
