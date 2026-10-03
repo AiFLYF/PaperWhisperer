@@ -240,10 +240,10 @@
             </style>
 </head>
 <body>
-    <nav class="skip-links" aria-label="Skip links" data-i18n-attr="aria-label:switcher.group_label">
-        <a href="#uploadWorkspace" data-i18n="skip.to_upload">Skip to upload</a>
-        <a href="#paperSearchTitle" data-i18n="skip.to_search">Skip to paper search</a>
-        <a href="#result" data-i18n="skip.to_result">Skip to analysis workspace</a>
+    <nav class="skip-links" aria-label="语言 / Language" data-i18n-attr="aria-label:switcher.group_label">
+        <a href="#uploadWorkspace" data-i18n="skip.to_upload">跳到文档上传</a>
+        <a href="#paperSearchTitle" data-i18n="skip.to_search">跳到论文检索</a>
+        <a href="#result" data-i18n="skip.to_result">跳到分析工作区</a>
     </nav>
 
     <div class="container">
@@ -254,19 +254,19 @@
                         <img class="brand-mark" src="/logo.ico" alt="PaperWhisperer logo" width="56" height="56" decoding="async" fetchpriority="high">
                         <span class="brand-pulse"></span>
                     </div>
-                    <div class="logo">PaperWhisperer<span data-i18n="brand.subtitle">Research Workspace</span></div>
+                    <div class="logo">PaperWhisperer<span data-i18n="brand.subtitle">研究工作台</span></div>
                 </div>
-                <p class="hero-copy" data-i18n="hero.copy">Upload a paper, extract structure, generate a map, and keep asking follow-up questions in the same workspace. This page now behaves more like a research desk than a single-use form.</p>
+                <p class="hero-copy" data-i18n="hero.copy">上传一篇论文，抽取结构、生成结构图，并在同一个工作台里持续追问。这个页面现在更像一张研究桌，而不是一次性表单。</p>
                 <div class="hero-stats" aria-label="Workspace highlights">
-                    <span><strong>4</strong><em data-i18n="hero.stats.types">document types</em></span>
-                    <span><strong>Live</strong><em data-i18n="hero.stats.streaming">section streaming</em></span>
-                    <span><strong>Smart</strong><em data-i18n="hero.stats.followups">follow-ups</em></span>
+                    <span><strong>4</strong><em data-i18n="hero.stats.types">文档类型</em></span>
+                    <span><strong>Live</strong><em data-i18n="hero.stats.streaming">章节流式输出</em></span>
+                    <span><strong>Smart</strong><em data-i18n="hero.stats.followups">智能追问</em></span>
                 </div>
-                <nav class="workspace-quick-nav" aria-label="Workspace quick navigation" data-i18n-attr="aria-label:nav.analysis">
-                    <a href="#uploadWorkspace" data-i18n="nav.upload"><span class="nav-dot" aria-hidden="true"></span>Upload</a>
-                    <a href="#paperSearchTitle" data-i18n="nav.paper_search"><span class="nav-dot" aria-hidden="true"></span>Paper Search</a>
-                    <a href="#readingQueueTitle" data-i18n="nav.reading_queue"><span class="nav-dot" aria-hidden="true"></span>Reading Queue</a>
-                    <a href="#result" data-i18n="nav.analysis"><span class="nav-dot" aria-hidden="true"></span>Analysis Workspace</a>
+                <nav class="workspace-quick-nav" aria-label="分析工作台" data-i18n-attr="aria-label:nav.analysis">
+                    <a href="#uploadWorkspace" data-i18n="nav.upload"><span class="nav-dot" aria-hidden="true"></span>上传</a>
+                    <a href="#paperSearchTitle" data-i18n="nav.paper_search"><span class="nav-dot" aria-hidden="true"></span>论文检索</a>
+                    <a href="#readingQueueTitle" data-i18n="nav.reading_queue"><span class="nav-dot" aria-hidden="true"></span>阅读队列</a>
+                    <a href="#result" data-i18n="nav.analysis"><span class="nav-dot" aria-hidden="true"></span>分析工作台</a>
                 </nav>
             </div>
             <div class="nav-actions">
@@ -278,7 +278,7 @@
                      readable whichever locale is active. `data-selected` and
                      `aria-checked` both carry the state so it is never
                      colour-only. -->
-                <div class="language-switcher" id="languageSwitcher" role="radiogroup" aria-label="Language / 语言" data-i18n-attr="aria-label:switcher.group_label">
+                <div class="language-switcher" id="languageSwitcher" role="radiogroup" aria-label="语言 / Language" data-i18n-attr="aria-label:switcher.group_label">
                     <button class="lang-option" type="button" role="radio" data-locale-option="zh-CN" aria-checked="true" data-selected="true" tabindex="0">中文</button>
                     <button class="lang-option" type="button" role="radio" data-locale-option="en" aria-checked="false" data-selected="false" tabindex="-1">English</button>
                 </div>
@@ -292,77 +292,77 @@
         </header>
         
         <section class="card" id="uploadWorkspace" aria-labelledby="uploadWorkspaceTitle" tabindex="-1">
-            <h2 class="sr-only" id="uploadWorkspaceTitle" data-i18n="upload.workspace_title">Document upload workspace</h2>
-            <p class="card-intro" data-i18n="upload.intro">Supports `PDF`, `TXT`, `DOCX`, and `PPTX` files. A successful analysis replaces the current session; failed attempts keep the last completed workspace available.</p>
-            <div class="shortcut-hints" aria-label="Workspace keyboard shortcuts" data-i18n-attr="aria-label:upload.shortcut_hints">
-                <span><kbd>Alt</kbd> + <kbd>U</kbd> <span data-i18n="nav.upload">Upload</span></span>
-                <span><kbd>Alt</kbd> + <kbd>S</kbd> <span data-i18n="nav.paper_search">Search</span></span>
-                <span><kbd>Alt</kbd> + <kbd>Q</kbd> <span data-i18n="result.ask">Ask</span></span>
+            <h2 class="sr-only" id="uploadWorkspaceTitle" data-i18n="upload.workspace_title">文档上传工作区</h2>
+            <p class="card-intro" data-i18n="upload.intro">支持 PDF、TXT、DOCX 和 PPTX 文件。一次成功的分析会替换当前会话；失败的尝试会保留上一次已完成的工作台。</p>
+            <div class="shortcut-hints" aria-label="工作区快捷键" data-i18n-attr="aria-label:upload.shortcut_hints">
+                <span><kbd>Alt</kbd> + <kbd>U</kbd> <span data-i18n="nav.upload">上传</span></span>
+                <span><kbd>Alt</kbd> + <kbd>S</kbd> <span data-i18n="nav.paper_search">论文检索</span></span>
+                <span><kbd>Alt</kbd> + <kbd>Q</kbd> <span data-i18n="result.ask">提问</span></span>
             </div>
             <div class="form-group">
-                <label for="apiKey" data-i18n="upload.api_key_label">API Key (Optional)</label>
-                <input type="password" id="apiKey" placeholder="Enter your API Key" autocomplete="off" autocapitalize="off" spellcheck="false" data-i18n-attr="placeholder:upload.api_key_placeholder">
+                <label for="apiKey" data-i18n="upload.api_key_label">API Key（可选）</label>
+                <input type="password" id="apiKey" placeholder="请输入你的 API Key" autocomplete="off" autocapitalize="off" spellcheck="false" data-i18n-attr="placeholder:upload.api_key_placeholder">
             </div>
             <div class="form-group">
-                <label for="file" data-i18n="upload.source_label">Document Source</label>
-                <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="Choose or drop a document file" data-i18n-attr="aria-label:upload.dropzone_label" aria-invalid="false" aria-keyshortcuts="Alt+U" aria-controls="file">
+                <label for="file" data-i18n="upload.source_label">文档来源</label>
+                <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-describedby="fileMeta" aria-label="选择或拖放一个文档文件" data-i18n-attr="aria-label:upload.dropzone_label" aria-invalid="false" aria-keyshortcuts="Alt+U" aria-controls="file">
                     <div class="drop-zone-icon" aria-hidden="true">
                         <svg class="drop-zone-svg drop-zone-svg-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                         <svg class="drop-zone-svg drop-zone-svg-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" focusable="false"><polyline points="20 6 9 17 4 12"></polyline></svg>
                         <svg class="drop-zone-svg drop-zone-svg-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                     </div>
                     <div>
-                        <div class="drop-zone-title" data-i18n="upload.dropzone_title">Drop a paper here or browse</div>
-                        <div class="drop-zone-hint" data-i18n="upload.dropzone_hint">PDF, TXT, DOCX, or PPTX · up to 16 MB</div>
+                        <div class="drop-zone-title" data-i18n="upload.dropzone_title">把论文拖到这里，或点击浏览</div>
+                        <div class="drop-zone-hint" data-i18n="upload.dropzone_hint">PDF、TXT、DOCX 或 PPTX · 最大 16 MB</div>
                     </div>
                     <input type="file" id="file" accept=".txt,.pdf,.docx,.pptx" aria-describedby="fileMeta">
                 </div>
-                <div class="file-meta" id="fileMeta" role="status" aria-live="polite" data-i18n="upload.file_meta_empty">No file selected. Recommended: clean PDF, TXT, DOCX, or PPTX for better structure extraction.</div>
+                <div class="file-meta" id="fileMeta" role="status" aria-live="polite" data-i18n="upload.file_meta_empty">尚未选择文件。建议使用结构提取效果更好的 PDF、TXT、DOCX 或 PPTX。</div>
             </div>
             <div class="options-group">
                 <label class="checkbox-label">
                     <input type="checkbox" id="generateMermaid" checked>
-                    <span data-i18n="upload.opt_mermaid">Enable structure diagram</span>
+                    <span data-i18n="upload.opt_mermaid">启用结构图</span>
                 </label>
                 <label class="checkbox-label">
                     <input type="checkbox" id="generateEvaluation" checked>
-                    <span data-i18n="upload.opt_evaluation">Enable critical evaluation</span>
+                    <span data-i18n="upload.opt_evaluation">启用批判性评估</span>
                 </label>
                 <label class="checkbox-label">
                     <input type="checkbox" id="generateResearchBrief" checked>
-                    <span data-i18n="upload.opt_brief">Enable research brief</span>
+                    <span data-i18n="upload.opt_brief">启用研究简报</span>
                 </label>
             </div>
             <div class="request-actions">
-                <button class="btn" id="analyzeBtn" type="button" data-i18n="upload.analyze">Analyze Document</button>
-                <button class="action-btn request-cancel" type="button" id="cancelAnalyzeBtn" hidden disabled aria-disabled="true" data-i18n="upload.cancel_analysis">Cancel analysis</button>
+                <button class="btn" id="analyzeBtn" type="button" data-i18n="upload.analyze">分析文档</button>
+                <button class="action-btn request-cancel" type="button" id="cancelAnalyzeBtn" hidden disabled aria-disabled="true" data-i18n="upload.cancel_analysis">取消分析</button>
             </div>
         </section>
 
         <div class="loading" id="loading" role="status" aria-live="polite">
             <div class="spinner"></div>
-            <div class="loading-text" id="loadingText" data-i18n="upload.preparing">Preparing document analysis...</div>
-            <div class="progress-steps" id="analysisProgressSteps" aria-label="Analysis progress" data-i18n-attr="aria-label:progress.label">
-                <span class="progress-step active" data-step="upload" data-i18n="progress.upload" aria-current="step">Upload</span>
-                <span class="progress-step" data-step="analyze" data-i18n="progress.analyze">Analyze</span>
-                <span class="progress-step" data-step="render" data-i18n="progress.render">Render</span>
-                <span class="progress-step" data-step="ready" data-i18n="progress.ready">Ready</span>
+            <div class="loading-text" id="loadingText" data-i18n="upload.preparing">正在准备文档分析…</div>
+            <div class="progress-steps" id="analysisProgressSteps" aria-label="分析进度" data-i18n-attr="aria-label:progress.label">
+                <span class="progress-step active" data-step="upload" data-i18n="progress.upload" aria-current="step">上传</span>
+                <span class="progress-step" data-step="analyze" data-i18n="progress.analyze">分析</span>
+                <span class="progress-step" data-step="render" data-i18n="progress.render">渲染</span>
+                <span class="progress-step" data-step="ready" data-i18n="progress.ready">就绪</span>
             </div>
         </div>
         <div class="error is-hidden" id="error" role="alert" aria-live="assertive" aria-atomic="true" tabindex="-1"></div>
 
         <section class="result-card" aria-labelledby="paperSearchTitle">
             <div class="section-header">
-                <h3 class="section-title" id="paperSearchTitle" data-i18n="search.title">Paper Search</h3>
+                <h3 class="section-title" id="paperSearchTitle" data-i18n="search.title">论文检索</h3>
             </div>
             <div class="paper-actions">
-                <label class="sr-only" for="paperSearchInput" data-i18n="search.query_label">Paper search query</label>
-                <input type="search" id="paperSearchInput" placeholder="Search by topic, task, method, or dataset..." aria-describedby="paperSearchMeta" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="search" aria-keyshortcuts="Alt+S" data-i18n-attr="placeholder:search.placeholder">
-                <button class="btn" type="button" id="paperSearchBtn" data-i18n="search.submit">Search Papers</button>
-                <button class="action-btn request-cancel" type="button" id="cancelPaperSearchBtn" hidden disabled aria-disabled="true" data-i18n="search.cancel">Cancel search</button>
+                <label class="sr-only" for="paperSearchInput" data-i18n="search.query_label">论文检索关键词</label>
+                <input type="search" id="paperSearchInput" placeholder="按主题、任务、方法或数据集检索…" aria-describedby="paperSearchMeta" autocomplete="off" autocapitalize="off" spellcheck="false" inputmode="search" aria-keyshortcuts="Alt+S" data-i18n-attr="placeholder:search.placeholder">
+                <button class="btn" type="button" id="paperSearchBtn" data-i18n="search.submit">检索论文</button>
+                <button class="action-btn request-cancel" type="button" id="cancelPaperSearchBtn" hidden disabled aria-disabled="true" data-i18n="search.cancel">取消检索</button>
             </div>
-            <div class="paper-meta" id="paperSearchMeta" data-i18n="search.meta">Search across Semantic Scholar and arXiv with a single query.</div>
-            <div class="example-query-chips" aria-label="Example paper search queries" data-i18n-attr="aria-label:search.examples_label">
+            <div class="paper-meta" id="paperSearchMeta" data-i18n="search.meta">用一个查询同时检索 Semantic Scholar 与 arXiv。</div>
+            <div class="example-query-chips" aria-label="论文检索示例" data-i18n-attr="aria-label:search.examples_label">
                 <button type="button" data-example-query="retrieval augmented generation evaluation">RAG evaluation</button>
                 <button type="button" data-example-query="multimodal large language model reasoning">Multimodal reasoning</button>
                 <button type="button" data-example-query="efficient transformer long context attention">Long-context transformers</button>
@@ -372,10 +372,10 @@
 
         <section class="result-card reading-queue-card" aria-labelledby="readingQueueTitle">
             <div class="section-header">
-                <h3 class="section-title" id="readingQueueTitle" data-i18n="queue.title">Reading Queue</h3>
-                <button class="action-btn" type="button" id="clearReadingQueueBtn" disabled aria-disabled="true" data-i18n="queue.clear">Clear</button>
+                <h3 class="section-title" id="readingQueueTitle" data-i18n="queue.title">阅读队列</h3>
+                <button class="action-btn" type="button" id="clearReadingQueueBtn" disabled aria-disabled="true" data-i18n="queue.clear">清空</button>
             </div>
-            <div class="paper-meta" id="readingQueueMeta" data-i18n="queue.meta">Save papers from search or recommendations into this session reading queue.</div>
+            <div class="paper-meta" id="readingQueueMeta" data-i18n="queue.meta">把检索或推荐中的论文保存到当前会话的阅读队列。</div>
             <div class="reading-queue" id="readingQueue"></div>
         </section>
 
@@ -384,27 +384,27 @@
 
             <section class="result-card" id="parseStatusCard" aria-labelledby="parseStatusTitle">
                 <div class="section-header">
-                    <h3 class="section-title" id="parseStatusTitle" data-i18n="parse.title">Parse Status</h3>
-                    <button class="action-btn" type="button" id="reparseBtn" aria-expanded="false" aria-controls="reparseControls" data-i18n="parse.reparse">Reparse</button>
+                    <h3 class="section-title" id="parseStatusTitle" data-i18n="parse.title">解析状态</h3>
+                    <button class="action-btn" type="button" id="reparseBtn" aria-expanded="false" aria-controls="reparseControls" data-i18n="parse.reparse">重新解析</button>
                 </div>
                 <div class="parse-status" id="parseStatus" role="status" aria-live="polite" data-state="unknown">
-                    <p class="parse-notice" data-tone="unknown" data-i18n="parse.unknown_notice">The server did not report how this document was parsed.</p>
+                    <p class="parse-notice" data-tone="unknown" data-i18n="parse.unknown_notice">服务端没有说明这份文档是怎么解析的。</p>
                 </div>
                 <div class="reparse-controls is-hidden" id="reparseControls" hidden aria-hidden="true">
                     <fieldset class="reparse-fieldset">
-                        <legend data-i18n="parse.fieldset_legend">Reparse this document</legend>
+                        <legend data-i18n="parse.fieldset_legend">重新解析这份文档</legend>
                         <div class="reparse-field">
-                            <label for="reparseParser" data-i18n="parse.parser_label">Parser</label>
+                            <label for="reparseParser" data-i18n="parse.parser_label">解析器</label>
                             <select id="reparseParser" aria-describedby="reparseWarning"></select>
                         </div>
                         <div class="reparse-field reparse-field-check">
                             <input type="checkbox" id="reparseForceOcr" aria-describedby="reparseWarning">
-                            <label for="reparseForceOcr" data-i18n="parse.force_ocr">Force OCR</label>
+                            <label for="reparseForceOcr" data-i18n="parse.force_ocr">重跑解析（当前解析器已默认开启 OCR）</label>
                         </div>
                         <div class="reparse-warning" id="reparseWarning" data-leaves-machine="false" hidden></div>
                         <div class="reparse-result" id="reparseResult" data-tone="idle" hidden></div>
                         <div class="reparse-actions">
-                            <button class="btn" type="button" id="reparseSubmitBtn" disabled aria-disabled="true" data-i18n="parse.submit">Reparse now</button>
+                            <button class="btn" type="button" id="reparseSubmitBtn" disabled aria-disabled="true" data-i18n="parse.submit">立即重新解析</button>
                         </div>
                     </fieldset>
                 </div>
@@ -412,11 +412,11 @@
 
             <section class="result-card" aria-labelledby="sessionExportTitle">
                 <div class="section-header">
-                    <h3 class="section-title" id="sessionExportTitle" data-i18n="export.title">Session Export</h3>
+                    <h3 class="section-title" id="sessionExportTitle" data-i18n="export.title">会话导出</h3>
                     <div class="export-controls">
-                        <label class="export-format-label" for="exportFormat" data-i18n="export.format_label">Format</label>
+                        <label class="export-format-label" for="exportFormat" data-i18n="export.format_label">格式</label>
                         <select id="exportFormat" aria-describedby="exportFormatHint"></select>
-                        <button class="action-btn" type="button" id="exportBtn" disabled aria-disabled="true" data-i18n="export.submit">Export Session</button>
+                        <button class="action-btn" type="button" id="exportBtn" disabled aria-disabled="true" data-i18n="export.submit">导出会话</button>
                     </div>
                 </div>
                 <!-- T3.5. The export is the one artefact that leaves the
@@ -425,37 +425,37 @@
                      has to be written down in words. The hint says so before
                      the download rather than leaving it to be discovered by
                      opening the file. -->
-                <p class="export-hint" id="exportFormatHint" data-i18n="export.hint">Exports carry each citation&rsquo;s evidence link, the document version and the analysis metadata (model, prompt version, evidence version, cost), so a file opened months later still states what produced it.</p>
-                <div class="content" id="exportPreview"><p class="empty-state" data-i18n="export.preview_empty">Export the current analysis, Q&A history, research trace, and Mermaid assets after a successful run.</p></div>
+                <p class="export-hint" id="exportFormatHint" data-i18n="export.hint">导出件会带上每条引用的证据链接、文档版本与分析元数据（模型、提示词版本、证据版本、成本），这样几个月后再打开这个文件，仍然能说清它是怎么生成的。</p>
+                <div class="content" id="exportPreview"><p class="empty-state" data-i18n="export.preview_empty">成功运行后，可以导出当前分析、问答记录、研究轨迹与 Mermaid 资源。</p></div>
             </section>
 
             <section class="result-card" aria-labelledby="overviewTitle">
                 <div class="section-header">
-                    <h3 class="section-title" id="overviewTitle" data-i18n="result.overview">Overview</h3>
-                    <button class="action-btn" type="button" data-i18n="result.copy" data-copy-target="summary">Copy</button>
+                    <h3 class="section-title" id="overviewTitle" data-i18n="result.overview">概览</h3>
+                    <button class="action-btn" type="button" data-i18n="result.copy" data-copy-target="summary">复制</button>
                 </div>
                 <div class="content" id="summary"></div>
             </section>
 
             <section class="result-card" aria-labelledby="citationsTitle">
                 <div class="section-header">
-                    <h3 class="section-title" id="citationsTitle" data-i18n="result.citations">Key Citations</h3>
-                    <button class="action-btn" type="button" data-i18n="result.copy" data-copy-target="quotes">Copy</button>
+                    <h3 class="section-title" id="citationsTitle" data-i18n="result.citations">关键引用</h3>
+                    <button class="action-btn" type="button" data-i18n="result.copy" data-copy-target="quotes">复制</button>
                 </div>
                 <div class="content" id="quotes"></div>
             </section>
 
             <section class="result-card" aria-labelledby="structureTitle">
                 <div class="section-header">
-                    <h3 class="section-title" id="structureTitle" data-i18n="result.structure">Text Structure</h3>
-                    <button class="action-btn" type="button" data-i18n="result.copy" data-copy-target="mindmap">Copy</button>
+                    <h3 class="section-title" id="structureTitle" data-i18n="result.structure">文本结构</h3>
+                    <button class="action-btn" type="button" data-i18n="result.copy" data-copy-target="mindmap">复制</button>
                 </div>
                 <div class="content" id="mindmap"></div>
             </section>
 
             <section class="result-card is-hidden" id="mermaidCard" aria-labelledby="visualMapTitle" aria-hidden="true">
                 <div class="section-header">
-                    <h3 class="section-title" id="visualMapTitle" data-i18n="result.visual_map">Visual Map</h3>
+                    <h3 class="section-title" id="visualMapTitle" data-i18n="result.visual_map">可视化结构图</h3>
                     <div class="canvas-toolbar">
                         <button class="tool-btn" type="button" id="zoomInBtn" title="Zoom In" aria-label="Zoom in visual map" aria-controls="mermaidChart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
                         <button class="tool-btn" type="button" id="zoomOutBtn" title="Zoom Out" aria-label="Zoom out visual map" aria-controls="mermaidChart"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg></button>
@@ -470,61 +470,61 @@
 
             <section class="result-card" id="evaluationCard" aria-labelledby="evaluationTitle">
                 <div class="section-header">
-                    <h3 class="section-title" id="evaluationTitle" data-i18n="result.evaluation">Evaluation</h3>
-                    <button class="action-btn" type="button" data-i18n="result.copy" data-copy-target="evaluation">Copy</button>
+                    <h3 class="section-title" id="evaluationTitle" data-i18n="result.evaluation">批判性评估</h3>
+                    <button class="action-btn" type="button" data-i18n="result.copy" data-copy-target="evaluation">复制</button>
                 </div>
                 <div class="content" id="evaluation"></div>
             </section>
 
             <section class="result-card" id="researchBriefCard" aria-labelledby="researchBriefTitle">
                 <div class="section-header">
-                    <h3 class="section-title" id="researchBriefTitle" data-i18n="result.brief">Deep Research Brief</h3>
-                    <button class="action-btn" type="button" data-i18n="result.copy" data-copy-target="research_brief">Copy</button>
+                    <h3 class="section-title" id="researchBriefTitle" data-i18n="result.brief">深度研究简报</h3>
+                    <button class="action-btn" type="button" data-i18n="result.copy" data-copy-target="research_brief">复制</button>
                 </div>
                 <div class="content" id="research_brief"></div>
             </section>
 
             <section class="result-card" id="recommendationsCard" aria-labelledby="recommendationsTitle">
                 <div class="section-header">
-                    <h3 class="section-title" id="recommendationsTitle" data-i18n="result.recommendations">Auto Recommendations</h3>
+                    <h3 class="section-title" id="recommendationsTitle" data-i18n="result.recommendations">自动推荐</h3>
                     <div class="section-actions">
-                        <button class="action-btn" type="button" id="recommendBtn" disabled aria-disabled="true" data-i18n="result.recommend_submit">Recommend from current paper</button>
-                        <button class="action-btn request-cancel" type="button" id="cancelRecommendBtn" hidden disabled aria-disabled="true" data-i18n="result.recommend_cancel">Cancel</button>
+                        <button class="action-btn" type="button" id="recommendBtn" disabled aria-disabled="true" data-i18n="result.recommend_submit">从当前论文生成推荐</button>
+                        <button class="action-btn request-cancel" type="button" id="cancelRecommendBtn" hidden disabled aria-disabled="true" data-i18n="result.recommend_cancel">取消</button>
                     </div>
                 </div>
-                <div class="paper-meta" id="paperRecommendationMeta" data-i18n="result.recommend_meta">Analyze a paper first, then generate follow-up reading suggestions from the current session.</div>
+                <div class="paper-meta" id="paperRecommendationMeta" data-i18n="result.recommend_meta">先分析一篇论文，然后从当前会话生成后续阅读建议。</div>
                 <!-- T3.2. Two run-level regions above the rows: what each signal
                      reported (including "we could not check"), and the pairs that
                      might be duplicates. Both describe the run rather than any one
                      paper, and a row list alone cannot carry either. -->
-                <div class="signal-host" id="recommendationSignals" role="region" aria-label="Recommendation signal status" data-count="0" hidden data-i18n-attr="aria-label:result.signals_label"></div>
+                <div class="signal-host" id="recommendationSignals" role="region" aria-label="推荐信号状态" data-count="0" hidden data-i18n-attr="aria-label:result.signals_label"></div>
                 <div class="duplicate-host" id="recommendationDuplicates" data-count="0" hidden></div>
                 <div class="paper-list" id="paperRecommendations"></div>
             </section>
 
             <section class="ask-section" aria-labelledby="askQuestionsTitle">
-                <h3 class="section-title" id="askQuestionsTitle" data-i18n="result.ask">Ask Questions</h3>
-                <div class="answer-mode-group" id="answerModeGroup" role="radiogroup" aria-label="Answer mode" aria-describedby="answerModeHint" data-i18n-attr="aria-label:result.answer_mode_label">
-                    <button class="mode-chip active" type="button" role="radio" data-mode="evidence" data-mode-icon="evidence" data-i18n="mode.evidence" aria-checked="true" aria-pressed="true" tabindex="0">Evidence</button>
-                    <button class="mode-chip" type="button" role="radio" data-mode="explain" data-mode-icon="explain" data-i18n="mode.explain" aria-checked="false" aria-pressed="false" tabindex="-1">Explain</button>
-                    <button class="mode-chip" type="button" role="radio" data-mode="critique" data-mode-icon="critique" data-i18n="mode.critique" aria-checked="false" aria-pressed="false" tabindex="-1">Critique</button>
-                    <button class="mode-chip" type="button" role="radio" data-mode="reproduce" data-mode-icon="reproduce" data-i18n="mode.reproduce" aria-checked="false" aria-pressed="false" tabindex="-1">Reproduce</button>
+                <h3 class="section-title" id="askQuestionsTitle" data-i18n="result.ask">提问</h3>
+                <div class="answer-mode-group" id="answerModeGroup" role="radiogroup" aria-label="回答模式" aria-describedby="answerModeHint" data-i18n-attr="aria-label:result.answer_mode_label">
+                    <button class="mode-chip active" type="button" role="radio" data-mode="evidence" data-mode-icon="evidence" data-i18n="mode.evidence" aria-checked="true" aria-pressed="true" tabindex="0">证据</button>
+                    <button class="mode-chip" type="button" role="radio" data-mode="explain" data-mode-icon="explain" data-i18n="mode.explain" aria-checked="false" aria-pressed="false" tabindex="-1">讲解</button>
+                    <button class="mode-chip" type="button" role="radio" data-mode="critique" data-mode-icon="critique" data-i18n="mode.critique" aria-checked="false" aria-pressed="false" tabindex="-1">批判</button>
+                    <button class="mode-chip" type="button" role="radio" data-mode="reproduce" data-mode-icon="reproduce" data-i18n="mode.reproduce" aria-checked="false" aria-pressed="false" tabindex="-1">复现</button>
                 </div>
-                <p class="answer-mode-hint" id="answerModeHint" data-i18n="mode.detail.evidence">Evidence mode answers first, then cites document support and uncertainty.</p>
-                <div class="question-starter-chips" aria-label="Starter questions" data-i18n-attr="aria-label:result.starter_label">
+                <p class="answer-mode-hint" id="answerModeHint" data-i18n="mode.detail.evidence">证据模式先给出答案，再引用文档中的支撑与不确定性。</p>
+                <div class="question-starter-chips" aria-label="入门问题" data-i18n-attr="aria-label:result.starter_label">
                     <button type="button" data-starter-question="What is the central research question and main contribution?">Main contribution</button>
                     <button type="button" data-starter-question="What evidence supports the paper's strongest claim?">Evidence check</button>
                     <button type="button" data-starter-question="What are the key limitations and threats to validity?">Limitations</button>
                     <button type="button" data-starter-question="What steps would I need to reproduce the core result?">Reproduce</button>
                 </div>
                 <div class="ask-input-group">
-                    <label class="sr-only" for="questionInput" data-i18n="result.ask_label">Question about the current document</label>
-                    <input type="text" id="questionInput" placeholder="Ask about evidence, methods, limitations, or reproducibility..." aria-describedby="answerModeHint" autocomplete="off" autocapitalize="off" spellcheck="false" aria-keyshortcuts="Alt+Q" data-i18n-attr="placeholder:result.ask_placeholder">
-                    <button class="btn" id="askBtn" type="button" disabled aria-disabled="true" data-i18n="result.ask_send">Send</button>
-                    <button class="action-btn request-cancel" type="button" id="cancelAskBtn" hidden disabled aria-disabled="true" data-i18n="result.ask_cancel">Cancel</button>
+                    <label class="sr-only" for="questionInput" data-i18n="result.ask_label">关于当前文档的问题</label>
+                    <input type="text" id="questionInput" placeholder="询问证据、方法、局限或可复现性…" aria-describedby="answerModeHint" autocomplete="off" autocapitalize="off" spellcheck="false" aria-keyshortcuts="Alt+Q" data-i18n-attr="placeholder:result.ask_placeholder">
+                    <button class="btn" id="askBtn" type="button" disabled aria-disabled="true" data-i18n="result.ask_send">发送</button>
+                    <button class="action-btn request-cancel" type="button" id="cancelAskBtn" hidden disabled aria-disabled="true" data-i18n="result.ask_cancel">取消</button>
                 </div>
-                <div class="smart-prompts is-hidden" id="smartPrompts" role="region" aria-label="Suggested follow-up questions" aria-live="polite" aria-hidden="true" data-i18n-attr="aria-label:result.smart_prompts_label"></div>
-                <div class="next-actions is-hidden" id="nextActions" role="region" aria-label="Recommended next actions" aria-live="polite" aria-hidden="true" data-i18n-attr="aria-label:result.next_actions_label"></div>
+                <div class="smart-prompts is-hidden" id="smartPrompts" role="region" aria-label="建议的后续问题" aria-live="polite" aria-hidden="true" data-i18n-attr="aria-label:result.smart_prompts_label"></div>
+                <div class="next-actions is-hidden" id="nextActions" role="region" aria-label="推荐的行动" aria-live="polite" aria-hidden="true" data-i18n-attr="aria-label:result.next_actions_label"></div>
                 <div class="chat-history" id="chatHistory"></div>
             </section>
         </div>
@@ -537,7 +537,7 @@
                     Crafted with <span class="heart" aria-hidden="true">&hearts;</span> by
                     <a class="author-link" href="https://github.com/AiFLYF" target="_blank" rel="noopener noreferrer" referrerpolicy="strict-origin-when-cross-origin">FLYF</a>
                     &
-                    <button class="ai-toggle" type="button" id="aiToggleBtn" aria-expanded="false" aria-controls="aiList" aria-label="Show AI collaborators" data-i18n-attr="aria-label:footer.ai_label" data-i18n-attr="aria-label:footer.ai_label">AI <span class="arrow" aria-hidden="true">▾</span></button>
+                    <button class="ai-toggle" type="button" id="aiToggleBtn" aria-expanded="false" aria-controls="aiList" aria-label="AI 协作者" data-i18n-attr="aria-label:footer.ai_label" data-i18n-attr="aria-label:footer.ai_label">AI <span class="arrow" aria-hidden="true">▾</span></button>
                 </span>
                 <div class="ai-list" id="aiList" hidden>
                     <span class="ai-pill">Gemini</span>
@@ -555,22 +555,22 @@
 
     <aside class="evidence-panel" id="evidencePanel" role="dialog" aria-modal="false" aria-labelledby="evidencePanelHeading" aria-hidden="true" hidden tabindex="-1" data-layout="closed" data-state="idle">
         <div class="evidence-panel-header">
-            <h2 class="evidence-panel-heading" id="evidencePanelHeading" tabindex="-1" data-i18n="evidence.heading">Evidence</h2>
-            <button class="action-btn" type="button" id="evidenceCloseBtn" aria-label="Close evidence panel" data-i18n="evidence.close" data-i18n-attr="aria-label:evidence.close_label">Close</button>
+            <h2 class="evidence-panel-heading" id="evidencePanelHeading" tabindex="-1" data-i18n="evidence.heading">证据</h2>
+            <button class="action-btn" type="button" id="evidenceCloseBtn" aria-label="关闭证据面板" data-i18n="evidence.close" data-i18n-attr="aria-label:evidence.close_label">关闭</button>
         </div>
 
         <div class="evidence-panel-body">
             <div class="evidence-state" id="evidenceIdle" data-state="idle">
-                <p class="evidence-state-title" data-i18n="evidence.idle_title">No citation open.</p>
-                <p class="evidence-state-detail" data-i18n="evidence.idle_detail">Choose a citation chip to see the passage behind a claim. Your question and place in the conversation are kept.</p>
+                <p class="evidence-state-title" data-i18n="evidence.idle_title">尚未打开引用。</p>
+                <p class="evidence-state-detail" data-i18n="evidence.idle_detail">选择一枚引用标签，就能看到某条结论背后的原文片段。你的问题和阅读位置都会被保留。</p>
             </div>
 
             <div class="evidence-state" id="evidenceLoading" data-state="loading" role="status" aria-live="polite" hidden>
-                <p class="evidence-state-title" data-i18n="evidence.loading_title">Opening evidence…</p>
+                <p class="evidence-state-title" data-i18n="evidence.loading_title">正在打开证据…</p>
             </div>
 
             <div class="evidence-state evidence-state-error" id="evidenceError" data-state="error" role="alert" hidden>
-                <p class="evidence-state-title" data-i18n="evidence.error_title">The evidence could not be opened.</p>
+                <p class="evidence-state-title" data-i18n="evidence.error_title">无法打开这条证据。</p>
             </div>
 
             <!-- Distinct from #evidenceError on purpose: the passage resolved and
@@ -578,13 +578,13 @@
                  Collapsing these two would tell the reader a limitation of the
                  paper where the real answer is a limitation of the parse. -->
             <div class="evidence-state evidence-state-degraded" id="evidenceNoTarget" data-state="no_visual_targeting" hidden>
-                <p class="evidence-state-title" data-i18n="evidence.no_target_title">No visual targeting is available for this evidence.</p>
-                <p class="evidence-state-detail" data-i18n="evidence.no_target_detail">The passage is still shown below.</p>
+                <p class="evidence-state-title" data-i18n="evidence.no_target_title">这条证据没有可用的视觉定位。</p>
+                <p class="evidence-state-detail" data-i18n="evidence.no_target_detail">下方仍然显示原文片段。</p>
             </div>
 
             <div class="evidence-state" id="evidenceEmpty" data-state="empty" hidden>
-                <p class="evidence-state-title" data-i18n="evidence.empty_title">This evidence resolved, but carries no text.</p>
-                <p class="evidence-state-detail" data-i18n="evidence.empty_detail">The citation is real and points at an empty passage in the stored document.</p>
+                <p class="evidence-state-title" data-i18n="evidence.empty_title">这条证据有结果，但没有文本。</p>
+                <p class="evidence-state-detail" data-i18n="evidence.empty_detail">这条引用是真实的，只是它指向的原文片段是空的。</p>
             </div>
 
             <!-- The passage region. Shown in two states, `loaded` and

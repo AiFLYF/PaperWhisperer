@@ -246,8 +246,12 @@ def test_no_visual_targeting_still_shows_the_passage():
     passage_id = re.search(r"PASSAGE_ELEMENT_ID\s*=\s*'([^']+)'", EVIDENCE)
     assert passage_id
     assert element_by_id("div", passage_id.group(1)), "the passage region is not in the template"
-    # And the degraded state says so in words.
-    assert "still shown below" in INDEX_HTML
+    # And the degraded state says so in words. The assertion is on the i18n
+    # hook, not on a sentence: the copy is a catalogue key so it can be
+    # translated, and a test that reads the fallback prose out of the HTML
+    # breaks the moment the template's pre-JS text is corrected to match
+    # `lang="zh-CN"` — which is exactly what that correction did.
+    assert 'data-i18n="evidence.no_target_detail"' in INDEX_HTML
 
 
 def test_a_failed_request_and_a_missing_target_render_different_copy():
@@ -255,9 +259,9 @@ def test_a_failed_request_and_a_missing_target_render_different_copy():
     no_target_copy = INDEX_HTML[
         INDEX_HTML.index('id="evidenceNoTarget"') : INDEX_HTML.index('id="evidenceEmpty"')
     ]
-    assert "could not be opened" in error_copy
-    assert "No visual targeting is available" in no_target_copy
-    assert "could not be opened" not in no_target_copy
+    assert 'data-i18n="evidence.error_title"' in error_copy
+    assert 'data-i18n="evidence.no_target_title"' in no_target_copy
+    assert "evidence.error_title" not in no_target_copy
 
 
 # --------------------------------------------------------------------------
@@ -643,9 +647,9 @@ def test_the_reparse_control_offers_both_force_ocr_and_a_parser_choice():
 
     controls = INDEX_HTML[INDEX_HTML.index('id="reparseControls"') :]
     assert 'for="reparseForceOcr"' in controls
-    assert "Force OCR" in controls
+    assert 'data-i18n="parse.force_ocr"' in controls
     assert 'for="reparseParser"' in controls
-    assert "Parser" in controls
+    assert 'data-i18n="parse.parser_label"' in controls
 
     options = re.search(r"REPARSE_PARSER_OPTIONS\s*=\s*\[(.*?)\];", CONFIG, re.DOTALL)
     assert options, "the reparse control declares no parser options"
