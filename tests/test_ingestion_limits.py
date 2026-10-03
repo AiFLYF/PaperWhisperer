@@ -231,19 +231,19 @@ def analyzer(monkeypatch, isolated_job_stores):
     :mod:`paperwhisperer.analysis.orchestrator`. That is the seam that is
     actually executed, so it is the one that must be patched; patching only the
     route / service modules would let the real analyzer — and a real HTTP call to
-    the model endpoint — through. ``/api/import-paper`` still calls
-    ``analysis.service.analyze_saved_file`` (which binds the name itself), so
-    that module is patched too.
+    the model endpoint — through. The other two modules still bind the name for
+    paths that construct an analyzer directly, so they are patched too.
 
-    The stage has since been migrated onto the fact layer
-    (:func:`paperwhisperer.analysis.service.analyze_with_fact_layer`), which
-    routes nothing at ``analyze_stream`` any more — so on its own this stub no
-    longer decides what the accepted-upload tests analyse.
+    Both routes have since been migrated onto the fact layer
+    (:func:`paperwhisperer.analysis.service.analyze_with_fact_layer`) —
+    ``_analyse_stage`` first, and ``/api/import-paper`` after it — and that
+    function routes nothing at ``analyze_stream`` any more, so on its own this
+    stub no longer decides what the accepted-upload tests analyse.
     :func:`_stub_fact_layer_seams` installs the four replacements the migrated
-    stage actually reads, and does so around the real finaliser; the
-    ``DocumentAnalyzer`` patches below stay because the import-paper path and
-    the job stage's analyzer-shaped collaborators still construct one directly,
-    and the fact-layer stub still builds a ``RecordingAnalyzer`` so the
+    routes actually read, and does so around the real finaliser; the
+    ``DocumentAnalyzer`` patches below stay because the job stage's
+    analyzer-shaped collaborators still construct one directly, and the
+    fact-layer stub still builds a ``RecordingAnalyzer`` so the
     "no analyzer was ever constructed" assertions on the refused uploads keep
     meaning something.
 
@@ -383,6 +383,23 @@ class TestRemoteDownloadHonoursMaxUploadBytes:
         self, client, runtime_dirs, public_example_urls, patch_remote_response, fake_response,
         monkeypatch
     ):
+        from paperwhisperer.analysis import service as analysis_service
+
+        # The seam to watch has moved. ``/api/import-paper`` now analyses
+        # through ``service.analyze_with_fact_layer`` (it used to call the
+        # legacy ``analyze_saved_file``), and the fact layer does not construct
+        # a ``DocumentAnalyzer`` on this path at all — so "no analyzer was ever
+        # built" said nothing about whether the analysis was reached. Recorded
+        # the seam the route actually calls instead, so the assertion keeps its
+        # meaning: the ceiling was enforced *during the download*, before a
+        # single byte of the oversized body reached the analysis.
+        analysis_calls: list[str] = []
+        monkeypatch.setattr(
+            analysis_service,
+            "analyze_with_fact_layer",
+            lambda *args, **kwargs: analysis_calls.append(str(args[0] if args else "")) or {},
+        )
+
         # No Content-Length header, so the declared-length check is blind and
         # the streamed ceiling is the only thing that can catch this body.
         monkeypatch.setattr(config, "MAX_UPLOAD_BYTES", SMALL_LIMIT)
@@ -397,7 +414,7 @@ class TestRemoteDownloadHonoursMaxUploadBytes:
 
         assert response.status_code == 400
         assert "too large" in response.json()["error"]
-        assert RecordingAnalyzer.instances == []
+        assert analysis_calls == [], "the oversized body reached the analysis seam"
         assert list(runtime_dirs["uploads"].iterdir()) == []
 
 

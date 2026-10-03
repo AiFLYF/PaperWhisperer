@@ -303,9 +303,8 @@ def analyzer(monkeypatch, isolated_job_stores):
     ``DocumentAnalyzer`` **at call time** from that module. Patching only the
     route modules therefore let the real analyzer through, and the first thing
     it did with the configured ``OPENAI_BASE_URL`` was open a socket to the
-    shared endpoint. The other four modules are still patched because
-    ``/api/import-paper`` and the Q&A / papers routes call
-    ``analysis.service.analyze_saved_file`` (and bind the name themselves).
+    shared endpoint. The other four modules are still patched because the Q&A
+    / papers routes construct ``analysis.service.DocumentAnalyzer`` directly.
 
     ``tests/conftest.py::no_unstubbed_job_stage_model`` is the suite-wide
     backstop for the same seam; this per-test stub is applied after it and so

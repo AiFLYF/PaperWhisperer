@@ -87,7 +87,6 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 #: so that the next reader is not left guessing whether it is still used.
 from paperwhisperer.analysis.orchestrator import DocumentAnalyzer  # noqa: F401
 from paperwhisperer.analysis.service import (
-    analyze_saved_file,
     render_docx_report,
     render_html_report,
     render_markdown_report,
@@ -538,18 +537,56 @@ async def import_paper(request: Request):
         file_path, original_filename = download_remote_paper(
             title=title, pdf_url=pdf_url, url=url
         )
-        result = analyze_saved_file(
-            file_path=file_path,
-            original_filename=original_filename,
-            api_key=str(data.get("api_key") or ""),
-            generate_mermaid_bool=config.parse_bool_value(data.get("generate_mermaid"),
-                default=True),
-            generate_evaluation_bool=config.parse_bool_value(data.get("generate_evaluation"),
-                default=True),
+
+        # Imported here for the same reason as in
+        # :func:`paperwhisperer.api.routes_jobs._analyse_stage`: the analysis
+        # package pulls in the store bundle, and binding these at module load
+        # would build that bundle before a test had a chance to override it.
+        #
+        # This route used to call the legacy ``analyze_saved_file``. That left
+        # the second user-facing way to analyze a paper — importing one by URL —
+        # on the six-section generator, which records no ``paper_facts`` and no
+        # ``analysis_run``, so the provenance the export report promises was
+        # simply absent for every imported paper. The four collaborators below
+        # are the same four the job stage runs, in the same order and for the
+        # same reasons: one parse whose ``document_id`` everything downstream
+        # reuses, an indexed retriever, a per-field evidence provider, and then
+        # the fact layer itself, which records the run and calls the real
+        # finaliser.
+        from paperwhisperer.analysis.orchestrator import build_qa_retriever
+        from paperwhisperer.analysis.paper_facts import make_evidence_provider
+        from paperwhisperer.analysis.service import analyze_with_fact_layer
+        from paperwhisperer.api.routes_evidence import get_store_bundle
+        from paperwhisperer.documents.loader import DocumentLoader
+
+        loaded = DocumentLoader.load_with_outcome(file_path)
+        outcome = getattr(loaded, "outcome", None)
+        document = getattr(outcome, "document", None)
+        if document is None:
+            # An unusable parse is a bad request, not a server fault, and this
+            # route already maps ValueError onto ``invalid_request``.
+            raise ValueError(
+                (getattr(outcome, "error_message", "") or "")
+                or "文档解析失败。"
+            )
+
+        retriever = build_qa_retriever(get_store_bundle(), document=document)
+        evidence_provider = make_evidence_provider(retriever, document.document_id)
+
+        result = analyze_with_fact_layer(
+            file_path,
+            original_filename,
+            str(data.get("api_key") or ""),
+            config.parse_bool_value(data.get("generate_mermaid"), default=True),
+            config.parse_bool_value(data.get("generate_evaluation"), default=True),
             session_id=str(data.get("session_id") or ""),
             generate_research_brief_bool=config.parse_bool_value(
                 data.get("generate_research_brief"), default=True
             ),
+            document_id=document.document_id,
+            evidence_provider=evidence_provider,
+            store=get_store_bundle(),
+            loaded_document=loaded,
         )
         return result
     except ValueError as exc:

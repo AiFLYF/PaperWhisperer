@@ -29,6 +29,7 @@ Two things are pinned here, and they are the two halves of the migration:
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -165,20 +166,25 @@ def benign_registration(monkeypatch):
     monkeypatch.setattr(service, "register_analysis_document", fake_register)
 
 
+#: The body the import test serves over the fake download, and the body the
+#: parse fixture writes: the same paper, so the two routes are analysing the
+#: same bytes.
+PAPER_TEXT = (
+    "Graph-Structured Retrieval\n\n"
+    "Introduction\n\n"
+    "Retrieval-augmented generation prepends the query to the document.\n\n"
+    "Method\n\n"
+    "We build a graph-structured index and route a query to a subgraph.\n"
+    "The method improves exact-match accuracy on NQ by 6.3 points.\n"
+    "We do not study multilingual settings. Code is released under a licence.\n"
+)
+
+
 @pytest.fixture
 def paper(tmp_path):
     """A real, tiny document — parsed for real, so the identity path is real."""
     path = tmp_path / "fact_layer_paper.txt"
-    path.write_text(
-        "Graph-Structured Retrieval\n\n"
-        "Introduction\n\n"
-        "Retrieval-augmented generation prepends the query to the document.\n\n"
-        "Method\n\n"
-        "We build a graph-structured index and route a query to a subgraph.\n"
-        "The method improves exact-match accuracy on NQ by 6.3 points.\n"
-        "We do not study multilingual settings. Code is released under a licence.\n",
-        encoding="utf-8",
-    )
+    path.write_text(PAPER_TEXT, encoding="utf-8")
     return path
 
 
@@ -361,3 +367,106 @@ def test_analyze_with_fact_layer_still_refuses_without_an_evidence_provider(
             "paper.txt", "paper.txt", "stub-key", True, True, "sid",
             loaded_document=loaded,
         )
+
+# -- the second way a paper reaches the fact layer ---------------------------
+
+
+class TestImportPaperRecordsTheSameProvenance:
+    """``/api/import-paper`` is a second front door to the same analysis.
+
+    Two routes that both claim to "analyse this paper" must not produce
+    different quality. Importing by URL used to call the legacy six-section
+    generator, which records no run and no facts — so the provenance the export
+    report promises was silently absent for every imported paper, with no error
+    to notice it by.
+
+    What is stubbed here is the *network*, not the behaviour. The download is
+    served by the existing ``fake_response`` pattern, the retriever and the
+    evidence provider are replaced because the real ones embed (and the local
+    model is not cached offline), and ``register_analysis_document`` is a no-op
+    because it indexes for the citation API. The parse, the fact layer, and the
+    **real** ``finalize_analysis_result`` all run for real, which is what makes
+    the 200 and the two provenance fields on the response worth asserting.
+    """
+
+    @pytest.fixture
+    def import_client(
+        self, monkeypatch, client, runtime_dirs, isolated_job_stores,
+        public_example_urls, patch_remote_response, fake_response,
+        stub_analyzer, benign_registration,
+    ):
+        """A ``TestClient`` whose import route can run the fact layer offline."""
+        from paperwhisperer.analysis import orchestrator as analysis_orchestrator
+
+        # The two retrieval collaborators, imported by the route at call time
+        # from the module it names, so patching the module attribute is the
+        # seam. The evidence provider answers from the real ``Evidence`` pool
+        # the rest of this file uses, so the citations the run records address
+        # something.
+        monkeypatch.setattr(
+            analysis_orchestrator, "build_qa_retriever",
+            lambda bundle, document=None: SimpleNamespace(indexed=document),
+        )
+        monkeypatch.setattr(
+            paper_facts, "make_evidence_provider",
+            lambda retriever, document_id, **kwargs: _provider(_evidence_pool()),
+        )
+
+        # The download itself stays real (``download_remote_paper`` writes the
+        # bytes into the redirected upload folder and enforces the byte
+        # ceiling); only ``urlopen`` is replaced.
+        patch_remote_response(
+            fake_response(
+                PAPER_TEXT.encode("utf-8"),
+                content_type="text/plain",
+                # ``stream_remote_paper`` names the local file after the *final*
+                # URL (its redirect target), so the fake's ``geturl`` — not the
+                # ``pdf_url`` in the request body — is what decides the download
+                # is a ``.txt`` and not a ``.pdf`` the text does not match.
+                url="https://example.com/paper.txt",
+            )
+        )
+        return client
+
+    def test_an_imported_paper_answers_with_its_facts_and_its_run(self, import_client):
+        response = import_client.post(
+            "/api/import-paper",
+            json={
+                "title": "Graph-Structured Retrieval",
+                "pdf_url": "https://example.com/paper.txt",
+                "api_key": "sk-test-import-key",
+                "session_id": "import-session",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body.get("paper_facts"), "an imported paper recorded no paper_facts"
+        assert body.get("analysis_run"), "an imported paper recorded no analysis_run"
+        # Not just present: the run must name the document the parse produced.
+        # A migration that let the route re-parse inside the analysis would
+        # index one identity and quote against another, and this is where that
+        # would show up.
+        assert body["analysis_run"]["document_id"] == body["document_id"]
+        assert body["document_id"]
+
+    def test_the_import_still_answers_with_the_fields_the_reader_reads(self, import_client):
+        # The provenance arrived at the cost of nothing else: the session and
+        # the six sections are still real, because the real finaliser ran.
+        response = import_client.post(
+            "/api/import-paper",
+            json={
+                "title": "Graph-Structured Retrieval",
+                "pdf_url": "https://example.com/paper.txt",
+                "api_key": "sk-test-import-key",
+                "session_id": "import-session",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["summary"]
+        assert body["session_id"] == "import-session"
+        assert body["suggested_questions"]
+        for key in sections.SECTION_KEYS:
+            assert key in body["sections"]
