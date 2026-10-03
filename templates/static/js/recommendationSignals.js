@@ -6,6 +6,30 @@ import {
     RECOMMENDATION_SIGNAL_STATES,
     RECOMMENDATION_UNKNOWN_SIGNAL_STATE
 } from './config.js';
+import { t } from './i18n.js';
+
+/**
+ * Resolve a catalogue key, falling back to the default-locale floor when the key
+ * is missing. A key that stopped resolving must degrade to a sentence rather than
+ * render as a dotted string on screen.
+ */
+function localised(key, floor) {
+    const value = t(key);
+    return value === key ? floor : value;
+}
+
+const SIGNAL_LABEL_KEY_PREFIX = 'recommend.signal.';
+
+/**
+ * The glyph drawn between the two titles of a probable-duplicate pair.
+ *
+ * A symbol, not copy: `⟷` reads the same in every language the catalogue
+ * supports, so it is deliberately a named constant rather than a `t()` key —
+ * routing it through the catalogue would invite a translator to "translate" a
+ * mark that has no language. It is `aria-hidden` for the same reason it is not
+ * keyed: it carries no meaning a screen reader should announce on its own.
+ */
+const DUPLICATE_SEPARATOR = ' ⟷ ';
 
 /**
  * The two pieces of a recommendation run that describe the *run* rather than any
@@ -43,7 +67,14 @@ function stateForStatus(status) {
 }
 
 function labelForSignal(entry) {
-    return String(entry?.label_zh || RECOMMENDATION_SIGNAL_LABELS[String(entry?.signal || '')] || entry?.signal || '信号');
+    const raw = String(entry?.signal || '');
+    // The catalogue is consulted *before* the server's `label_zh`, exactly as in
+    // `paperList.js`: that field is Chinese by construction, so preferring it
+    // would pin an English reader to Chinese for as long as the server kept
+    // sending it. `label_zh` stays as the degradation for a signal this build
+    // cannot name — the role it already plays for the reason code.
+    const named = raw ? localised(`${SIGNAL_LABEL_KEY_PREFIX}${raw}`, '') : '';
+    return String(named || entry?.label_zh || RECOMMENDATION_SIGNAL_LABELS[raw] || raw || t('recommend.signal.fallback'));
 }
 
 /**
@@ -157,14 +188,14 @@ function buildDuplicatePanel(duplicates) {
         titles.className = 'duplicate-titles';
         const first = document.createElement('span');
         first.className = 'duplicate-title';
-        first.textContent = String(pair?.title || '（未命名结果）');
+        first.textContent = String(pair?.title || t('recommend.duplicate.untitled'));
         const separator = document.createElement('span');
         separator.className = 'duplicate-separator';
         separator.setAttribute('aria-hidden', 'true');
-        separator.textContent = ' ⟷ ';
+        separator.textContent = DUPLICATE_SEPARATOR;
         const second = document.createElement('span');
         second.className = 'duplicate-title';
-        second.textContent = String(pair?.other_title || '（未命名结果）');
+        second.textContent = String(pair?.other_title || t('recommend.duplicate.untitled'));
         titles.append(first, separator, second);
         item.appendChild(titles);
 
@@ -216,7 +247,7 @@ function renderRecommendationSignals(signals, duplicates) {
     } else {
         const heading = document.createElement('p');
         heading.className = 'signal-heading';
-        heading.textContent = '推荐信号状态';
+        heading.textContent = t('recommend.signals_heading');
         signalContainer.replaceChildren(heading, buildSignalList(entries));
         signalContainer.hidden = false;
         signalContainer.dataset.count = String(entries.length);

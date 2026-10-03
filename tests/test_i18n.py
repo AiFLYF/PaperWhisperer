@@ -67,6 +67,16 @@ INDEX_HTML = TEMPLATE.read_text(encoding="utf-8")
 #: Chinese about the server's error and hardcoded English about the workspace
 #: coming back, and `runtime.js` put a hardcoded '关闭' on the one control the
 #: reader presses to make a failure go away.
+#:
+#: `export.js`, `api.js` and `chat.js` joined when the three modules a reader
+#: touches last were migrated. `export.js` is the outlier that made the rest
+#: urgent: its strings are not drawn on the page, they are written *into* the
+#: downloaded file, so a provenance table stayed Chinese in a file opened six
+#: months later — the one artefact nothing else in the product can repaint.
+#: `api.js` is the transport and carries the sentences that reach the screen
+#: through `ApiError.message` rather than through the code-driven notice, and
+#: `chat.js` is the answer panel, whose verdict is the only place a reader is
+#: told how much of an answer the document actually supports.
 MIGRATED_MODULES = (
     "i18n.js",
     "a11y.js",
@@ -82,6 +92,10 @@ MIGRATED_MODULES = (
     "analyze.js",
     "papers.js",
     "paperList.js",
+    "export.js",
+    "api.js",
+    "chat.js",
+    "recommendationSignals.js",
 )
 
 #: The catalogue keys `evidenceViewer.js` builds at run time, and therefore the
@@ -460,6 +474,22 @@ def catalogue_table(name: str) -> dict[str, str]:
     match = re.search(rf"const {name} = \{{(.*?)\n\}};", I18N, re.DOTALL)
     assert match, f"the {name} table is missing from i18n.js"
     return dict(re.findall(r"^    '([^']+)': (.*?),?$", match.group(1), re.MULTILINE))
+
+
+def _strip_literal(raw: str) -> str:
+    """One catalogue entry's raw source as the string it denotes.
+
+    `catalogue_table` returns source text, so `'模型'` arrives with its quotes
+    and a `` `…${CONST}` `` template arrives as an interpolation. Both are
+    unwrapped here so an assertion can compare the *prose* against what a module
+    renders, which is the only thing the comparison is about.
+    """
+    value = raw.strip()
+    if value.startswith("'") and value.endswith("'"):
+        return value[1:-1]
+    if value.startswith("`") and value.endswith("`"):
+        return value[1:-1]
+    return value
 
 
 def test_every_catalogue_key_exists_in_both_languages():
@@ -1215,6 +1245,46 @@ def test_the_evidence_and_claim_surfaces_re_render_on_a_locale_change():
         assert call in match.group(1), (
             f"the parse-status locale listener does not re-run {call}, so the "
             "reparse control would keep the previous language"
+        )
+
+
+def test_the_papers_surface_repaints_on_a_locale_change_not_just_once():
+    """The search/recommendation panel must repaint on the language switch too.
+
+    Same defect class as the evidence/claim surfaces (WALK-DEFECT-3), found on a
+    panel nobody had walked as a user: a reader who searched for a paper and then
+    switched to English kept the results, the per-signal status and the
+    probable-duplicate note in the language they had left.
+
+    As with the evidence module, the subscription is only half the claim: a module
+    that subscribes and then forgets to re-render would pass a grep for
+    `onLocaleChange`. So the listener is required to invoke the exported repaint,
+    and the repaint is required to touch every surface on this panel — a repaint
+    that updated the results but left the signal status behind would still show a
+    reader two languages on one card.
+    """
+    papers = (JS_DIR / "papers.js").read_text(encoding="utf-8")
+    assert "onLocaleChange" in papers, "papers.js does not subscribe to locale changes"
+    assert "repaintPapersForLocale" in papers, (
+        "the papers locale listener must call an exported repaint so the harness "
+        "can drive it and so the repaint cannot be a no-op"
+    )
+    match = re.search(r"onLocaleChange\((\w+)\);", papers)
+    assert match, "papers.js does not register a single named locale listener"
+    assert match.group(1) == "repaintPapersForLocale"
+
+    body = re.search(
+        r"function repaintPapersForLocale\(\)\s*\{(.*?)\n\}", papers, re.DOTALL
+    )
+    assert body, "repaintPapersForLocale has no body this test can read"
+    for surface, what in (
+        ("paperSearchResults", "the search results"),
+        ("paperRecommendations", "the recommendations"),
+        ("renderRecommendationSignals", "the per-signal status and duplicates"),
+    ):
+        assert surface in body.group(1), (
+            f"the locale repaint does not redraw {what}, so they would keep the "
+            "previous language after the switch"
         )
 
 
@@ -2049,14 +2119,26 @@ def test_the_migrated_modules_actually_use_the_catalogue():
 
 #: The modules migrated together, and the reason they were migrated together.
 #:
-#: They are one group because they are the modules a reader is looking at when
-#: something has gone wrong: the run that failed, the failure notice beside it,
-#: the workspace that came back, and the paper list that may have sent the run.
-#: A hardcoded string in any one of them is a sentence in the wrong language
-#: *next to* a correct one, which is the mixed-language case, and the workspace
-#: dialog was the worst of it — Chinese about the server's error, then a
-#: hardcoded English sentence about the work that came back.
-MIGRATED_TOGETHER = ("analyze.js", "papers.js", "runtime.js", "paperList.js")
+#: The first four are the ones a reader is looking at when something has gone
+#: wrong: the run that failed, the failure notice beside it, the workspace that
+#: came back, and the paper list that may have sent the run. A hardcoded string in
+#: any one of them is a sentence in the wrong language *next to* a correct one,
+#: which is the mixed-language case, and the workspace dialog was the worst of it
+#: — Chinese about the server's error, then a hardcoded English sentence about the
+#: work that came back.
+#:
+#: The second three are the ones a reader touches last. `export.js` writes its
+#: strings *into the downloaded file*, so it is the surface no other change in the
+#: product can reach: the exported artefact is a record of a run, opened long
+#: after the interface that produced it has changed. `api.js` is the transport,
+#: and the sentences a reader actually sees from it arrive via `ApiError.message`
+#: rather than via the code-driven notice. `chat.js` is the answer panel, whose
+#: verdict is the one sentence that tells the reader how much of an answer the
+#: document actually supports.
+MIGRATED_TOGETHER = (
+    "analyze.js", "papers.js", "runtime.js", "paperList.js",
+    "export.js", "api.js", "chat.js",
+)
 
 
 def test_the_hardcoded_half_of_the_workspace_dialog_is_gone():
@@ -2471,6 +2553,623 @@ def test_the_empty_state_decision_cannot_depend_on_the_copy():
     assert not unused, (
         "getPaperStateDetails branches on empty states no caller ever asks "
         f"for: {unused} — a dead branch is a state that cannot be drawn"
+    )
+
+
+# --------------------------------------------------------------------------
+# The exported file: labels resolved at export time
+# --------------------------------------------------------------------------
+#
+# This is the one surface a structural assertion cannot cover on its own.
+# Every other migrated module draws its strings onto a page that the language
+# switch repaints, so "is the string in the catalogue" and "does the reader see
+# the catalogue's value" are close to the same question. Here they are not: the
+# labels are written *into* a downloaded file, so a label that stays a literal
+# satisfies every grep in this file and is still a Chinese row in a file an
+# English reader downloaded six months ago.
+#
+# So these are executed. The real `export.js` is imported from the shipped file,
+# the real `i18n.js` is switched underneath it, and the provenance table is read
+# back out — because the defect under test is a join between two modules, and a
+# test that reimplemented the table would only be testing its own reimplementation.
+
+
+def run_export_harness(workdir: Path, body: str) -> dict:
+    """Execute `body` against the real `export.js` and `i18n.js` under a DOM stub.
+
+    `export.js` imports `state.js`, `dom.js`, `mermaid.js` and `format.js`, so it
+    is imported by absolute path from the shipped directory rather than lifted
+    out with a regex — the same reasoning as the walkthrough harness above. The
+    DOM is the same minimal shim, which is enough because `buildProvenanceRows`
+    reads no DOM at all; the stub is there for the modules it imports.
+    """
+    (workdir / "dom_shim.mjs").write_text(DOM_SHIM, encoding="utf-8")
+    harness = workdir / "export_harness.mjs"
+    harness.write_text(
+        "import './dom_shim.mjs';\n"
+        "const exporter = await import(%r);\n"
+        "const i18n = await import(%r);\n"
+        "const { state } = (await import(%r));\n"
+        "let result = null;\n"
+        "try {\n"
+        f"{body}\n"
+        "} catch (error) {\n"
+        "    result = { __threw: String(error && error.message) };\n"
+        "}\n"
+        "process.stdout.write(JSON.stringify(result === undefined ? null : result));\n"
+        % (
+            str(JS_DIR / "export.js"),
+            str(JS_DIR / "i18n.js"),
+            str(JS_DIR / "state.js"),
+        ),
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        ["node", str(harness)], capture_output=True, text=True, timeout=60, cwd=workdir
+    )
+    assert completed.returncode == 0, f"harness failed: {completed.stderr}"
+    return json.loads(completed.stdout)
+
+
+#: A run with something recorded, something *not* recorded, and a boolean that is
+#: neither `true` nor `false` — because the provenance table's whole purpose is
+#: that the difference between "this run had no cost" and "this build does not
+#: write cost down" stays visible, and a fixture where every cell is populated
+#: cannot tell a table that omits rows from one that fills them.
+EXPORT_FIXTURE = """
+const RESULT = {
+    document_id: 'doc_1',
+    session_id: 'sess_1',
+    source_filename: 'paper.pdf',
+    analysis_run: {
+        run_id: 'run_1',
+        model: 'a-model-name',
+        llm_cost: 0.5,
+        fact_count: 4,
+        grounded_fact_count: 3,
+        degradations: ['first', 'second']
+    },
+    parse: {
+        parsed_by: 'docling',
+        media_type: 'application/pdf',
+        used_cloud: true,
+        fallback_used: false,
+        warnings: ['a warning']
+    }
+};
+state.currentAnalysisResult = RESULT;
+state.currentSourceFileName = 'paper.pdf';
+const read = (locale) => {
+    i18n.setLocale(locale);
+    return exporter.buildProvenanceRows(RESULT, '2026-01-02T03:04:05Z');
+};
+"""
+
+
+def test_the_exported_table_is_written_in_the_language_the_reader_chose(i18n_module):
+    """The behaviour the migration is about, run rather than grepped.
+
+    The grep above proves the literals are gone; this proves the *labels* are
+    not. A `buildProvenanceRows` that returned `t('export.provenance.row.model')`
+    — a build with a catalogue miss, or one that resolved at module load rather
+    than at export — would satisfy every structural assertion in this file and
+    put a dotted string in a provenance table, which is the record a reader
+    consults to decide whether a conclusion can still be trusted.
+    """
+    body = EXPORT_FIXTURE + textwrap.dedent(
+        """
+        result = {
+            zh: read('zh-CN').map(([term, detail]) => [term, detail]),
+            en: read('en').map(([term, detail]) => [term, detail])
+        };
+        """
+    )
+    result = run_export_harness(i18n_module, body)
+    assert "__threw" not in result, result
+
+    zh = dict(result["zh"])
+    en = dict(result["en"])
+
+    # Fixture sanity: this run really did record some of these fields, so "the
+    # labels changed" is a statement about the language and not about a payload
+    # that was empty in both.
+    assert zh["模型"] == "a-model-name"
+    assert en["Model"] == "a-model-name"
+
+    # Twenty rows either way: the table's invariant is that nothing is omitted
+    # for being unknown, and that is asserted on the count so a row cannot be
+    # dropped by a refactor that also renames the survivors.
+    assert len(result["zh"]) == len(result["en"]) == 20
+
+    # Every label is non-empty, differs between the two locales, and is the
+    # catalogue's own value rather than a dotted key.
+    zh_table = catalogue_table("ZH_CN")
+    en_table = catalogue_table("EN")
+    for term in zh:
+        assert not re.search(r"^export\.[a-z]", term), (
+            f"a provenance row label rendered as a catalogue key: {term!r}"
+        )
+        assert term.strip(), "a provenance row label rendered as an empty string"
+    for term in en:
+        assert not re.search(r"^export\.[a-z]", term), (
+            f"a provenance row label rendered as a catalogue key: {term!r}"
+        )
+        assert term.strip(), "a provenance row label rendered as an empty string"
+
+    # The labels really are the catalogue's values, read at export time.
+    zh_table = catalogue_table("ZH_CN")
+    en_table = catalogue_table("EN")
+
+    zh_labels = [term for term, _ in result["zh"]]
+    en_labels = [term for term, _ in result["en"]]
+    assert zh_labels != en_labels
+    assert not set(zh_labels) & set(en_labels), (
+        "a provenance row label is identical in both locales: "
+        f"{sorted(set(zh_labels) & set(en_labels))}"
+    )
+
+    # Non-circular: the expected label list is derived from the catalogue, in the
+    # order the module writes them, and *not* from the output. A table that kept
+    # its literals would produce a different list; a table that reordered its
+    # rows would produce the same set in a different order, and both fail here.
+    row_keys = re.findall(
+        r"t\('(export\.provenance\.row\.[a-z_]+)'\)",
+        strip_js_comments((JS_DIR / "export.js").read_text(encoding="utf-8")),
+    )
+    assert len(row_keys) == 20, (
+        f"expected twenty provenance rows and found {len(row_keys)}: {row_keys}"
+    )
+    assert len(set(row_keys)) == 20, "a provenance row is written twice"
+    expected_zh = [_strip_literal(zh_table[key]) for key in row_keys]
+    expected_en = [_strip_literal(en_table[key]) for key in row_keys]
+    assert zh_labels == expected_zh, (
+        "the Chinese labels the table writes are not the catalogue's twenty rows "
+        f"in order:\n  table:    {zh_labels}\n  catalogue:{expected_zh}"
+    )
+    assert en_labels == expected_en, (
+        "the English labels the table writes are not the catalogue's twenty rows "
+        f"in order:\n  table:    {en_labels}\n  catalogue:{expected_en}"
+    )
+
+    # And the flags — which are *values* rather than labels — follow too. 是/否 is
+    # the whole answer to a yes/no provenance row, and "Yes" under a Chinese
+    # label is exactly the half-translated cell this is guarding against.
+    assert zh["是否经过云端解析"] == "是"
+    assert en["Parsed by a cloud parser"] == "Yes"
+    assert zh["是否发生 fallback"] == "否"
+    assert en["A fallback parser ran"] == "No"
+
+    # The values are the run's and were not rewritten: only the *separator* is
+    # the exporter's, and it follows the switch.
+    assert zh["降级说明"] == "first；second"
+    assert en["Degradations"] == "first; second"
+
+
+def test_the_exported_table_is_resolved_at_export_time_not_at_module_load(i18n_module):
+    """The distinction a reader of the exported file actually experiences.
+
+    A module-level table of resolved labels would satisfy
+    `test_the_exported_table_is_written_in_the_language_the_reader_chose` for
+    whichever locale happened to be active when the page loaded, and would then
+    be frozen there for the rest of the session — so a reader who switched to
+    English and then pressed export would still get Chinese rows. This is the
+    only way to see that: overwrite one catalogue value *after* the modules have
+    loaded, and ask whether the table changes with it.
+    """
+    body = EXPORT_FIXTURE + textwrap.dedent(
+        """
+        i18n.setLocale('en');
+        const before = exporter.buildProvenanceRows(RESULT, '2026-01-02T03:04:05Z');
+        const beforeModel = before.find(([term]) => term === 'Model');
+        i18n.CATALOGUE.en['export.provenance.row.model'] = 'MODEL-SENTINEL';
+        const after = exporter.buildProvenanceRows(RESULT, '2026-01-02T03:04:05Z');
+        const afterModel = after.find(([term]) => term === 'MODEL-SENTINEL');
+        result = {
+            beforeModel,
+            afterModel,
+            markdown: exporter.formatProvenanceMarkdown(RESULT, '2026-01-02T03:04:05Z')
+        };
+        """
+    )
+    result = run_export_harness(i18n_module, body)
+    assert "__threw" not in result, result
+    assert result["beforeModel"] == ["Model", "a-model-name"], (
+        "the table was not labelled from the catalogue to begin with, so the "
+        "sentinel proves nothing"
+    )
+    assert result["afterModel"] == ["MODEL-SENTINEL", "a-model-name"], (
+        "changing the catalogue after the module loaded did not change the "
+        "exported table, so the labels are resolved once at load rather than "
+        "per export — a reader who switches language then exports gets the "
+        "language they started in"
+    )
+    assert "MODEL-SENTINEL" in result["markdown"]
+
+
+def test_the_config_constants_are_kept_as_the_floor_under_the_export_labels(i18n_module):
+    """A catalogue entry that goes missing degrades to a sentence, not to a key.
+
+    The same floor `evidenceViewer.js` and `paperList.js` keep, and the same
+    reason: `t()` answers an unknown key with the key itself, which is right for
+    a reviewer reading the page source and wrong inside a provenance table
+    someone may open in six months. `config.js` holds what these labels said
+    before, so each of them is passed as the floor — and each is asserted to be
+    the string the table falls back to, because a floor that no longer names its
+    own constant is a floor that has silently become a second copy of the copy.
+    """
+    body = EXPORT_FIXTURE + textwrap.dedent(
+        """
+        i18n.setLocale('en');
+        // Remove the entries, which is what a build that lost the keys looks
+        // like: `t()` has nothing left and answers with the key.
+        for (const key of ['export.unknown_value', 'export.fact.method',
+                           'export.presentation.direct_quote', 'export.status.extracted']) {
+            delete i18n.CATALOGUE.en[key];
+            delete i18n.CATALOGUE['zh-CN'][key];
+        }
+        result = {
+            viaKey: i18n.t('export.unknown_value'),
+            unknown: exporter.unknownValue(),
+            fact: exporter.factFieldLabel('method'),
+            // A field this build does not name falls back to the schema's own
+            // name rather than to `export.fact.` plus that name.
+            unknownField: exporter.factFieldLabel('a_field_this_build_does_not_know'),
+            unknownStatus: exporter.statusLabel('a_status_this_build_does_not_know'),
+            dotted: exporter.formatProvenanceMarkdown(RESULT, '2026-01-02T03:04:05Z')
+        };
+        """
+    )
+    result = run_export_harness(i18n_module, body)
+    assert "__threw" not in result, result
+
+    assert result["viaKey"] == "export.unknown_value", (
+        "the premise of this test is that `t()` answers with the key itself"
+    )
+    assert result["unknown"] == "（未记录）", (
+        "a missing catalogue entry must degrade to the `config.js` constant, not "
+        f"to a dotted key and not to nothing: {result['unknown']!r}"
+    )
+    assert result["fact"] == "方法"
+    assert result["unknownField"] == "a_field_this_build_does_not_know", (
+        "a fact field this build does not label must export under the schema's "
+        f"own name, not as a catalogue key: {result['unknownField']!r}"
+    )
+    assert result["unknownStatus"] == "a_status_this_build_does_not_know"
+    assert not re.search(r"export\.(fact|status|presentation|unknown)", result["dotted"]), (
+        "a catalogue key leaked into the exported table once its entries went"
+    )
+
+
+#: The keys `export.js` and `chat.js` assemble from a wire value, and therefore
+#: the ones no single `t('...')` in the source can be found by grepping.
+#:
+#: Five families, and every one is driven by a vocabulary the *server* or
+#: `config.js` supplies rather than by a literal in the module: a fact field named
+#: by `field_name`, a presentation named by `PRESENTATION_*`, a fact status named
+#: by the payload, an answer mode named by the transcript entry, and an export
+#: format named by `EXPORT_FORMATS`. A new upstream field, presentation, status,
+#: mode or format therefore has to have a catalogue entry before a reader can
+#: read it, and the code degrades to the `config.js` name rather than to a key.
+EXPORT_RUNTIME_KEYS = {
+    "export.fact.": None,      # filled from EXPORT_FACT_FIELD_LABELS below
+    "export.presentation.": None,
+    "export.status.": None,
+    "mode.": None,
+    "export.format_option.": None,
+}
+
+
+def _expected_export_runtime_keys() -> set:
+    """The run-time-built keys, derived from the vocabularies that build them."""
+    config = (JS_DIR / "config.js").read_text(encoding="utf-8")
+
+    def _keys_of(name: str) -> list[str]:
+        block = re.search(rf"export const {name} = \{{(.*?)\n\}};", config, re.DOTALL)
+        assert block, f"{name} is missing from config.js"
+        return re.findall(r"^    (\w+):", block.group(1), re.MULTILINE)
+
+    formats = re.search(r"export const EXPORT_FORMATS = \[(.*?)\n\];", config, re.DOTALL)
+    assert formats, "EXPORT_FORMATS is missing from config.js"
+    values = re.findall(r"\{ value: '(\w+)'", formats.group(1))
+    assert values, "EXPORT_FORMATS declares no values"
+
+    expected = {
+        *(f"export.fact.{k}" for k in _keys_of("EXPORT_FACT_FIELD_LABELS")),
+        *(f"export.presentation.{k}" for k in _keys_of("EXPORT_PRESENTATION_LABELS")),
+        *(f"export.status.{k}" for k in _keys_of("EXPORT_STATUS_LABELS")),
+        *(f"mode.{k}" for k in _keys_of("ANSWER_MODE_LABELS")),
+        *(f"export.format_option.{v}" for v in values),
+    }
+    assert len(expected) >= 12, (
+        f"the vocabularies these keys are built from collapsed to {len(expected)} "
+        f"members: {sorted(expected)}"
+    )
+    return expected
+
+
+def test_every_key_the_export_builds_at_run_time_exists_in_both_languages():
+    """The run-time-built key families, checked against the shipped catalogue.
+
+    Read out of `config.js` rather than restated here, and compared in both
+    directions for the reason the viewer's allowlist is: a hand-written list
+    nothing reads is worse than no list, because it looks like coverage. A
+    vocabulary member with no catalogue entry is the mixed-language defect one
+    release later — an English reader shown a fact field's raw schema name, or a
+    provenance row reading `是`/`否`.
+    """
+    expected = _expected_export_runtime_keys()
+    prefixes = set(EXPORT_RUNTIME_KEYS)
+    assert {key.rsplit(".", 1)[0] + "." for key in expected} == prefixes, (
+        "the run-time-built key prefixes no longer describe the modules; "
+        f"only in the modules: {sorted({key.rsplit('.', 1)[0] + '.' for key in expected} - prefixes)}"
+    )
+
+    zh = catalogue_table("ZH_CN")
+    en = catalogue_table("EN")
+    for key in sorted(expected):
+        assert key in zh, f"{key} is assembled at run time but absent from zh-CN"
+        assert key in en, f"{key} is assembled at run time but absent from en"
+
+    # The prefixes are read out of the shipped modules too, so renaming one in a
+    # module cannot leave this test describing a prefix nothing builds any more.
+    for name, prefix in (("export.js", "export.fact."), ("chat.js", "mode.")):
+        source = strip_js_comments((JS_DIR / name).read_text(encoding="utf-8"))
+        assert prefix in source, (
+            f"{name} no longer builds keys through the `{prefix}` prefix"
+        )
+
+    # Markdown and HTML are file-format names, so those two read identically in
+    # both languages by construction. Every *other* run-time key must actually
+    # differ, or the catalogue gained an entry that is not a translation.
+    identical = sorted(
+        key for key in expected
+        if zh[key] == en[key] and not key.startswith("export.format_option.")
+    )
+    assert not identical, f"run-time-built keys read identically in both languages: {identical}"
+
+
+def test_the_exported_html_declares_the_language_it_is_written_in(i18n_module):
+    """`<html lang>` is the reader's locale, not a hardcoded `zh-CN`.
+
+    A file that says `zh-CN` while reading English misinforms a screen reader
+    about the phonetics of every sentence in it, and invites a browser's own
+    translate prompt on a file that is already in the reader's language. It is
+    the one attribute in the export that made the artefact's language claim
+    independently of its content.
+    """
+    body = EXPORT_FIXTURE + textwrap.dedent(
+        """
+        const lang = (locale) => {
+            i18n.setLocale(locale);
+            return exporter.buildSessionHtml().match(/<html lang="([^"]+)"/)[1];
+        };
+        result = { zh: lang('zh-CN'), en: lang('en') };
+        """
+    )
+    result = run_export_harness(i18n_module, body)
+    assert "__threw" not in result, result
+    assert result == {"zh": "zh-CN", "en": "en"}
+
+
+def test_the_export_preview_repaints_when_the_reader_switches_language():
+    """A render-time surface has to re-render, or it keeps the old language.
+
+    The preview panel is built from catalogue strings at render time and nothing
+    else re-runs it on a switch — no analysis re-runs because somebody changed
+    language. So without a subscription it sits beside an interface that has just
+    switched, reading in the previous one, which is the mixed-language case the
+    catalogue exists to prevent.
+    """
+    export_js = strip_js_comments((JS_DIR / "export.js").read_text(encoding="utf-8"))
+    assert "from './i18n.js'" in export_js
+    match = re.search(r"onLocaleChange\((.*?)\);", export_js, re.DOTALL)
+    assert match, "export.js does not subscribe to locale changes"
+    assert "renderExportPreview" in match.group(1)
+    assert "renderExportPreview" in export_js, (
+        "the repaint must be exported so a test can drive it, as evidenceViewer.js "
+        "exports repaintLocalizedView"
+    )
+
+
+def test_the_hardcoded_export_strings_are_gone_everywhere_not_just_at_the_sinks():
+    """The specific sentences the migration was about, asserted to be absent.
+
+    `test_no_bare_user_visible_literal_remains_in_the_migrated_modules` matches a
+    fixed list of assignment shapes, and those shapes are exactly what an export
+    is not: most of this module's strings are array *elements* inside a report
+    builder. So the defect would satisfy the shape-based pin while still writing
+    Chinese into the downloaded file.
+
+    The whole directory is searched rather than a list of modules, for the reason
+    `test_the_hardcoded_half_of_the_workspace_dialog_is_gone` gives: a fourth call
+    site that stringifies the sentence back together is exactly the regression
+    being guarded against.
+    """
+    sentences = (
+        "导出时间", "源文件", "会话 ID", "分析运行 ID", "提示词版本", "证据版本",
+        "是否经过云端解析", "是否命中解析缓存", "降级说明", "解析告警",
+        "呈现方式", "字段状态", "证据 ID", "证据链接", "打开该引用",
+        "未命名字段", "本次分析没有产出带引用的结论。", "（本次分析没有这一节的内容）",
+        "导出于", "PaperWhisperer 会话报告", "这张表记录的是",
+    )
+    offenders = []
+    for path in sorted(JS_DIR.glob("*.js")):
+        # `i18n.js` is the catalogue, and `config.js` is where the zh-CN text these
+        # labels had before the migration still lives — both are where the
+        # sentence is *supposed* to be, and both are read as the floor beneath the
+        # catalogue entry.
+        if path.name in ("i18n.js", "config.js"):
+            continue
+        source = strip_js_comments(path.read_text(encoding="utf-8"))
+        for sentence in sentences:
+            if sentence in source:
+                offenders.append(f"{path.name}: {sentence!r}")
+    assert not offenders, (
+        "exported-file strings are back in a module other than the catalogue: "
+        + "; ".join(offenders)
+    )
+
+    # ...and each one now names a key instead, so the sentences moved rather than
+    # simply disappearing.
+    export_js = strip_js_comments((JS_DIR / "export.js").read_text(encoding="utf-8"))
+    for key in ("export.provenance.row.exported_at", "export.citation.open_link",
+                "export.html.exported_at", "export.provenance.note",
+                "export.html.section_empty"):
+        assert f"t('{key}'" in export_js, f"the export no longer names {key}"
+
+
+# --------------------------------------------------------------------------
+# api.js: which sentences reach the reader, and which never do
+# --------------------------------------------------------------------------
+
+
+def test_the_transport_surfaces_that_reach_the_reader_are_keyed():
+    """`ApiError.message` is user-visible, and every one of those is a key.
+
+    `runtime.js` shows a classified failure from its `code`, not from this file's
+    prose — so it would be easy to conclude these literals are inert. They are
+    not: `dom.js`'s `showError(error)`, `analyze.js`'s `showError(error.message)`
+    and `chat.js`'s `appendChatText(…, error.message, …)` all render it. So every
+    message this module constructs is a catalogue lookup, and the structural pin
+    is that none of them is a literal any more.
+    """
+    api_js = strip_js_comments((JS_DIR / "api.js").read_text(encoding="utf-8"))
+
+    # Every `ApiError(...)` message, and every `{ error: … }` this module
+    # synthesises, resolves through the catalogue.
+    messages = re.findall(r"new ApiError\(\s*([^,\n]+)", api_js)
+    payloads = re.findall(r"\{\s*error:\s*([^,}]+)", api_js)
+    assert messages and payloads, "the assertions found nothing to check"
+    unresolved = [
+        value.strip() for value in messages + payloads
+        if not re.search(r"\bt\('api\.", value)
+        # Carried through rather than re-authored: the server's own prose
+        # (`data.error`, `payload.error`), this module's own already-classified
+        # failure (`error.message`), and the platform's text for a failed fetch
+        # (`error?.message`). Each is a sentence this client did not write.
+        and not re.search(r"\b(?:data|payload|failure)\.error\b", value)
+        and not re.search(r"\berror\?\.message\b", value)
+        and value.strip() != "error.message"
+    ]
+    assert not unresolved, (
+        "these api.js messages would still reach the reader as literals: "
+        f"{unresolved}"
+    )
+    assert not re.search(r"'[^'\n]*[一-鿿][^'\n]*'", api_js), (
+        "api.js still carries a hardcoded Chinese sentence outside the catalogue"
+    )
+    assert len(set(re.findall(r"\bt\('(api\.[a-z_]+)'", api_js))) >= 15, (
+        "api.js names far fewer catalogue keys than the failure surfaces it "
+        "raises — a partial migration would pass the assertions above"
+    )
+
+
+def test_the_servers_own_prose_is_carried_through_and_never_translated():
+    """The other half of `api.js`, and the half that is easy to overreach on.
+
+    `data.error`, `payload.error` and `error.message` all carry sentences the
+    server wrote. They are handed to `ApiError` unchanged so the higher-level
+    surfaces can show what arrived; the client's own frame around them is what the
+    catalogue holds. A client that translated them would be reporting things the
+    server never said, and the reader would have no way to tell a translated
+    failure from a real one.
+    """
+    api_js = strip_js_comments((JS_DIR / "api.js").read_text(encoding="utf-8"))
+
+    # The precedence is unchanged and the catalogue is the *last* resort, after
+    # the server's sentence and after a caller's own fallback.
+    for call in (
+        "data.error || options.fallback || t('api.request_failed')",
+        "data.error || t('api.stream_failed')",
+        "payload.error || fallbackMessage || t('api.request_failed')",
+        "error?.message || t('api.unreachable')",
+    ):
+        assert call in api_js, (
+            f"api.js no longer reads: {call}. The server's own sentence has to "
+            "stay first — it is the one thing in this file that is not the "
+            "client's to write."
+        )
+
+    # And `parseJsonSafely` hands the failure on as it is rather than
+    # re-authoring it, which is what a caller migrating later will render.
+    assert "error: error.message" in api_js, (
+        "parseJsonSafely rewrites a failure it was only asked to describe"
+    )
+
+
+def test_the_scope_identifiers_stay_literals_so_a_success_still_retires_its_failure():
+    """`operation` is an identifier, and `chat.js`'s is pinned here for the same
+    reason `runtime.js`'s offline-queue scope is.
+
+    A success retires a failure by comparing `operation`, and nothing renders it.
+    Giving it a catalogue key would make the scope depend on the interface
+    language, so a reader who switched between the failure and its retry would
+    find the retry no longer cleared the failure. The pending notice this module
+    raises sits directly beside that identifier and is keyed; the identifier is
+    not.
+    """
+    chat_js = strip_js_comments((JS_DIR / "chat.js").read_text(encoding="utf-8"))
+    assert "const ASK_OPERATION = 'ask';" in chat_js
+    assert "operation: ASK_OPERATION" in chat_js
+    assert "ask_operation" not in chat_js, (
+        "the answer turn's operation scope became a catalogue key: a success "
+        "retires notices by comparing this string, and a switch in the interface "
+        "language must not change which notices a success clears"
+    )
+    api_js = strip_js_comments((JS_DIR / "api.js").read_text(encoding="utf-8"))
+    for scope in ("options.operation || 'stream'", "options.operation || 'job'"):
+        assert scope in api_js, f"api.js no longer defaults operation to {scope!r}"
+
+
+def test_none_of_the_three_modules_decides_anything_by_matching_display_prose():
+    """The `paperList.js` defect, checked for in the modules it could recur in.
+
+    The previous round found `getPaperStateDetails` choosing an empty state by
+    sniffing English prose — `/searching|generating/i`, `includes('No matching')`.
+    That branch inverted the moment the copy was translated: with Chinese copy
+    the sniff fails and a running search is drawn as a search that found nothing.
+
+    These three modules make the same class of decision in three different ways,
+    so all three are checked. The one regex that remains is `looksLikeHtml` in
+    `api.js`, and it is *not* prose: it recognises `<!doctype html>` in a response
+    body where JSON was expected, so its input is the server's bytes rather than
+    anything this catalogue can translate. It is asserted here by name so that
+    adding a second regex has to be argued for rather than slipped in.
+    """
+    for name in ("export.js", "api.js", "chat.js"):
+        source = strip_js_comments((JS_DIR / name).read_text(encoding="utf-8"))
+        assert not re.search(r"/[a-z |]+/i\b", source), (
+            f"{name} branches on a case-insensitive pattern; check that it is not "
+            "matching resolved display text"
+        )
+        for sink in ("text.includes(", "title.includes(", "message.includes(",
+                     "label.includes(", "term.includes("):
+            assert sink not in source, (
+                f"{name} decides a branch by matching a rendered sentence "
+                f"({sink}); the decision must read a key or a machine value"
+            )
+
+    api_js = strip_js_comments((JS_DIR / "api.js").read_text(encoding="utf-8"))
+    # Asserted by flag rather than by listing every regex in the module: the
+    # one regex in a transport module that is a *diagnosis* is the case-
+    # insensitive HTML sniff, and a second `/i` has to be argued for rather than
+    # slipped in. (The module's other patterns are line-ending normalisation and
+    # path substitution — neither can be inverted by a translation, because
+    # neither reads rendered text.)
+    case_insensitive = re.findall(r"/[^/\n]{4,}/[gimsuy]*i[gimsuy]*", api_js)
+    assert case_insensitive == [r"/^\s*(<!doctype html|<html|<head|<body)/i"], (
+        "api.js gained a case-insensitive pattern other than the HTML-body "
+        f"sniff: {case_insensitive}"
+    )
+    # The three branches that do decide something read machine values.
+    assert "entry.presentation === PRESENTATION_DIRECT_QUOTE" in (
+        strip_js_comments((JS_DIR / "export.js").read_text(encoding="utf-8"))
+    )
+    assert "Object.prototype.hasOwnProperty.call(CONFIDENCE_COPY, confidence)" in (
+        strip_js_comments((JS_DIR / "chat.js").read_text(encoding="utf-8"))
+    )
+    assert "confidence === 'insufficient_evidence'" in (
+        strip_js_comments((JS_DIR / "chat.js").read_text(encoding="utf-8"))
     )
 
 

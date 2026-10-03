@@ -8,7 +8,7 @@ import { addPaperToQueueByIndex } from './queue.js';
 import { applyAnalysisResult, captureWorkspaceState, describeAnalysisOutcome, hideRunIndicator, resetResultView, restoreWorkspaceState, showRunIndicator } from './sections.js';
 import { renderExportPreview } from './export.js';
 import { RECOMMENDATIONS_API_PATH } from './config.js';
-import { t } from './i18n.js';
+import { t, onLocaleChange } from './i18n.js';
 
 /**
  * Paper search, recommendations and importing a remote paper for analysis.
@@ -593,8 +593,43 @@ export { addPaperToAnalysisByIndex };
 export { cancelPaperSearchRequest };
 export { cancelRecommendRequest };
 export { downloadPaperByIndex };
+/**
+ * Repaint everything the papers surface drew, in the reader's new language.
+ *
+ * The evidence, parse-status and export panels have repainted on the language
+ * switch since WALK-DEFECT-3 was closed; this surface had not, so a reader who
+ * searched for a paper and then switched to English kept the search results, the
+ * per-signal status and the probable-duplicate note in the language they had
+ * *left* — the same defect, on a panel nobody had walked as a user yet.
+ *
+ * Re-rendered from the stored values rather than refetched: the switch is a
+ * presentation change, and a network call here would re-run a paid, rate-limited
+ * search to redraw text already in hand. Every surface below is one whose
+ * strings resolve through `t()` at render time, which is exactly why re-rendering
+ * is enough — the alternative, snapshotting the markup, is what keeps a panel
+ * frozen in the language it was built in.
+ */
+function repaintPapersForLocale() {
+    renderPaperList(
+        'paperSearchResults',
+        state.currentPaperSearchResults,
+        state.currentPaperSearchResults.length ? '' : 'papers.state.search.idle.title',
+        { elementId: 'paperSearchMeta', text: state.currentPaperSearchMetaText }
+    );
+    renderRecommendationSignals(state.currentRecommendationSignals, state.currentRecommendationDuplicates);
+    renderPaperList(
+        'paperRecommendations',
+        state.currentPaperRecommendations,
+        state.currentPaperRecommendations.length ? '' : 'papers.state.recommend.none.title',
+        { elementId: 'paperRecommendationMeta', text: state.currentPaperRecommendationMetaText }
+    );
+}
+
+onLocaleChange(repaintPapersForLocale);
+
 export { handlePaperResultClick };
 export { handlePaperSearchKeyPress };
 export { recommendPapers };
+export { repaintPapersForLocale };
 export { searchPapers };
 export { useExampleQuery };
