@@ -33,6 +33,8 @@ import {
     HIGHLIGHT_ABSENT_NOTE,
     HIGHLIGHT_DRAWN_NOTE,
     NO_TARGET_MESSAGES,
+    OFFLINE_QUEUE_COPY,
+    OFFLINE_STATUS_COPY,
     POSSIBLE_DUPLICATE_BASIS_FALLBACK,
     POSSIBLE_DUPLICATE_BADGE,
     POSSIBLE_DUPLICATE_HEADING,
@@ -584,7 +586,177 @@ const ZH_CN = {
     'copy.done': '已复制',
     'copy.done_status': '内容已复制',
     'copy.failed': '复制失败',
-    'copy.failed_status': '复制失败'
+    'copy.failed_status': '复制失败',
+
+    // --- runtime.js: the failure surface's own sentences ----------------------
+    //
+    // The notice chrome and the connectivity chip. These were module-level
+    // Chinese literals and Chinese-only constants in `config.js`: the dismiss
+    // button read '关闭' and the pending title '进行中' whatever the reader had
+    // chosen, which on an English page put one untranslated word on the control
+    // the reader presses to make a failure go away.
+    'runtime.dismiss': '关闭',
+    'runtime.dismiss_label': '关闭这条消息',
+    'runtime.pending_title': '进行中',
+
+    // Two shapes rather than one with a branch inside the copy: "1 分 5 秒" and
+    // "40 秒" are different sentences in every language.
+    'runtime.elapsed.minutes': '{minutes} 分 {seconds} 秒',
+    'runtime.elapsed.seconds': '{seconds} 秒',
+
+    // The connectivity chip is the first thing on screen after a disconnect.
+    // The tones stay in `config.js` (they are policy); the words are here.
+    'runtime.connectivity.online': OFFLINE_STATUS_COPY.onlineText,
+    'runtime.connectivity.offline': OFFLINE_STATUS_COPY.text,
+    'runtime.offline.reconnected_short': OFFLINE_STATUS_COPY.empty,
+    'runtime.offline.queue_flushed': OFFLINE_QUEUE_COPY.restored,
+    // One key, not two joined in the module: this notice is a single run of prose
+    // in each language, and Chinese sets its clauses side by side where English
+    // needs a full stop between them. The `title` and `message` are the server's
+    // own Chinese constants from `config.js`, reused rather than retyped, so
+    // the default locale renders exactly what it rendered before.
+    'runtime.offline.queued': `${OFFLINE_QUEUE_COPY.title}（{count} 项待发送）${OFFLINE_QUEUE_COPY.message}`,
+
+    // --- analyze.js: one run, from the upload to the restored workspace ------
+    //
+    // Chinese first, because Chinese is what these four modules said before the
+    // catalogue: the progress trail and the clock notes were Chinese while the
+    // status line beside them was English, and the workspace-restore dialog
+    // opened with a Chinese sentence about a server error and closed with a
+    // hardcoded English one. The `{message}` placeholder is where the server's
+    // own words (or this client's fallback, when the envelope carried none) go
+    // in untouched — the frame around them is the interface's and follows the
+    // reader's switch.
+    'analysis.button.busy': '分析中…',
+    'analysis.progress.reading': '正在上传文档并读取它的文本。扫描件可能需要 OCR，这一步会明显更久。',
+    'analysis.progress.reading_text': '正在读取文档的文本。扫描件在这一步可能耗时较久；如果文字无法识别，解析器会重跑 OCR。',
+    'analysis.progress.assembling': '所有章节都已收到，正在整理工作台…',
+    'analysis.progress.section': '分析中——已收到第 {received} /{planned} 个章节（{section}）。',
+    'analysis.workspace_ready': '工作台已就绪，可以继续提问或导出会话。',
+    'analysis.workspace_incomplete': '工作台已就绪，但这次分析并不完整：{text}',
+    'analysis.clock.complete': '分析完成。',
+    'analysis.clock.incomplete': '分析完成，但有部分未生成。',
+    'analysis.clock.cancelled': '这次分析已被取消。',
+    'analysis.clock.not_completed': '这次分析没有完成。',
+    'analysis.pending.title': '分析进行中',
+    'analysis.pending.body': '文档正在解析。这可能需要一两分钟——这里显示的是服务器报告的阶段和真实用时，不显示百分比，因为服务端没有报告这一步的完成度。',
+    'analysis.status.reading': '正在读取文档…',
+    'analysis.status.upload_attention': '上传需要处理',
+    'analysis.status.failed': '分析失败',
+    'analysis.status.interrupted': '分析在完成之前中断了',
+    'analysis.status.sections': '分析中：已收到 {received} /{planned} 个章节。',
+
+    // The interrupted-stream report, which used to be an English paragraph
+    // concatenated in the module and shown inside a Chinese failure notice.
+    'analysis.stream.interrupted': '分析流在完成之前就结束了。',
+    'analysis.stream.partial': '已收到 {received} /{planned} 个章节；这些内容还不足以构成一次可用的分析。',
+    'analysis.stream.no_section': '没有收到任何章节。',
+    'analysis.stream.job_unreachable': '任务 {job} 也无法从这里访问。',
+    'analysis.error.stream_interrupted': '分析流中断。',
+    'analysis.error.interrupted': '分析已中断。',
+    'analysis.error.failed': '分析失败。',
+
+    // The frame that used to be a hardcoded English sentence on a Chinese
+    // dialog. One key, because a half-translated dialog is worse than either
+    // language: the reader is told in one language that their work came back
+    // and in another why it left.
+    'analysis.workspace_restored': '{message}\n\n上一次成功的分析工作台已经恢复。',
+
+    // What a re-attached job actually did. `{job}` is the durable handle the
+    // reader can look the run up by; `{state}` is the server's own state word,
+    // passed through rather than rewritten client-side.
+    'analysis.job.completed': '分析已在服务端完成（任务 {job}），但结果没有送达这个页面。服务端只保留任务的进度，不保留分析正文，所以工作台无法重建。',
+    'analysis.job.partial': '分析任务 {job} 在服务端结束，但只有部分章节生成成功。结果没有送达这个页面，工作台无法重建。',
+    'analysis.job.failed': '分析任务 {job} 在服务端结束为 {state}，不是这个页面断开了连接。',
+    'analysis.job.unknown_id': '未知',
+
+    // Cancelling stops the *page*, not the run. Both halves of the status line
+    // are interface copy, so both follow the switch — and they are four whole
+    // sentences rather than one sentence plus a fragment, because the fragment
+    // would have to carry a separator the interface cannot punctuate.
+    'analysis.cancel.stopped_with_job': '已停止查看。服务端任务 {job} 没有被取消，可能仍在运行。{outcome}',
+    'analysis.cancel.stopped': '已停止查看。{outcome}',
+    'analysis.cancel.stopped_job_only': '已停止查看。服务端任务 {job} 没有被取消，可能仍在运行。',
+    'analysis.cancel.stopped_alone': '已停止查看。',
+
+    // --- papers.js / paperList.js: search, recommendations, the import -------
+    'papers.status.example_loaded': '已填入示例检索词',
+    'papers.status.query_needed': '请先输入检索关键词',
+    'papers.status.search_cancelled': '已取消论文检索',
+    'papers.status.recommend_cancelled': '已取消推荐生成',
+    'papers.search.running': '检索中…',
+    'papers.search.for': '正在检索：{query}',
+    'papers.recommend.running': '生成推荐中…',
+    'papers.recommend.building_topics': '正在从当前论文生成检索主题…',
+    'papers.recommend.requires_analysis': '请先分析一篇文档。',
+    'papers.recommend.needs_identity': '生成推荐需要一篇论文的标识',
+    'papers.recommend.no_paper_identity': '这份文档没有可用于检索的论文标识，因此无从推荐。请先检索或导入一篇论文。',
+    'papers.download.unavailable': '这条结果没有可下载的论文文件。',
+    'papers.result.missing': '找不到这条论文结果，请重新检索。',
+
+    // The meta line under a panel: the fields are the server's and are
+    // interpolated; the labels around them are the interface's.
+    'papers.meta.original': '原始检索词：{value}',
+    'papers.meta.rewritten': '改写后的检索词：{value}',
+    'papers.meta.topics': '主题：{value}',
+    'papers.meta.why': '原因：{value}',
+    'papers.meta.model': '模型：{value}',
+    'papers.meta.partial': '部分结果：{value}',
+    'papers.meta.seed': '种子论文：{value}',
+    'papers.meta.count': '{count} 篇',
+    'papers.meta.unavailable_signal': '{label}（未能获取）',
+    'papers.meta.unavailable_signals': '未能获取的信号：{signals}',
+    'papers.meta.enumeration_join': '、',
+
+    // The card chrome. `reason` is the backend's own sentence for this hit and
+    // is shown as sent; only the "Why:" label in front of it is the interface's.
+    'papers.card.untitled': '未命名论文',
+    'papers.card.unknown_authors': '作者未知',
+    'papers.card.no_abstract': '没有摘要。',
+    'papers.card.why': '原因：',
+    'papers.card.open': '打开',
+    'papers.card.pdf': 'PDF 文件',
+    'papers.card.download': '下载',
+    'papers.card.save': '收藏',
+    'papers.card.add': '加入分析',
+    'papers.card.adding': '正在加入…',
+
+    // The per-card duplicate note. The titles are the payload's words and are
+    // interpolated between the brackets; the bracket marks, the join between
+    // several titles and the sentence around them are the interface's.
+    'papers.duplicate.named': '可能与《{titles}》是同一篇论文的不同记录，未合并。',
+    'papers.duplicate.unnamed': '可能与列表中的另一条是同一篇论文的不同记录，未合并。',
+    'papers.duplicate.join': '》《',
+
+    // The empty states. `getPaperStateDetails` decides *which* state to draw
+    // from these keys rather than from the resolved prose, because that decision
+    // must not change when the copy does.
+    'papers.state.none.title': '没有找到论文。',
+    'papers.state.search.loading.title': '正在检索论文…',
+    'papers.state.search.loading.body': '正在检索 Semantic Scholar 与 arXiv 上的相关论文。',
+    'papers.state.search.prompt.title': '请先输入主题、方法、任务或数据集，再开始检索。',
+    'papers.state.search.prompt.body': '检索需要一个主题、方法、任务、数据集或问题描述。',
+    'papers.state.search.idle.title': '检索结果会出现在这里。',
+    'papers.state.search.none.title': '没有找到匹配的论文。',
+    'papers.state.search.narrow.body': '可以放宽检索词，加入数据集或方法名，或者改为按问题描述检索。',
+    'papers.state.search.empty.body': '在上方输入主题、方法、任务或数据集，开始搭建你的阅读线索。',
+    'papers.state.recommend.loading.title': '正在生成推荐…',
+    'papers.state.recommend.loading.body': '正在从当前论文生成主题，并检索外部来源。',
+    'papers.state.recommend.empty.body': '可以先分析一篇信息更完整的论文再重新生成推荐，也可以按方法、任务或数据集直接检索。',
+    'papers.state.recommend.idle.title': '分析完成后，推荐会出现在这里。',
+    'papers.state.recommend.none.title': '没有生成推荐。',
+
+    // The import path, which runs the same analysis as the upload and so
+    // shares `analysis.workspace_restored` and the clock notes above.
+    'papers.import.progress': '正在从来源下载论文并读取它的文本…',
+    'papers.import.status': '正在从检索结果导入论文…',
+    'papers.import.meta': '正在把选中的论文导入 PaperWhisperer…',
+    'papers.import.meta_done': '已把选中的论文导入 PaperWhisperer。',
+    'papers.import.source_fallback': '导入的论文',
+    'papers.import.ready': '导入的论文可以继续追问了',
+    'papers.import.failed': '论文导入失败',
+    'papers.import.failed_fallback': '导入失败。',
+    'papers.import.clock_incomplete': '这次导入没有完成。'
 };
 
 const EN = {
@@ -895,7 +1067,129 @@ const EN = {
     'copy.done': 'Copied',
     'copy.done_status': 'Content copied',
     'copy.failed': 'Copy failed',
-    'copy.failed_status': 'Copy failed'
+    'copy.failed_status': 'Copy failed',
+
+    // --- runtime.js: the failure surface's own sentences ----------------------
+    'runtime.dismiss': 'Dismiss',
+    'runtime.dismiss_label': 'Dismiss this message',
+    'runtime.pending_title': 'In progress',
+    'runtime.elapsed.minutes': '{minutes}m {seconds}s',
+    'runtime.elapsed.seconds': '{seconds}s',
+    'runtime.connectivity.online': 'Connected',
+    'runtime.connectivity.offline': 'Offline · actions will be queued',
+    'runtime.offline.reconnected_short': 'The connection is back.',
+    'runtime.offline.queue_flushed': 'Connection restored; the queued actions are being sent.',
+    'runtime.offline.queued': 'Offline — your actions have been queued. This device has no network connection, and what you just did will go out automatically once the connection is back. {count} waiting to send.',
+
+    // --- analyze.js ----------------------------------------------------------
+    'analysis.button.busy': 'Analysing...',
+    'analysis.progress.reading': 'Uploading your document and reading its text. A scanned PDF may need OCR, which takes noticeably longer.',
+    'analysis.progress.reading_text': 'Reading the document text. This step can take a while on a scan, and may re-run OCR if the text is unreadable.',
+    'analysis.progress.assembling': 'All sections received. Assembling the workspace...',
+    'analysis.progress.section': 'Analysing — section {received} of {planned} received ({section}).',
+    'analysis.workspace_ready': 'Workspace ready. You can ask questions or export the session.',
+    'analysis.workspace_incomplete': 'Workspace ready, but the analysis is incomplete: {text}',
+    'analysis.clock.complete': 'Analysis complete.',
+    'analysis.clock.incomplete': 'Analysis complete, but some sections were not generated.',
+    'analysis.clock.cancelled': 'This analysis was cancelled.',
+    'analysis.clock.not_completed': 'This analysis did not complete.',
+    'analysis.pending.title': 'Analysis in progress',
+    'analysis.pending.body': 'The document is being parsed. This can take a minute or two — what is shown here is the stage the server reports and the real elapsed time, not a percentage, because the server does not report the completion of this step.',
+    'analysis.status.reading': 'Reading the document...',
+    'analysis.status.upload_attention': 'Upload needs attention',
+    'analysis.status.failed': 'Analysis failed',
+    'analysis.status.interrupted': 'Analysis interrupted before it completed',
+    'analysis.status.sections': 'Analysing: {received} of {planned} sections received.',
+
+    'analysis.stream.interrupted': 'The analysis stream ended before it completed.',
+    'analysis.stream.partial': '{received} of {planned} sections had arrived; they are not a usable analysis.',
+    'analysis.stream.no_section': 'No section was received.',
+    'analysis.stream.job_unreachable': 'The job {job} could not be reached from here either.',
+    'analysis.error.stream_interrupted': 'Analysis stream interrupted.',
+    'analysis.error.interrupted': 'Analysis interrupted.',
+    'analysis.error.failed': 'Analysis failed.',
+    'analysis.workspace_restored': '{message}\n\nYour previous successful workspace has been restored.',
+
+    'analysis.job.completed': 'The analysis finished on the server (job {job}), but the result was not delivered to this page. The server keeps only the job’s progress, not the analysis text, so the workspace cannot be rebuilt.',
+    'analysis.job.partial': 'The analysis job {job} ended on the server, but only some sections were generated. The result was not delivered to this page, so the workspace cannot be rebuilt.',
+    'analysis.job.failed': 'The analysis job {job} ended on the server as {state}, so this page did not simply lose its connection.',
+    'analysis.job.unknown_id': 'unknown',
+
+    // Cancelling stops the *page*, not the run. Four whole sentences rather than
+    // one plus a fragment: the second half is a claim about server-side work the
+    // reader cannot see, and a glued-on fragment makes the punctuation around it
+    // a guess the interface cannot make.
+    'analysis.cancel.stopped_with_job': 'Stopped watching. The server-side task {job} was not cancelled and may still be running. {outcome}',
+    'analysis.cancel.stopped': 'Stopped watching. {outcome}',
+    'analysis.cancel.stopped_job_only': 'Stopped watching. The server-side task {job} was not cancelled and may still be running.',
+    'analysis.cancel.stopped_alone': 'Stopped watching.',
+
+    // --- papers.js / paperList.js --------------------------------------------
+    'papers.status.example_loaded': 'Example query loaded',
+    'papers.status.query_needed': 'Search query needed',
+    'papers.status.search_cancelled': 'Paper search canceled',
+    'papers.status.recommend_cancelled': 'Recommendations canceled',
+    'papers.search.running': 'Searching...',
+    'papers.search.for': 'Searching for: {query}',
+    'papers.recommend.running': 'Recommending...',
+    'papers.recommend.building_topics': 'Generating search topics from the current paper...',
+    'papers.recommend.requires_analysis': 'Requires document analysis first.',
+    'papers.recommend.needs_identity': 'Recommendation needs a paper identity',
+    'papers.recommend.no_paper_identity': 'No paper identity is available for this document, so there is nothing to recommend from. Search for or import a paper first.',
+    'papers.download.unavailable': 'No downloadable paper file is available for this result.',
+    'papers.result.missing': 'Paper result not found. Please search again.',
+
+    'papers.meta.original': 'Original: {value}',
+    'papers.meta.rewritten': 'Rewritten: {value}',
+    'papers.meta.topics': 'Topics: {value}',
+    'papers.meta.why': 'Why: {value}',
+    'papers.meta.model': 'Model: {value}',
+    'papers.meta.partial': 'Partial results: {value}',
+    'papers.meta.seed': 'Seed: {value}',
+    'papers.meta.count': '{count} paper(s)',
+    'papers.meta.unavailable_signal': '{label} (not fetched)',
+    'papers.meta.unavailable_signals': 'Signals that could not be fetched: {signals}',
+    'papers.meta.enumeration_join': ', ',
+
+    'papers.card.untitled': 'Untitled paper',
+    'papers.card.unknown_authors': 'Unknown authors',
+    'papers.card.no_abstract': 'No abstract available.',
+    'papers.card.why': 'Why:',
+    'papers.card.open': 'Open',
+    'papers.card.pdf': 'PDF',
+    'papers.card.download': 'Download',
+    'papers.card.save': 'Save',
+    'papers.card.add': 'Add',
+    'papers.card.adding': 'Adding...',
+
+    'papers.duplicate.named': 'Possibly a different record of the same paper as “{titles}”; not merged.',
+    'papers.duplicate.unnamed': 'Possibly a different record of another entry in the list; not merged.',
+    'papers.duplicate.join': '”, “',
+
+    'papers.state.none.title': 'No papers found.',
+    'papers.state.search.loading.title': 'Searching papers...',
+    'papers.state.search.loading.body': 'Checking Semantic Scholar and arXiv for relevant papers.',
+    'papers.state.search.prompt.title': 'Enter a topic, method, task, or dataset to search papers.',
+    'papers.state.search.prompt.body': 'Search needs a topic, method, task, dataset, or problem statement.',
+    'papers.state.search.idle.title': 'Search results will appear here.',
+    'papers.state.search.none.title': 'No matching papers found.',
+    'papers.state.search.narrow.body': 'Try broader keywords, include a dataset or method name, or search by the problem statement instead.',
+    'papers.state.search.empty.body': 'Enter a topic, method, task, or dataset above to start building your reading trail.',
+    'papers.state.recommend.loading.title': 'Generating recommendations...',
+    'papers.state.recommend.loading.body': 'Building topics from the current paper and checking external sources.',
+    'papers.state.recommend.empty.body': 'Try analyzing a richer paper, then run recommendations again, or search manually by method, task, or dataset.',
+    'papers.state.recommend.idle.title': 'Recommendations will appear here after analysis.',
+    'papers.state.recommend.none.title': 'No recommendations found.',
+
+    'papers.import.progress': 'Downloading the paper from the source, then reading its text...',
+    'papers.import.status': 'Importing paper from search results...',
+    'papers.import.meta': 'Importing selected paper into PaperWhisperer...',
+    'papers.import.meta_done': 'Imported selected paper into PaperWhisperer.',
+    'papers.import.source_fallback': 'Imported paper',
+    'papers.import.ready': 'Imported paper ready for follow-up questions',
+    'papers.import.failed': 'Paper import failed',
+    'papers.import.failed_fallback': 'The paper import failed.',
+    'papers.import.clock_incomplete': 'This import did not complete.'
 };
 
 /**

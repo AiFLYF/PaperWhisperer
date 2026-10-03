@@ -58,6 +58,7 @@ ALL_JS = {
 SUGGESTIONS = (JS_DIR / "suggestions.js").read_text(encoding="utf-8")
 MAIN = (JS_DIR / "main.js").read_text(encoding="utf-8")
 STATE = (JS_DIR / "state.js").read_text(encoding="utf-8")
+I18N = (JS_DIR / "i18n.js").read_text(encoding="utf-8")
 
 NODE = "node"
 
@@ -65,6 +66,26 @@ NODE = "node"
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------
+
+
+def catalogue_value(key: str, table: str = "ZH_CN") -> str:
+    """One `zh-CN` (by default) catalogue value, read out of the shipped source.
+
+    For assertions about *what a sentence says* once the sentence has moved into
+    the catalogue. The guarantee being pinned has not moved — "the read step
+    warns that a scan may need OCR" — but the place it is written did, and a
+    test that still grepped the module would now be asserting that the copy was
+    not localised, which is the opposite of the invariant.
+
+    A source read rather than an executed import because there is no DOM here;
+    `tests/test_i18n.py` is the file that *runs* the catalogue, and it owns the
+    parity and non-emptiness rules.
+    """
+    block = re.search(rf"const {table} = \{{(.*?)\n\}};", I18N, re.DOTALL)
+    assert block, f"the {table} table is missing from i18n.js"
+    match = re.search(rf"^    '{re.escape(key)}': (.*?),?$", block.group(1), re.MULTILINE)
+    assert match, f"{table} has no entry for {key}"
+    return match.group(1).strip().strip("'")
 
 
 def strip_js_comments(source: str) -> str:
@@ -617,7 +638,15 @@ def test_the_analysis_does_not_claim_to_be_analysing_before_it_is():
         "the start handler advances to the analyze step before the document has "
         "been parsed"
     )
-    assert "OCR" in body, (
+    # The sentence moved into the catalogue, so the guarantee is asserted
+    # against the key the handler now renders and the copy that key resolves to
+    # in the default locale — checking the string in the module would only be
+    # checking that it was not localised.
+    assert "analysis.progress.reading_text" in body, (
+        "the start handler no longer sets the read step at all"
+    )
+    reading_text = catalogue_value("analysis.progress.reading_text")
+    assert "OCR" in reading_text, (
         "the read step does not say that a scan may re-run OCR, which is the "
         "one thing a two-minute pause is usually about"
     )
@@ -1506,6 +1535,12 @@ def test_a_completed_job_is_never_offered_a_retry(tmp_path):
     with *no* retry attached. Retrying there is not recovering the run, it is
     paying for it twice.
     """
+    # `describeJobOutcome` returns the sentence's *key* and its parameters
+    # rather than a rendered string — the same split `parseStatus.js` makes, and
+    # for the same reason: the sentence has to be resolved at render time so a
+    # language switch reads the catalogue again. The preamble gives the
+    # extracted function a `t()` so it still runs standalone.
+    preamble = "const t = (key) => key;\n"
     cases = {
         "completed": ("completed", False),
         "partial": ("partial", False),
@@ -1521,7 +1556,7 @@ def test_a_completed_job_is_never_offered_a_retry(tmp_path):
     for job_state, (expected_outcome, expected_retryable) in cases.items():
         outcome = _run_pure(
             ANALYZE, "describeJobOutcome",
-            f"describeJobOutcome('{job_state}', 'job_1')", tmp_path,
+            f"describeJobOutcome('{job_state}', 'job_1')", tmp_path, preamble,
         )
         assert outcome["outcome"] == expected_outcome, (
             f"a job that ended as {job_state!r} was reported as "
@@ -1538,18 +1573,30 @@ def test_a_completed_job_is_never_offered_a_retry(tmp_path):
             )
         )
         if expected_outcome == "unknown":
-            # Deliberately empty. "Unknown" means the job could not be reached,
-            # and the caller falls back to the ordinary interrupted-run report
-            # rather than showing this — so a sentence here would be a claim
-            # about the run that nothing supports.
-            assert not outcome["text"], (
-                "the unknown outcome carries a message, which would be shown in "
+            # Deliberately no key at all. "Unknown" means the job could not be
+            # reached, and the caller falls back to the ordinary
+            # interrupted-run report rather than showing this — so a sentence
+            # here would be a claim about the run that nothing supports.
+            assert not outcome["sentenceKey"], (
+                "the unknown outcome names a sentence, which would be shown in "
                 "place of the real report on a run whose fate is unknown"
             )
         else:
-            assert outcome["text"], (
-                "a decided outcome must say something; an empty string is not "
+            # A decided outcome must be able to say something. The check is on
+            # the key resolving to a real catalogue entry rather than on a
+            # rendered string, because the renderer's `t()` is what turns it
+            # into language; a key that is not in the catalogue renders as the
+            # dotted key itself, which is the failure this catches.
+            assert outcome["sentenceKey"], (
+                "a decided outcome must name a sentence; a missing key is not "
                 "an explanation"
+            )
+            assert catalogue_value(outcome["sentenceKey"]), (
+                f"{outcome['sentenceKey']!r} is not in the zh-CN catalogue, so "
+                "the report would render as the key itself"
+            )
+            assert catalogue_value(outcome["sentenceKey"], "EN"), (
+                f"{outcome['sentenceKey']!r} is not in the en catalogue"
             )
 
 
@@ -1559,11 +1606,22 @@ def test_a_recovered_job_names_its_own_id(tmp_path):
     The job is the only durable handle on work that is still going somewhere the
     reader cannot see, so an outcome that does not name it leaves them unable to
     ask what became of their document.
+
+    Asserted on the parameters rather than on a rendered string: the id is
+    passed to the catalogue as `{job}` and substituted there, so the invariant
+    is that the handle is *carried*, not that a particular sentence spells it.
     """
-    outcome = _run_pure(ANALYZE, "describeJobOutcome", "describeJobOutcome('completed', 'job_42')", tmp_path)
-    assert "job_42" in outcome["text"], (
-        "a completed job's report does not name the job, so the reader cannot "
+    preamble = "const t = (key) => key;\n"
+    outcome = _run_pure(
+        ANALYZE, "describeJobOutcome", "describeJobOutcome('completed', 'job_42')", tmp_path, preamble
+    )
+    assert outcome["params"]["job"] == "job_42", (
+        "a completed job's report does not carry the job, so the reader cannot "
         "look up what happened to it"
+    )
+    assert "{job}" in catalogue_value(outcome["sentenceKey"]), (
+        "the sentence for a recovered job does not take the job id as a "
+        f"placeholder, so the id cannot reach the reader: {outcome['sentenceKey']!r}"
     )
 
 
@@ -1724,9 +1782,15 @@ def test_a_completed_run_retires_its_own_pending_notice():
     This is asserted in both directions: the scope has to be passed *and* the
     success has to close the flight, because either one alone leaves the notice
     up.
+
+    The third element of each tuple is a marker that the pending notice is still
+    being raised from the module: a catalogue key for ``analyze.js``, which has
+    been migrated, and the literal for ``chat.js``, which has not. The marker is
+    only a presence check — what is under test is the *scope*, and the wording
+    is deliberately not the thing being pinned.
     """
     for module, operation, pending_call in (
-        ("analyze.js", "analyze", "分析进行中"),
+        ("analyze.js", "analyze", "analysis.pending.title"),
         ("chat.js", "ask", "回答生成中"),
     ):
         source = ALL_JS[module]

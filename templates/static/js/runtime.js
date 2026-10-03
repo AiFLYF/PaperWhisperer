@@ -53,7 +53,12 @@
 import {
     FAILURE_KINDS,
     NOTICE_POLICY,
-    OFFLINE_QUEUE_COPY,
+    // Imported for its *tones* only. Its sentences moved into the catalogue
+    // (`runtime.connectivity.*`, `runtime.offline.*`) because a connectivity
+    // chip is the first thing on screen after a disconnect, and it was one of
+    // the two strings that stayed Chinese under an English interface. The tone
+    // is policy — which colours mean what — and stays where the stylesheet's
+    // vocabulary is.
     OFFLINE_STATUS_COPY,
     PRESERVED_FIELDS,
     PROGRESS_STEPS,
@@ -63,7 +68,7 @@ import {
     NOTICE_CONTAINER_ID,
     CONNECTIVITY_CHIP_ID
 } from './config.js';
-import { errorPresentation } from './i18n.js';
+import { errorPresentation, t } from './i18n.js';
 
 // --------------------------------------------------------------------------
 // The failure object
@@ -160,7 +165,7 @@ function ensureConnectivityChip() {
     chip.dataset.tone = 'idle';
     chip.setAttribute('role', 'status');
     chip.setAttribute('aria-live', 'polite');
-    chip.textContent = OFFLINE_STATUS_COPY.onlineText;
+    chip.textContent = t('runtime.connectivity.online');
     host.parentNode.insertBefore(chip, host);
     return chip;
 }
@@ -220,7 +225,7 @@ function notifyFailure(failure, options = {}) {
     // are things the reader can do something about *right now*, and both are
     // silent otherwise. A terminal failure is fully described in its notice.
     if (normalized.kind === FAILURE_KINDS.UNREACHABLE) {
-        setStatusText(OFFLINE_STATUS_COPY.text, 'error');
+        setStatusText(t('runtime.connectivity.offline'), 'error');
     }
     return noticeId;
 }
@@ -251,8 +256,12 @@ function buildDismissControl(noticeId) {
     button.type = 'button';
     button.className = 'action-btn runtime-notice-dismiss';
     button.dataset.noticeId = noticeId;
-    button.setAttribute('aria-label', 'Dismiss this message');
-    button.textContent = '关闭';
+    // Both the visible label and its accessible name are the interface's, so
+    // both are looked up: a hardcoded '关闭' beside a fully English notice is
+    // the mixed-language dialog, and here it would be one untranslated word in
+    // the one control the reader uses to make the failure go away.
+    button.setAttribute('aria-label', t('runtime.dismiss_label'));
+    button.textContent = t('runtime.dismiss');
     button.addEventListener('click', () => dismissNotice(noticeId));
     return button;
 }
@@ -275,7 +284,10 @@ function notifyPending(title, message, options = {}) {
         status: null,
         kind: FAILURE_KINDS.PENDING,
         known: true,
-        title: String(title || '进行中'),
+        // A pending notice raised without a title still says *something*, in
+        // the reader's language. The old literal was '进行中', which left the
+        // only line on screen Chinese under an English interface.
+        title: String(title || t('runtime.pending_title')),
         message: String(message || ''),
         hint: '',
         detail: '',
@@ -433,7 +445,11 @@ function formatElapsed(elapsedMs) {
     const totalSeconds = Math.max(0, Math.floor(Number(elapsedMs) / 1000));
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
-    return minutes > 0 ? `${minutes} 分 ${seconds} 秒` : `${seconds} 秒`;
+    // Two keys rather than one with a conditional: "1 min 5 s" and "40 s" are
+    // different shapes in every language, and a single template would have to
+    // carry the branch inside the catalogue. Numbers stay bare here — the
+    // catalogue owns the words and the unit, this owns the arithmetic.
+    return t(minutes > 0 ? 'runtime.elapsed.minutes' : 'runtime.elapsed.seconds', { minutes, seconds });
 }
 
 // --------------------------------------------------------------------------
@@ -579,10 +595,10 @@ function enqueueWhenOffline(action) {
 async function flushOfflineQueue() {
     const queued = pendingActions.splice(0, pendingActions.length);
     if (!queued.length) {
-        setConnectivityNotice(OFFLINE_STATUS_COPY.empty, false);
+        setConnectivityNotice(t('runtime.offline.reconnected_short'), false);
         return 0;
     }
-    setConnectivityNotice(OFFLINE_QUEUE_COPY.restored, false);
+    setConnectivityNotice(t('runtime.offline.queue_flushed'), false);
     let sent = 0;
     for (const action of queued) {
         try {
@@ -593,6 +609,12 @@ async function flushOfflineQueue() {
             // failure rather than vanishing: the reader asked for it, and
             // swallowing it here would be the silent drop this queue exists to
             // prevent.
+            // A scope identifier, not copy. It is never rendered — `failure.operation` is
+            // only ever compared against, by `dismissNoticesFor` — so it is left
+            // as a literal on purpose: giving it a catalogue key would make the
+            // string a success retires its notice by depend on the reader's
+            // interface language, and a notice raised before a switch would stop
+            // matching the success that follows it.
             notifyFailure({ code: 'client_unknown_error', operation: '离线队列' });
         }
     }
@@ -604,7 +626,7 @@ function setConnectivity(online) {
     connectivityKnown = Boolean(online);
     const chip = ensureConnectivityChip();
     if (chip) {
-        chip.textContent = online ? OFFLINE_STATUS_COPY.onlineText : OFFLINE_STATUS_COPY.text;
+        chip.textContent = online ? t('runtime.connectivity.online') : t('runtime.connectivity.offline');
         chip.dataset.tone = online ? OFFLINE_STATUS_COPY.onlineTone : 'error';
     }
     if (online) {
@@ -620,10 +642,10 @@ function renderOfflineNotice() {
         setConnectivityNotice('', false);
         return;
     }
-    setConnectivityNotice(
-        `${OFFLINE_QUEUE_COPY.title}（${pendingActions.length} 项待发送）${OFFLINE_QUEUE_COPY.message}`,
-        true
-    );
+    // One key rather than two joined here: this notice is a single run of prose in
+    // each language, and Chinese sets its clauses side by side where English
+    // needs a full stop between them. A join in the module cannot know which.
+    setConnectivityNotice(t('runtime.offline.queued', { count: pendingActions.length }), true);
 }
 
 function setConnectivityNotice(text, alarming) {
@@ -632,7 +654,7 @@ function setConnectivityNotice(text, alarming) {
     // An empty notice removes the chip's text rather than leaving a stale
     // message on screen; a chip that says "offline" after the connection is back
     // is a small lie that costs the reader a reload.
-    chip.textContent = text || OFFLINE_STATUS_COPY.onlineText;
+    chip.textContent = text || t('runtime.connectivity.online');
     chip.dataset.tone = text ? (alarming ? 'error' : 'idle') : OFFLINE_STATUS_COPY.onlineTone;
 }
 

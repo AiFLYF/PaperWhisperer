@@ -4,6 +4,7 @@ import { beginFlight, capturePreservedFields, dismissNotice, endFlight, notifyFa
 import { beginProgressClock, endProgressClock, focusAnalysisWorkspace, hideError, setButtonLoading, setCancelVisible, setControlDisabled, showError, updateAnalysisProgress, updateStatus } from './dom.js';
 import { getUploadValidationError, setFileInfo, updateFileMeta } from './upload.js';
 import { applyAnalysisResult, applyAnalysisSection, captureWorkspaceState, describeAnalysisOutcome, hideRunIndicator, resetResultView, restoreWorkspaceState, showRunIndicator } from './sections.js';
+import { t } from './i18n.js';
 
 /**
  * Report a run whose stream ended without ever settling.
@@ -53,18 +54,32 @@ async function reportInterruptedAnalysis(previousWorkspace, seenSections, planne
     }
 
     const partial = seenSections.size;
+    // Composed from catalogue keys rather than spelled out in English, because
+    // this string *is* shown: it becomes `error.message`, which is what the
+    // banner under the reader's restored workspace reads. Assembling it in the
+    // module meant an English interface got an English paragraph inside a
+    // Chinese failure notice.
     const error = buildApiError(
         {
             code: 'client_stream_interrupted',
-            error: `The analysis stream ended before it completed. ${partial
-                ? `${partial} of ${plannedSections} sections had arrived; they are not a usable analysis.`
-                : 'No section was received.'}${jobId ? ` The job ${jobId} could not be reached from here either.` : ''}`
+            error: [
+                t('analysis.stream.interrupted'),
+                partial
+                    ? t('analysis.stream.partial', { received: partial, planned: plannedSections })
+                    : t('analysis.stream.no_section'),
+                jobId ? t('analysis.stream.job_unreachable', { job: jobId }) : ''
+            ].filter(Boolean).join(' ')
         },
-        'Analysis stream interrupted.'
+        t('analysis.error.stream_interrupted')
     );
     if (previousWorkspace) {
         restoreWorkspaceState(previousWorkspace);
-        showError(`${error.message}\n\nYour previous successful workspace has been restored.`);
+        // One key for the whole dialog, not a sentence followed by a hardcoded
+        // English one: `{message}` carries whatever the server (or the client,
+        // above) wrote, and the frame around it — that the previous workspace
+        // is back — says what *this interface* did, so it follows the reader's
+        // switch. Two languages in one dialog is the defect this closes.
+        showError(t('analysis.workspace_restored', { message: error.message }));
         focusAnalysisWorkspace({ scroll: false });
     } else {
         state.currentSessionId = '';
@@ -73,7 +88,7 @@ async function reportInterruptedAnalysis(previousWorkspace, seenSections, planne
     }
     state.pendingAnalysisSnapshot = null;
     notifyFailure(error, { operation: ANALYZE_OPERATION, onRetry: () => analyze() });
-    updateStatus('Analysis interrupted before it completed', 'error');
+    updateStatus(t('analysis.status.interrupted'), 'error');
     return true;
 }
 
@@ -100,13 +115,14 @@ function restoreAfterRecoveredJob(previousWorkspace, recovered, jobId) {
     }
     state.pendingAnalysisSnapshot = null;
     const tone = recovered.outcome === 'completed' ? 'idle' : 'error';
-    showError(`${recovered.text}${previousWorkspace
-        ? '\n\nYour previous successful workspace has been restored.'
-        : ''}`);
-    updateStatus(recovered.text, tone);
+    const text = t(recovered.sentenceKey, recovered.params);
+    showError(previousWorkspace
+        ? t('analysis.workspace_restored', { message: text })
+        : text);
+    updateStatus(text, tone);
     if (recovered.retryable) {
         notifyFailure(
-            buildApiError({ code: 'client_stream_interrupted', error: recovered.text }, 'Analysis interrupted.'),
+            buildApiError({ code: 'client_stream_interrupted', error: text }, t('analysis.error.interrupted')),
             { operation: ANALYZE_OPERATION, onRetry: () => analyze() }
         );
     }
@@ -150,14 +166,29 @@ function jobStageStep(jobState) {
  * this client was disconnected cannot in general be handed back to it. Saying
  * the analysis completed *and* that the workspace could not be rebuilt is both
  * true and the only honest pair of statements available.
+ *
+ * **It returns the sentence's key and its parameters, not the sentence.** That
+ * is what keeps it pure *and* translatable at the same time: resolving the copy
+ * here would freeze the run's report in whichever language was active when the
+ * connection dropped, which is the staleness every other render path in this
+ * product has been migrated away from. The caller resolves it, at render time,
+ * exactly as `parseStatus.js` resolves a card's verdict.
  */
 function describeJobOutcome(jobState, jobId) {
     const state_ = String(jobState || '');
+    // One parameter for the id, resolved to a sentence in the reader's language
+    // rather than to the hardcoded '未知' this used to interpolate — an English
+    // report must not contain an untranslated "unknown" for its own job id.
+    // Both production call sites reach here only after `reattachAnalysisJob`
+    // returned something, which requires a non-empty id, so the fallback is
+    // belt-and-braces rather than a path the reader can take.
+    const params = { job: String(jobId || t('analysis.job.unknown_id')) };
     if (state_ === 'completed') {
         return {
             outcome: 'completed',
             retryable: false,
-            text: `分析已在服务端完成（任务 ${jobId || '未知'}），但结果没有送达这个页面。服务端只保留任务的进度，不保留分析正文，所以工作台无法重建。`
+            sentenceKey: 'analysis.job.completed',
+            params
         };
     }
     if (state_ === 'partial') {
@@ -169,20 +200,30 @@ function describeJobOutcome(jobState, jobId) {
         return {
             outcome: 'partial',
             retryable: false,
-            text: `分析任务 ${jobId || '未知'} 在服务端结束，但只有部分章节生成成功。结果没有送达这个页面，工作台无法重建。`
+            sentenceKey: 'analysis.job.partial',
+            params
         };
     }
     if (state_ === 'failed' || state_ === 'cancelled') {
         return {
             outcome: 'failed',
             retryable: false,
-            text: `分析任务 ${jobId || '未知'} 在服务端结束为 ${state_}，不是这个页面断开了连接。`
+            sentenceKey: 'analysis.job.failed',
+            // The server's own state word is passed through untouched: it is a
+            // value from a contract this client does not own, and rewriting it
+            // client-side would be the one place that tried.
+            params: { ...params, state: state_ }
         };
     }
     return {
         outcome: 'unknown',
         retryable: true,
-        text: ''
+        // Deliberately no key. "Unknown" means the job could not be reached, and
+        // the caller falls back to the ordinary interrupted-run report rather
+        // than showing this — a sentence here would be a claim about the run
+        // that nothing supports.
+        sentenceKey: null,
+        params: null
     };
 }
 
@@ -279,7 +320,7 @@ async function analyze() {
     if (uploadError) {
         updateFileMeta(file ? uploadError : '');
         showError(uploadError);
-        updateStatus('Upload needs attention', 'error');
+        updateStatus(t('analysis.status.upload_attention'), 'error');
         return;
     }
 
@@ -303,15 +344,15 @@ async function analyze() {
     state.currentSessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     state.pendingAnalysisSnapshot = previousWorkspace;
-    setButtonLoading(analyzeBtn, 'Analyzing...', 'Analyze Document', true);
+    setButtonLoading(analyzeBtn, t('analysis.button.busy'), t('upload.analyze'), true);
     setCancelVisible('cancelAnalyzeBtn', true);
     showRunIndicator();
     document.getElementById('loading').classList.add('active');
     beginProgressClock();
-    updateAnalysisProgress('upload', 'Uploading your document and reading its text. A scanned PDF may need OCR, which takes noticeably longer.');
+    updateAnalysisProgress('upload', t('analysis.progress.reading'));
     hideError();
     setControlDisabled(askBtn, true);
-    updateStatus('Reading the document...', 'idle');
+    updateStatus(t('analysis.status.reading'), 'idle');
     // Scoped to `analyze` so that the flight's own success can retire this
     // notice in `endFlight` below. Without the scope the pending notice is
     // matched by operation only, and an unlabelled one is never dismissed by a
@@ -323,8 +364,8 @@ async function analyze() {
     // completed run and wrong for a cancelled one, where a genuine failure from
     // an earlier attempt should stay on screen.
     const pendingNoticeId = notifyPending(
-        '分析进行中',
-        '文档正在解析。这可能需要一两分钟——这里显示的是服务器报告的阶段和真实用时，不显示百分比，因为服务端没有报告这一步的完成度。',
+        t('analysis.pending.title'),
+        t('analysis.pending.body'),
         { operation: ANALYZE_OPERATION }
     );
     // Published so `cancelAnalyzeRequest` can retire it. A cancel bumps the
@@ -391,8 +432,8 @@ async function analyze() {
                 // for a scanned PDF the parse is the long part. It stays on this
                 // step until the first section actually arrives, which is the
                 // first moment the server has told us any analysis happened.
-                updateAnalysisProgress('upload', 'Reading the document text. This step can take a while on a scan, and may re-run OCR if the text is unreadable.');
-                updateStatus('Reading the document...', 'idle');
+                updateAnalysisProgress('upload', t('analysis.progress.reading_text'));
+                updateStatus(t('analysis.status.reading'), 'idle');
             },
             section: payload => {
                 if (requestId !== state.analyzeRequestId) return;
@@ -409,10 +450,19 @@ async function analyze() {
                 updateAnalysisProgress(
                     complete ? 'render' : 'analyze',
                     complete
-                        ? 'All sections received. Assembling the workspace...'
-                        : `Analysing — section ${arrived} of ${plannedSections} received (${sectionName.replace('_', ' ')}).`
+                        ? t('analysis.progress.assembling')
+                        : t('analysis.progress.section', {
+                            received: arrived,
+                            planned: plannedSections,
+                            // The section's own name is the server's vocabulary,
+                            // not this interface's, so it is passed through.
+                            section: String(sectionName).replace('_', ' ')
+                        })
                 );
-                updateStatus(`Analysing: ${arrived} of ${plannedSections} sections received.`, 'idle');
+                updateStatus(t('analysis.status.sections', {
+                    received: arrived,
+                    planned: plannedSections
+                }), 'idle');
             },
             done: async payload => {
                 if (requestId !== state.analyzeRequestId) return;
@@ -420,9 +470,11 @@ async function analyze() {
                 await applyAnalysisResult(payload, file.name, generateEvaluation, generateMermaid, generateResearchBrief);
                 const outcome = describeAnalysisOutcome(payload);
                 updateAnalysisProgress('ready', outcome.tone === 'success'
-                    ? 'Workspace ready. You can ask questions or export the session.'
-                    : `Workspace ready, but the analysis is incomplete. ${outcome.text}`);
-                endProgressClock(outcome.tone === 'success' ? '分析完成。' : '分析完成，但有部分未生成。');
+                    ? t('analysis.workspace_ready')
+                    : t('analysis.workspace_incomplete', { text: outcome.text }));
+                endProgressClock(outcome.tone === 'success'
+                    ? t('analysis.clock.complete')
+                    : t('analysis.clock.incomplete'));
                 updateStatus(outcome.text, outcome.tone);
                 focusAnalysisWorkspace();
             },
@@ -432,7 +484,7 @@ async function analyze() {
                 // `Error`. That is what lets the notice below name the cause and
                 // decide whether a retry is worth offering, instead of printing
                 // the server’s prose into a banner.
-                throw buildApiError(payload, 'Analysis failed.');
+                throw buildApiError(payload, t('analysis.error.failed'));
             }
         }, { operation: 'analyze', signal: state.analyzeController.signal });
 
@@ -489,19 +541,27 @@ async function analyze() {
 
         if (previousWorkspace) {
             restoreWorkspaceState(previousWorkspace);
-            showError(`${error.message || '分析失败。'}\n\nYour previous successful workspace has been restored.`);
+            // One key for the whole dialog. `error.message` is whatever the
+            // server wrote, or this client's own fallback if the envelope
+            // carried none — it is passed through as `{message}` and never
+            // translated here. The frame around it — that the previous
+            // workspace is back — is the interface's, and this is the sentence
+            // that used to be a hardcoded English half on a Chinese default.
+            showError(t('analysis.workspace_restored', {
+                message: error.message || t('analysis.error.failed')
+            }));
             focusAnalysisWorkspace({ scroll: false });
         } else {
             state.currentSessionId = '';
             resetResultView();
-            showError(error.message || '分析失败。');
+            showError(error.message || t('analysis.error.failed'));
         }
 
         // Routed through the runtime so the kind — retryable or terminal —
         // decides whether a "重试" button appears. The retry re-issues *this*
         // request, with the file still attached, not a generic reload.
         notifyFailure(error, { operation: ANALYZE_OPERATION, onRetry: () => analyze() });
-        updateStatus('Analysis failed', 'error');
+        updateStatus(t('analysis.status.failed'), 'error');
     } finally {
         // Every exit closes the flight, including a cancellation and a failure:
         // the run is over on all three, and a flight left open is a permanent
@@ -529,11 +589,13 @@ async function analyze() {
                 // Also chosen by what happened rather than asserted: a cancelled
                 // run is the reader's own decision, not a run that failed, and
                 // only the genuine non-success gets "没有完成".
-                endProgressClock(cancelled ? '这次分析已被取消。' : '这次分析没有完成。');
+                endProgressClock(cancelled
+                    ? t('analysis.clock.cancelled')
+                    : t('analysis.clock.not_completed'));
             }
             document.getElementById('loading').classList.remove('active');
             hideRunIndicator();
-            setButtonLoading(analyzeBtn, 'Analyzing...', 'Analyze Document', false);
+            setButtonLoading(analyzeBtn, t('analysis.button.busy'), t('upload.analyze'), false);
             setCancelVisible('cancelAnalyzeBtn', false);
             state.analyzeController = null;
             state.pendingAnalysisSnapshot = null;
@@ -561,7 +623,7 @@ function cancelAnalyzeRequest() {
     }
     document.getElementById('loading').classList.remove('active');
     hideRunIndicator();
-    setButtonLoading(document.getElementById('analyzeBtn'), 'Analyzing...', 'Analyze Document', false);
+    setButtonLoading(document.getElementById('analyzeBtn'), t('analysis.button.busy'), t('upload.analyze'), false);
     setCancelVisible('cancelAnalyzeBtn', false);
     state.analyzeController = null;
     // The id is captured *before* the message is written, because the status
@@ -575,9 +637,6 @@ function cancelAnalyzeRequest() {
     // document keeps being analysed at their expense. The id is given so the run
     // is findable, and the wording says what actually happened.
     const abandonedJobId = state.currentAnalysisJobId;
-    const stillRunning = abandonedJobId
-        ? ` The server-side task ${abandonedJobId} was not cancelled and may still be running.`
-        : '';
     if (state.pendingAnalysisSnapshot) {
         restoreWorkspaceState(state.pendingAnalysisSnapshot);
         state.pendingAnalysisSnapshot = null;
@@ -586,12 +645,23 @@ function cancelAnalyzeRequest() {
         // workspace may have been a partial run, and a blanket "Analysis
         // canceled" would leave a status chip that says nothing about what is
         // actually on screen.
+        //
+        // Each of these is a whole sentence rather than a fragment glued onto
+        // another: the second half is a claim about server-side work the reader
+        // cannot see, and gluing it on means the sentence *around* it has to
+        // carry a separator the interface does not know how to punctuate.
         const outcome = describeAnalysisOutcome(state.currentAnalysisResult);
-        updateStatus(`Stopped watching.${stillRunning} ${outcome.text}`, outcome.tone === 'success' ? 'idle' : outcome.tone);
+        updateStatus(t(
+            abandonedJobId ? 'analysis.cancel.stopped_with_job' : 'analysis.cancel.stopped',
+            { job: abandonedJobId, outcome: outcome.text }
+        ), outcome.tone === 'success' ? 'idle' : outcome.tone);
     } else {
         state.currentSessionId = '';
         resetResultView();
-        updateStatus(`Stopped watching.${stillRunning}`, 'idle');
+        updateStatus(t(
+            abandonedJobId ? 'analysis.cancel.stopped_job_only' : 'analysis.cancel.stopped_alone',
+            { job: abandonedJobId }
+        ), 'idle');
     }
     state.currentAnalysisJobId = '';
 }

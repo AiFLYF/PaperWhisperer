@@ -6,10 +6,10 @@ import {
     RECOMMENDATION_CONFIDENCE_LABELS,
     RECOMMENDATION_NO_REASONS,
     RECOMMENDATION_REASONS_HEADING,
-    RECOMMENDATION_SIGNAL_LABELS,
     RECOMMENDATION_UNKNOWN_CONFIDENCE
 } from './config.js';
 import { resetRecommendationSignals } from './recommendationSignals.js';
+import { t } from './i18n.js';
 
 /**
  * Pure rendering for search results, recommendations and their shared card
@@ -23,10 +23,40 @@ import { resetRecommendationSignals } from './recommendationSignals.js';
  * recommendation. `search_papers` rows carry none, so a search card simply
  * does not get the block: `item.reasons` is absent, not empty-but-present, and
  * the heading is withheld rather than shown over an empty list.
+ *
+ * **On language.** Every sentence this module writes is the interface's, so
+ * every one is a catalogue lookup resolved at render time rather than a
+ * Chinese-only constant read out of `config.js`. Two things are deliberately
+ * not translated and are marked where they appear: the server's own `label_zh`
+ * and `reason_zh`, which are the payload's words, and the empty-state
+ * *decisions*, which compare resolved sentences rather than English prose.
  */
 
+/**
+ * A catalogue value when this build has one, and the `config.js` constant when
+ * it does not.
+ *
+ * The same floor `evidenceViewer.js` uses, for the same reason: these labels
+ * were Chinese-only constants before the catalogue carried them, so a key that
+ * disappeared should degrade to the sentence the card was written with rather
+ * than to a dotted key sitting beside a citation.
+ */
+function localised(key, floor) {
+    const value = t(key);
+    return value === key ? floor : value;
+}
+
+const SIGNAL_LABEL_KEY_PREFIX = 'recommend.signal.';
+
 function labelForSignal(signal, labelZh) {
-    return String(labelZh || RECOMMENDATION_SIGNAL_LABELS[String(signal || '')] || signal || '信号');
+    const raw = String(signal || '');
+    // The catalogue is consulted *before* `label_zh`, and not after it. The
+    // server's field is Chinese by construction, so a signal this build can
+    // name would stay Chinese on an English page for as long as the server's
+    // copy was preferred; `label_zh` is what an unrecognised signal degrades
+    // to, exactly as the reason code does in the evidence panel.
+    const named = raw ? localised(`${SIGNAL_LABEL_KEY_PREFIX}${raw}`, '') : '';
+    return String(named || labelZh || raw || t('recommend.signal.fallback'));
 }
 
 /**
@@ -66,7 +96,13 @@ function buildReasonItem(reason) {
     const confidence = String(reason?.confidence || '');
     if (confidence) {
         item.dataset.confidence = confidence;
-        bits.push(RECOMMENDATION_CONFIDENCE_LABELS[confidence] || RECOMMENDATION_UNKNOWN_CONFIDENCE);
+        // The qualifier that decides how far the evidence goes is interface
+        // copy, so it is looked up by its code rather than read out of the
+        // Chinese-only table in `config.js`.
+        bits.push(localised(
+            `recommend.confidence.${confidence}`,
+            RECOMMENDATION_CONFIDENCE_LABELS[confidence] || RECOMMENDATION_UNKNOWN_CONFIDENCE
+        ));
     }
     meta.textContent = bits.join(' · ');
     if (bits.length) {
@@ -94,7 +130,7 @@ function buildRecommendationReasons(reasons) {
 
     const heading = document.createElement('p');
     heading.className = 'paper-reasons-heading';
-    heading.textContent = RECOMMENDATION_REASONS_HEADING;
+    heading.textContent = localised('recommend.reasons_heading', RECOMMENDATION_REASONS_HEADING);
     block.appendChild(heading);
 
     const list = document.createElement('ul');
@@ -126,20 +162,22 @@ function buildPossibleDuplicateNote(pairs) {
 
     const badge = document.createElement('span');
     badge.className = 'paper-duplicate-badge';
-    badge.textContent = POSSIBLE_DUPLICATE_BADGE;
+    badge.textContent = localised('recommend.duplicate.badge', POSSIBLE_DUPLICATE_BADGE);
     note.appendChild(badge);
 
     const detail = document.createElement('span');
     detail.className = 'paper-duplicate-text';
     // Names the other title, so the badge on one card points at the row it is
     // being confused with rather than raising a question the reader cannot
-    // resolve from where they are looking.
+    // resolve from where they are looking. The titles are the payload's words
+    // and are interpolated, never translated; only the sentence around them is
+    // the interface's.
     const otherTitles = entries
         .map(pair => String(pair?.title || '').trim())
         .filter(Boolean);
     detail.textContent = otherTitles.length
-        ? `可能与《${otherTitles.join('》《')}》是同一篇论文的不同记录，未合并。`
-        : '可能与列表中的另一条是同一篇论文的不同记录，未合并。';
+        ? t('papers.duplicate.named', { titles: otherTitles.join(t('papers.duplicate.join')) })
+        : t('papers.duplicate.unnamed');
     note.appendChild(detail);
     return note;
 }
@@ -148,41 +186,66 @@ function buildPaperActionKey(item) {
     return String(item.paper_id || item.pdf_url || item.url || item.title || '').trim();
 }
 
-function getPaperStateDetails(elementId, emptyText) {
-    const text = emptyText || 'No papers found.';
-    const loading = /searching|generating/i.test(text);
+/**
+ * The keys whose resolved sentence means "work is happening", and the key whose
+ * sentence means "the search ran and matched nothing".
+ *
+ * Named rather than matched, because the reason they are here at all is that
+ * the *decision* cannot depend on the language: the old code sniffed the
+ * English prose (`/searching|generating/i`, `includes('No matching')`) to
+ * decide which empty state to draw. Once these are catalogue lookups the
+ * sentence a Chinese reader sees would fail that sniff and a running search
+ * would be drawn as an empty result — the same false reading the states exist
+ * to prevent, arrived at by translating the copy. Branching on the key keeps
+ * exactly the behaviour the prose gave, in both languages.
+ */
+const LOADING_STATE_KEYS = ['papers.state.search.loading.title', 'papers.state.recommend.loading.title'];
+const NO_MATCH_KEY = 'papers.state.search.none.title';
+
+function getPaperStateDetails(elementId, emptyKey) {
+    const title = t(emptyKey || 'papers.state.none.title');
+    const loading = LOADING_STATE_KEYS.includes(emptyKey);
     if (loading) {
         return {
             tone: 'loading',
-            title: text,
+            title,
             body: elementId === 'paperRecommendations'
-                ? 'Building topics from the current paper and checking external sources.'
-                : 'Checking Semantic Scholar and arXiv for relevant papers.'
+                ? t('papers.state.recommend.loading.body')
+                : t('papers.state.search.loading.body')
         };
     }
     if (elementId === 'paperRecommendations') {
         return {
             tone: 'empty',
-            title: text,
-            body: 'Try analyzing a richer paper, then run recommendations again, or search manually by method, task, or dataset.'
+            title,
+            body: t('papers.state.recommend.empty.body')
         };
     }
     return {
         tone: 'empty',
-        title: text,
-        body: text.includes('No matching')
-            ? 'Try broader keywords, include a dataset or method name, or search by the problem statement instead.'
-            : 'Enter a topic, method, task, or dataset above to start building your reading trail.'
+        title,
+        body: emptyKey === NO_MATCH_KEY
+            ? t('papers.state.search.narrow.body')
+            : t('papers.state.search.empty.body')
     };
 }
 
-function renderPaperList(elementId, items, emptyText, meta) {
+/**
+ * Draw one panel: either its empty state, or a card per row.
+ *
+ * `emptyKey` is a catalogue key rather than a sentence, because
+ * {@link getPaperStateDetails} decides which empty state to draw from it — see
+ * that function for why the decision cannot read prose. `meta` carries the line
+ * above the panel, whose own text the callers compose (and, for a search, from
+ * the server's rewrite fields, which stay the payload's words).
+ */
+function renderPaperList(elementId, items, emptyKey, meta) {
     const container = document.getElementById(elementId);
     if (!container) return;
     const normalizedItems = Array.isArray(items) ? items : [];
     const allowImport = elementId === 'paperSearchResults';
     if (!normalizedItems.length) {
-        const state = getPaperStateDetails(elementId, emptyText);
+        const state = getPaperStateDetails(elementId, emptyKey);
         const stateElement = document.createElement('div');
         stateElement.className = `paper-state ${state.tone === 'loading' ? 'loading-state' : ''}`.trim();
         const icon = document.createElement('span');
@@ -211,7 +274,7 @@ function renderPaperList(elementId, items, emptyText, meta) {
             titleLink.target = '_blank';
             titleLink.rel = 'noopener noreferrer';
             titleLink.referrerPolicy = 'strict-origin-when-cross-origin';
-            titleLink.textContent = item.title || 'Untitled paper';
+            titleLink.textContent = item.title || t('papers.card.untitled');
             titleWrap.appendChild(titleLink);
 
             const tags = document.createElement('div');
@@ -225,11 +288,15 @@ function renderPaperList(elementId, items, emptyText, meta) {
 
             const authors = document.createElement('div');
             authors.className = 'paper-authors';
-            authors.textContent = Array.isArray(item.authors) && item.authors.length ? item.authors.join(', ') : 'Unknown authors';
+            authors.textContent = Array.isArray(item.authors) && item.authors.length
+                ? item.authors.join(', ')
+                : t('papers.card.unknown_authors');
 
             const abstract = document.createElement('div');
             abstract.className = 'paper-abstract';
-            abstract.textContent = item.abstract || 'No abstract available.';
+            // `abstract` is the paper own text and is shown verbatim; only the
+            // placeholder for a paper that has none is the interface.
+            abstract.textContent = item.abstract || t('papers.card.no_abstract');
 
             article.append(titleWrap, tags, authors, abstract);
 
@@ -247,7 +314,7 @@ function renderPaperList(elementId, items, emptyText, meta) {
                 const reason = document.createElement('div');
                 reason.className = 'paper-reason';
                 const label = document.createElement('strong');
-                label.textContent = 'Why:';
+                label.textContent = t('papers.card.why');
                 reason.append(label, ` ${item.reason}`);
                 article.appendChild(reason);
             }
@@ -258,13 +325,17 @@ function renderPaperList(elementId, items, emptyText, meta) {
 
             const links = document.createElement('div');
             links.className = 'paper-links';
+            // Keyed rather than spelled: the same four labels appear on every
+            // card, and `PDF` is the one that is not a word in either language —
+            // it stays a catalogue value so the Chinese copy can say 文件.
             [
-                ['Open', item.url, 'link'],
-                ['PDF', item.pdf_url, 'link'],
-                ['Download', item.pdf_url || item.url, 'download'],
-                ['Save', true, 'save']
-            ].forEach(([label, value, action]) => {
+                ['papers.card.open', item.url, 'link'],
+                ['papers.card.pdf', item.pdf_url, 'link'],
+                ['papers.card.download', item.pdf_url || item.url, 'download'],
+                ['papers.card.save', true, 'save']
+            ].forEach(([labelKey, value, action]) => {
                 if (!value) return;
+                const label = t(labelKey);
                 if (action === 'link') {
                     const link = document.createElement('a');
                     link.className = 'paper-link';
@@ -297,7 +368,7 @@ function renderPaperList(elementId, items, emptyText, meta) {
                 addButton.dataset.paperIndex = String(index);
                 addButton.setAttribute('aria-disabled', String(addButtonDisabled));
                 addButton.disabled = addButtonDisabled;
-                addButton.textContent = addButtonDisabled ? 'Adding...' : 'Add';
+                addButton.textContent = addButtonDisabled ? t('papers.card.adding') : t('papers.card.add');
                 links.appendChild(addButton);
             }
 
@@ -325,8 +396,11 @@ function renderPaperList(elementId, items, emptyText, meta) {
 function resetPaperPanels() {
     state.currentPaperSearchResults = [];
     state.currentPaperRecommendations = [];
-    state.currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with a single query.';
-    state.currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
+    // The same two sentences the static markup resolves to, reached by the same
+    // keys — they were duplicated here as literals, so a language switch
+    // repainted the static line and left the reset one behind.
+    state.currentPaperSearchMetaText = t('search.meta');
+    state.currentPaperRecommendationMetaText = t('result.recommend_meta');
     // A new analysis invalidates the previous run signal status: those
     // `unavailable` rows and duplicate pairs described a *different* paper, and
     // leaving them above a fresh result would attribute one paper coverage to
@@ -334,8 +408,8 @@ function resetPaperPanels() {
     state.currentRecommendationSignals = [];
     state.currentRecommendationDuplicates = [];
     resetRecommendationSignals();
-    renderPaperList('paperSearchResults', [], 'Search results will appear here.', { elementId: 'paperSearchMeta', text: state.currentPaperSearchMetaText });
-    renderPaperList('paperRecommendations', [], 'Recommendations will appear here after analysis.', { elementId: 'paperRecommendationMeta', text: state.currentPaperRecommendationMetaText });
+    renderPaperList('paperSearchResults', [], 'papers.state.search.idle.title', { elementId: 'paperSearchMeta', text: state.currentPaperSearchMetaText });
+    renderPaperList('paperRecommendations', [], 'papers.state.recommend.idle.title', { elementId: 'paperRecommendationMeta', text: state.currentPaperRecommendationMetaText });
     setRecommendEnabled(Boolean(state.currentAnalysisResult && state.currentSessionId));
 }
 

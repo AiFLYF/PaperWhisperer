@@ -8,15 +8,26 @@ import { addPaperToQueueByIndex } from './queue.js';
 import { applyAnalysisResult, captureWorkspaceState, describeAnalysisOutcome, hideRunIndicator, resetResultView, restoreWorkspaceState, showRunIndicator } from './sections.js';
 import { renderExportPreview } from './export.js';
 import { RECOMMENDATIONS_API_PATH } from './config.js';
+import { t } from './i18n.js';
 
-/** Paper search, recommendations and importing a remote paper for analysis. */
+/**
+ * Paper search, recommendations and importing a remote paper for analysis.
+ *
+ * **On language.** Every sentence this module puts in front of a reader is a
+ * catalogue key resolved at the moment it is shown, which is why the empty
+ * states it asks `renderPaperList` for are keys rather than sentences (see
+ * `getPaperStateDetails`) and why the meta line below a panel is composed from
+ * keys around the server's own fields. The server's rewrite fields — the
+ * original query, the rewritten one, the topics, the reason — are the
+ * payload's words and are interpolated, never translated.
+ */
 
 function useExampleQuery(query) {
     const input = document.getElementById('paperSearchInput');
     if (!input || !query) return;
     input.value = query;
     input.focus({ preventScroll: true });
-    updateStatus('Example query loaded', 'idle');
+    updateStatus(t('papers.status.example_loaded'), 'idle');
     searchPapers();
 }
 
@@ -28,10 +39,10 @@ async function searchPapers() {
 
     if (!query) {
         queryInput.focus();
-        updateStatus('Search query needed', 'idle');
-        renderPaperList('paperSearchResults', [], 'Enter a topic, method, task, or dataset to search papers.', {
+        updateStatus(t('papers.status.query_needed'), 'idle');
+        renderPaperList('paperSearchResults', [], 'papers.state.search.prompt.title', {
             elementId: 'paperSearchMeta',
-            text: 'Search needs a topic, method, task, dataset, or problem statement.'
+            text: t('papers.state.search.prompt.body')
         });
         return;
     }
@@ -43,13 +54,13 @@ async function searchPapers() {
     state.paperSearchRequestId += 1;
     const requestId = state.paperSearchRequestId;
 
-    setButtonLoading(searchBtn, 'Searching...', 'Search Papers', true);
+    setButtonLoading(searchBtn, t('papers.search.running'), t('search.submit'), true);
     setCancelVisible('cancelPaperSearchBtn', true);
     hideError();
     // Captured before the request, restored on failure. See `analyze.js` for
     // why the capture cannot live in the `catch`.
     const preserved = capturePreservedFields();
-    renderPaperList('paperSearchResults', [], 'Searching papers...', { elementId: 'paperSearchMeta', text: `Searching for: ${query}` });
+    renderPaperList('paperSearchResults', [], 'papers.state.search.loading.title', { elementId: 'paperSearchMeta', text: t('papers.search.for', { query }) });
 
     try {
         const data = await apiRequest('/api/search-papers', {
@@ -68,16 +79,23 @@ async function searchPapers() {
         }
 
         state.currentPaperSearchResults = Array.isArray(data.items) ? data.items : [];
+        // The fields in this line are the server's — the original query it ran,
+        // the one it rewrote that into, the topics, the reason it gives. They
+        // are shown verbatim; only the labels around them are the interface's.
         const rewriteBits = [];
-        if (data.original_query) rewriteBits.push(`Original: ${data.original_query}`);
-        if (data.rewritten_query) rewriteBits.push(`Rewritten: ${data.rewritten_query}`);
-        if (Array.isArray(data.topics) && data.topics.length) rewriteBits.push(`Topics: ${data.topics.join(', ')}`);
-        if (data.reason) rewriteBits.push(`Why: ${data.reason}`);
-        if (data.rewrite_model) rewriteBits.push(`Model: ${data.rewrite_model}`);
-        if (data.errors && data.errors.length) rewriteBits.push(`Partial results: ${data.errors.join(' | ')}`);
-        rewriteBits.push(`${state.currentPaperSearchResults.length} paper(s)`);
+        if (data.original_query) rewriteBits.push(t('papers.meta.original', { value: data.original_query }));
+        if (data.rewritten_query) rewriteBits.push(t('papers.meta.rewritten', { value: data.rewritten_query }));
+        if (Array.isArray(data.topics) && data.topics.length) {
+            rewriteBits.push(t('papers.meta.topics', { value: data.topics.join(', ') }));
+        }
+        if (data.reason) rewriteBits.push(t('papers.meta.why', { value: data.reason }));
+        if (data.rewrite_model) rewriteBits.push(t('papers.meta.model', { value: data.rewrite_model }));
+        if (data.errors && data.errors.length) {
+            rewriteBits.push(t('papers.meta.partial', { value: data.errors.join(' | ') }));
+        }
+        rewriteBits.push(t('papers.meta.count', { count: String(state.currentPaperSearchResults.length) }));
         state.currentPaperSearchMetaText = rewriteBits.join(' · ');
-        renderPaperList('paperSearchResults', state.currentPaperSearchResults, 'No matching papers found.', {
+        renderPaperList('paperSearchResults', state.currentPaperSearchResults, 'papers.state.search.none.title', {
             elementId: 'paperSearchMeta',
             text: state.currentPaperSearchMetaText
         });
@@ -93,8 +111,8 @@ async function searchPapers() {
             return;
         }
         state.currentPaperSearchResults = [];
-        state.currentPaperSearchMetaText = 'Search across Semantic Scholar and arXiv with a single query.';
-        renderPaperList('paperSearchResults', [], 'Search results will appear here.', { elementId: 'paperSearchMeta', text: state.currentPaperSearchMetaText });
+        state.currentPaperSearchMetaText = t('search.meta');
+        renderPaperList('paperSearchResults', [], 'papers.state.search.idle.title', { elementId: 'paperSearchMeta', text: state.currentPaperSearchMetaText });
         // The query stays in the input: it was captured before the request and
         // is restored here, so a failed search can be retried by pressing
         // 重试 rather than by retyping a query that may be a full sentence.
@@ -102,7 +120,7 @@ async function searchPapers() {
         notifyFailure(error, { onRetry: () => searchPapers() });
     } finally {
         if (requestId === state.paperSearchRequestId) {
-            setButtonLoading(searchBtn, 'Searching...', 'Search Papers', false);
+            setButtonLoading(searchBtn, t('papers.search.running'), t('search.submit'), false);
             setCancelVisible('cancelPaperSearchBtn', false);
             state.paperSearchController = null;
         }
@@ -185,42 +203,54 @@ function buildRecommendationSeed() {
 function buildRecommendationMetaText(data, itemCount) {
     const bits = [];
     if (data?.seed?.title) {
-        bits.push(`Seed: ${data.seed.title}`);
+        bits.push(t('papers.meta.seed', { value: data.seed.title }));
     } else if (data?.original_query) {
-        bits.push(`Original: ${data.original_query}`);
+        bits.push(t('papers.meta.original', { value: data.original_query }));
     }
     if (data?.query) {
-        bits.push(`Rewritten: ${data.query}`);
+        bits.push(t('papers.meta.rewritten', { value: data.query }));
     }
     if (Array.isArray(data?.topics) && data.topics.length) {
-        bits.push(`Topics: ${data.topics.join(', ')}`);
+        bits.push(t('papers.meta.topics', { value: data.topics.join(', ') }));
     }
     if (data?.reason) {
-        bits.push(`Why: ${data.reason}`);
+        bits.push(t('papers.meta.why', { value: data.reason }));
     }
     if (data?.rewrite_model) {
-        bits.push(`Model: ${data.rewrite_model}`);
+        bits.push(t('papers.meta.model', { value: data.rewrite_model }));
     }
     const unavailable = Array.isArray(data?.unavailable_signals) ? data.unavailable_signals : [];
     if (unavailable.length) {
         // Named, not counted. "3 signals unavailable" is a number the reader
         // cannot act on; "被引、相关：未能获取" tells them which answers are
         // missing and therefore which conclusions are not yet supported.
+        //
+        // The signal *name* is looked up by its code where this build knows it,
+        // so an English reader is not handed the server's Chinese `label_zh`
+        // for a signal the catalogue can already name; the server's field is
+        // still what an unrecognised signal degrades to.
         const named = unavailable
-            .map(entry => `${entry?.label_zh || entry?.signal || '信号'}（未能获取）`)
-            .join('、');
-        bits.push(`未能获取的信号: ${named}`);
+            .map(entry => {
+                const signal = String(entry?.signal || '');
+                const labelled = signal ? t(`recommend.signal.${signal}`) : '';
+                const label = labelled.startsWith('recommend.signal.')
+                    ? (entry?.label_zh || signal || t('recommend.signal.fallback'))
+                    : labelled;
+                return t('papers.meta.unavailable_signal', { label });
+            })
+            .join(t('papers.meta.enumeration_join'));
+        bits.push(t('papers.meta.unavailable_signals', { signals: named }));
     }
     if (Array.isArray(data?.errors) && data.errors.length) {
-        bits.push(`Partial results: ${data.errors.join(' | ')}`);
+        bits.push(t('papers.meta.partial', { value: data.errors.join(' | ') }));
     }
-    bits.push(`${itemCount} paper(s)`);
+    bits.push(t('papers.meta.count', { count: String(itemCount) }));
     return bits.join(' · ');
 }
 
 async function recommendPapers() {
     if (!state.currentSessionId) {
-        showError('Requires document analysis first.');
+        showError(t('papers.recommend.requires_analysis'));
         return;
     }
 
@@ -240,8 +270,8 @@ async function recommendPapers() {
     // indefinitely, and the next cancel is wired to abort nothing.
     const seed = buildRecommendationSeed();
     if (!seed.title && !seed.doi && !seed.arxiv_id && !seed.s2_paper_id && !seed.openalex_id) {
-        showError('No paper identity is available for this document, so there is nothing to recommend from. Search for or import a paper first.');
-        updateStatus('Recommendation needs a paper identity', 'error');
+        showError(t('papers.recommend.no_paper_identity'));
+        updateStatus(t('papers.recommend.needs_identity'), 'error');
         return;
     }
 
@@ -252,7 +282,7 @@ async function recommendPapers() {
     state.recommendRequestId += 1;
     const requestId = state.recommendRequestId;
 
-    setButtonLoading(recommendBtn, 'Recommending...', 'Recommend from current paper', true);
+    setButtonLoading(recommendBtn, t('papers.recommend.running'), t('result.recommend_submit'), true);
     setCancelVisible('cancelRecommendBtn', true);
     hideError();
     // The previous run signal status describes papers that are about to be
@@ -261,7 +291,7 @@ async function recommendPapers() {
     state.currentRecommendationSignals = [];
     state.currentRecommendationDuplicates = [];
     resetRecommendationSignals();
-    renderPaperList('paperRecommendations', [], 'Generating recommendations...', { elementId: 'paperRecommendationMeta', text: 'Generating search topics from the current paper...' });
+    renderPaperList('paperRecommendations', [], 'papers.state.recommend.loading.title', { elementId: 'paperRecommendationMeta', text: t('papers.recommend.building_topics') });
 
     try {
         const data = await apiRequest(RECOMMENDATIONS_API_PATH, {
@@ -296,7 +326,7 @@ async function recommendPapers() {
         renderRecommendationSignals(state.currentRecommendationSignals, state.currentRecommendationDuplicates);
 
         state.currentPaperRecommendationMetaText = buildRecommendationMetaText(data, state.currentPaperRecommendations.length);
-        renderPaperList('paperRecommendations', state.currentPaperRecommendations, 'No recommendations found.', {
+        renderPaperList('paperRecommendations', state.currentPaperRecommendations, 'papers.state.recommend.none.title', {
             elementId: 'paperRecommendationMeta',
             text: state.currentPaperRecommendationMetaText
         });
@@ -319,12 +349,12 @@ async function recommendPapers() {
         resetRecommendationSignals();
         state.currentRecommendationSignals = [];
         state.currentRecommendationDuplicates = [];
-        state.currentPaperRecommendationMetaText = 'Analyze a paper first, then generate follow-up reading suggestions from the current session.';
-        renderPaperList('paperRecommendations', [], 'Recommendations will appear here after analysis.', { elementId: 'paperRecommendationMeta', text: state.currentPaperRecommendationMetaText });
+        state.currentPaperRecommendationMetaText = t('result.recommend_meta');
+        renderPaperList('paperRecommendations', [], 'papers.state.recommend.idle.title', { elementId: 'paperRecommendationMeta', text: state.currentPaperRecommendationMetaText });
         notifyFailure(error, { onRetry: () => recommendPapers() });
     } finally {
         if (requestId === state.recommendRequestId) {
-            setButtonLoading(recommendBtn, 'Recommending...', 'Recommend from current paper', false);
+            setButtonLoading(recommendBtn, t('papers.recommend.running'), t('result.recommend_submit'), false);
             setRecommendEnabled(Boolean(state.currentSessionId));
             setCancelVisible('cancelRecommendBtn', false);
             state.recommendController = null;
@@ -336,21 +366,21 @@ function cancelPaperSearchRequest() {
     if (!state.paperSearchController) return;
     state.paperSearchController.abort();
     state.paperSearchRequestId += 1;
-    setButtonLoading(document.getElementById('paperSearchBtn'), 'Searching...', 'Search Papers', false);
+    setButtonLoading(document.getElementById('paperSearchBtn'), t('papers.search.running'), t('search.submit'), false);
     setCancelVisible('cancelPaperSearchBtn', false);
     state.paperSearchController = null;
-    renderPaperList('paperSearchResults', state.currentPaperSearchResults, state.currentPaperSearchResults.length ? '' : 'Search results will appear here.', {
+    renderPaperList('paperSearchResults', state.currentPaperSearchResults, state.currentPaperSearchResults.length ? '' : 'papers.state.search.idle.title', {
         elementId: 'paperSearchMeta',
         text: state.currentPaperSearchMetaText
     });
-    updateStatus('Paper search canceled', 'idle');
+    updateStatus(t('papers.status.search_cancelled'), 'idle');
 }
 
 function cancelRecommendRequest() {
     if (!state.recommendController) return;
     state.recommendController.abort();
     state.recommendRequestId += 1;
-    setButtonLoading(document.getElementById('recommendBtn'), 'Recommending...', 'Recommend from current paper', false);
+    setButtonLoading(document.getElementById('recommendBtn'), t('papers.recommend.running'), t('result.recommend_submit'), false);
     setRecommendEnabled(Boolean(state.currentSessionId));
     setCancelVisible('cancelRecommendBtn', false);
     state.recommendController = null;
@@ -358,11 +388,11 @@ function cancelRecommendRequest() {
     // are the previous run and must keep the previous run signal status —
     // re-rendered from the same stored values, so the two cannot disagree.
     renderRecommendationSignals(state.currentRecommendationSignals, state.currentRecommendationDuplicates);
-    renderPaperList('paperRecommendations', state.currentPaperRecommendations, state.currentPaperRecommendations.length ? '' : 'Recommendations will appear here after analysis.', {
+    renderPaperList('paperRecommendations', state.currentPaperRecommendations, state.currentPaperRecommendations.length ? '' : 'papers.state.recommend.idle.title', {
         elementId: 'paperRecommendationMeta',
         text: state.currentPaperRecommendationMetaText
     });
-    updateStatus('Recommendations canceled', 'idle');
+    updateStatus(t('papers.status.recommend_cancelled'), 'idle');
 }
 
 function handlePaperSearchKeyPress(event) {
@@ -374,7 +404,7 @@ function handlePaperSearchKeyPress(event) {
 
 function downloadPaper(item) {
     if (!item || (!item.pdf_url && !item.url)) {
-        showError('No downloadable paper file is available for this result.');
+        showError(t('papers.download.unavailable'));
         return;
     }
     const params = new URLSearchParams();
@@ -389,7 +419,7 @@ function downloadPaperByIndex(elementId, index) {
     const items = getPaperListByElementId(elementId);
     const item = items[index];
     if (!item) {
-        showError('Paper result not found. Please search again.');
+        showError(t('papers.result.missing'));
         return;
     }
     downloadPaper(item);
@@ -432,11 +462,11 @@ async function addPaperToAnalysis(item) {
     // does all three, and there is no reason the two runs of the same analysis
     // should report themselves differently.
     beginProgressClock();
-    updateAnalysisProgress('upload', 'Downloading the paper from the source, then reading its text...');
-    updateStatus('Importing paper from search results...', 'idle');
-    renderPaperList('paperSearchResults', state.currentPaperSearchResults, 'Search results will appear here.', {
+    updateAnalysisProgress('upload', t('papers.import.progress'));
+    updateStatus(t('papers.import.status'), 'idle');
+    renderPaperList('paperSearchResults', state.currentPaperSearchResults, 'papers.state.search.idle.title', {
         elementId: 'paperSearchMeta',
-        text: 'Importing selected paper into PaperWhisperer...'
+        text: t('papers.import.meta')
     });
 
     try {
@@ -462,8 +492,8 @@ async function addPaperToAnalysis(item) {
             signal: state.importPaperController.signal
         });
 
-        state.currentPaperSearchMetaText = 'Imported selected paper into PaperWhisperer.';
-        await applyAnalysisResult(data, data.source_filename || item.title || 'Imported paper', generateEvaluation, generateMermaid, generateResearchBrief);
+        state.currentPaperSearchMetaText = t('papers.import.meta_done');
+        await applyAnalysisResult(data, data.source_filename || item.title || t('papers.import.source_fallback'), generateEvaluation, generateMermaid, generateResearchBrief);
         // The imported search result is the one record the front end ever holds
         // that carries the identifier set the citation-graph signals need, so it
         // becomes the recommendation seed. Set after `applyAnalysisResult`,
@@ -475,10 +505,14 @@ async function addPaperToAnalysis(item) {
         // an uploaded one can, and "ready" is only true when none of them failed.
         const outcome = describeAnalysisOutcome(data);
         updateAnalysisProgress('ready', outcome.tone === 'success'
-            ? 'Workspace ready. You can ask questions or export the session.'
-            : `Workspace ready, but the analysis is incomplete. ${outcome.text}`);
-        endProgressClock(outcome.tone === 'success' ? '分析完成。' : '分析完成，但有部分未生成。');
-        updateStatus(outcome.tone === 'success' ? 'Imported paper ready for follow-up questions' : outcome.text, outcome.tone);
+            ? t('analysis.workspace_ready')
+            : t('analysis.workspace_incomplete', { text: outcome.text }));
+        endProgressClock(outcome.tone === 'success'
+            ? t('analysis.clock.complete')
+            : t('analysis.clock.incomplete'));
+        updateStatus(outcome.tone === 'success'
+            ? t('papers.import.ready')
+            : outcome.text, outcome.tone);
     } catch (error) {
         if (error.name === 'AbortError' || error.code === 'client_cancelled') {
             return;
@@ -486,9 +520,18 @@ async function addPaperToAnalysis(item) {
         // The reader’s previous work goes back, exactly as it does for a failed
         // upload. Before this, an import failure was the one way to lose a whole
         // workspace with no undo.
+        //
+        // One catalogue key for the whole dialog, not a translated sentence
+        // followed by a hardcoded English one: the server's message arrives in
+        // the server's language and is passed through as `{message}`, while the
+        // frame around it — that the previous workspace is back — says what the
+        // *interface* did and therefore follows the reader's switch. Two
+        // languages in one dialog is the defect this key exists to close.
         if (previousWorkspace) {
             restoreWorkspaceState(previousWorkspace);
-            showError(`${error.message || '导入失败。'}\n\nYour previous successful workspace has been restored.`);
+            showError(t('analysis.workspace_restored', {
+                message: error.message || t('papers.import.failed_fallback')
+            }));
             focusAnalysisWorkspace({ scroll: false });
         } else {
             state.currentSessionId = '';
@@ -499,13 +542,13 @@ async function addPaperToAnalysis(item) {
         // one that fails for a second, unrelated reason.
         restorePreservedFields(preserved);
         notifyFailure(error, { onRetry: () => addPaperToAnalysis(item) });
-        updateStatus('Paper import failed', 'error');
+        updateStatus(t('papers.import.failed'), 'error');
     } finally {
         state.currentImportPaperKey = '';
-        endProgressClock('这次导入没有完成。');
+        endProgressClock(t('papers.import.clock_incomplete'));
         document.getElementById('loading').classList.remove('active');
         hideRunIndicator();
-        renderPaperList('paperSearchResults', state.currentPaperSearchResults, 'Search results will appear here.', {
+        renderPaperList('paperSearchResults', state.currentPaperSearchResults, 'papers.state.search.idle.title', {
             elementId: 'paperSearchMeta',
             text: state.currentPaperSearchMetaText
         });
@@ -524,7 +567,7 @@ function addPaperToAnalysisByIndex(elementId, index) {
     const items = getPaperListByElementId(elementId);
     const item = items[index];
     if (!item) {
-        showError('Paper result not found. Please search again.');
+        showError(t('papers.result.missing'));
         return;
     }
     addPaperToAnalysis(item);

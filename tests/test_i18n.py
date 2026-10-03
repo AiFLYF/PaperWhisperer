@@ -59,6 +59,14 @@ INDEX_HTML = TEMPLATE.read_text(encoding="utf-8")
 #: numbers stayed Chinese is the partially translated interface, and a reader
 #: has no way to tell which half of the panel to trust. Every remaining module
 #: is still unmigrated and is deliberately not listed.
+#:
+#: `analyze.js`, `papers.js`, `runtime.js` and `paperList.js` joined when the
+#: four modules that carry a run's status, the failure surface and the paper
+#: cards were migrated. They are the ones that made the mixed-language defect
+#: unavoidable rather than merely likely: `analyze.js` opened a dialog that was
+#: Chinese about the server's error and hardcoded English about the workspace
+#: coming back, and `runtime.js` put a hardcoded '关闭' on the one control the
+#: reader presses to make a failure go away.
 MIGRATED_MODULES = (
     "i18n.js",
     "a11y.js",
@@ -70,6 +78,10 @@ MIGRATED_MODULES = (
     "evidence.js",
     "parseStatus.js",
     "evidenceViewer.js",
+    "runtime.js",
+    "analyze.js",
+    "papers.js",
+    "paperList.js",
 )
 
 #: The catalogue keys `evidenceViewer.js` builds at run time, and therefore the
@@ -2028,6 +2040,438 @@ def test_the_migrated_modules_actually_use_the_catalogue():
         source = (JS_DIR / name).read_text(encoding="utf-8")
         assert "from './i18n.js'" in source, f"{name} does not import the catalogue"
         assert re.search(r"\bt\(", source), f"{name} imports the catalogue but never calls t()"
+
+
+# --------------------------------------------------------------------------
+# The four modules migrated this round, and the dialog they broke
+# --------------------------------------------------------------------------
+
+
+#: The modules migrated together, and the reason they were migrated together.
+#:
+#: They are one group because they are the modules a reader is looking at when
+#: something has gone wrong: the run that failed, the failure notice beside it,
+#: the workspace that came back, and the paper list that may have sent the run.
+#: A hardcoded string in any one of them is a sentence in the wrong language
+#: *next to* a correct one, which is the mixed-language case, and the workspace
+#: dialog was the worst of it — Chinese about the server's error, then a
+#: hardcoded English sentence about the work that came back.
+MIGRATED_TOGETHER = ("analyze.js", "papers.js", "runtime.js", "paperList.js")
+
+
+def test_the_hardcoded_half_of_the_workspace_dialog_is_gone():
+    """The specific sentence the mixed-language dialog was made of.
+
+    Before the migration, `analyze.js` (twice) and `papers.js` (once) built that
+    dialog by concatenating a server error onto a hardcoded English
+    "Your previous successful workspace has been restored." The default locale
+    is Chinese, so a reader in the default language was shown one Chinese
+    sentence and one English one in the same alert, and a reader who switched to
+    English was shown the English half twice and the Chinese half once.
+
+    A structural grep is the honest pin here. Reconstructing the dialog in a
+    harness would test the harness: it would have to reimplement the same
+    concatenation to pass before the fix and to fail after it, so it can only
+    detect the defect it was written from. What is asserted is that the literal
+    is gone *everywhere* — not merely from the three call sites, because a
+    fourth one that stringifies it back together is exactly the regression this
+    is here to catch.
+    """
+    offenders = [
+        path.name
+        for path in sorted(JS_DIR.glob("*.js"))
+        if "Your previous successful workspace has been restored." in strip_js_comments(
+            path.read_text(encoding="utf-8")
+        )
+        and path.name != "i18n.js"
+    ]
+    assert not offenders, (
+        "the hardcoded half of the workspace-restore dialog is back in: "
+        f"{offenders}. The whole dialog is one catalogue key now."
+    )
+
+    # And the whole dialog is that one key — three call sites, all resolved.
+    key = "analysis.workspace_restored"
+    zh = catalogue_table("ZH_CN")
+    en = catalogue_table("EN")
+    assert key in zh and key in en, (
+        "the workspace-restore dialog must exist in both languages; the whole "
+        "sentence is the interface's, and a half-translated alert is worse "
+        "than either language"
+    )
+    assert "{message}" in zh[key] and "{message}" in en[key], (
+        "the dialog must take the server's own message as a placeholder, so "
+        "the client passes the server's words through instead of rewriting them"
+    )
+    # Four sites in total: the interrupted-stream report and the recovered-job
+    # report in `analyze.js`, the failed-run catch in `analyze.js`, and the
+    # failed import in `papers.js`. Two of the three live in one file, which is
+    # why this is a count rather than a presence check — a presence check
+    # cannot tell "all four are keyed" from "one was rebuilt by hand".
+    for name, expected in (("analyze.js", 3), ("papers.js", 1)):
+        source = strip_js_comments((JS_DIR / name).read_text(encoding="utf-8"))
+        found = source.count(f"t('{key}'")
+        assert found == expected, (
+            f"{name} resolves the workspace-restore dialog {found} times, "
+            f"expected {expected} — a call site lost its key, or a new one "
+            "built the dialog some other way"
+        )
+
+
+#: The server's own sentence, in the server's own language. The client is
+#: required to carry it through untouched, so the fixture is Chinese and the
+#: default locale is Chinese — which is precisely the configuration in which a
+#: client that *did* translate would look correct.
+SERVER_MESSAGE = "服务端在分析这份文档时出错。"
+
+
+def test_the_workspace_dialog_is_one_sentence_in_the_readers_language(i18n_module):
+    """Run, not grepped: the composed dialog reads entirely in one language.
+
+    The grep above proves the literal is gone; this proves the *result* is
+    whole. A key that resolves to a Chinese sentence while the reader has
+    chosen English satisfies every structural assertion in this file and is
+    still the exact defect this migration was about, so the two assertions are
+    paired: the string is absent from the modules, and what comes out is
+    monolingual.
+
+    The fixture is the server's Chinese sentence in both passes. That is the
+    case a client-side rewrite cannot fake: under the default locale an English
+    frame around it would be the visible defect, and under `en` a Chinese frame
+    around it is the same defect.
+    """
+    body = (
+        "const sample = %r;\n"
+        "const read = (locale) => {\n"
+        "    m.setLocale(locale);\n"
+        "    return m.t('analysis.workspace_restored', { message: sample });\n"
+        "};\n"
+        "result = { zh: read('zh-CN'), en: read('en') };\n"
+    ) % SERVER_MESSAGE
+    result = run_i18n(i18n_module, body)
+    assert "__threw" not in result, result
+    assert SERVER_MESSAGE in result["zh"] and SERVER_MESSAGE in result["en"], (
+        "the server's own message must reach the reader unchanged in both "
+        "languages — the client passes it through, it does not rewrite it"
+    )
+    # The frame the client *owns* is the only thing under test here, so the
+    # server's own Chinese is stripped before asking whether any Chinese
+    # survived: it is expected to, and it is not the defect.
+    zh_frame = result["zh"].replace(SERVER_MESSAGE, "")
+    en_frame = result["en"].replace(SERVER_MESSAGE, "")
+    assert not re.search(r"[一-鿿]", en_frame), (
+        "the English dialog still contains a Chinese sentence from the frame "
+        f"around the server message: {result['en']!r}"
+    )
+    assert re.search(r"[一-鿿]", zh_frame), (
+        f"the default locale's frame is not Chinese at all: {result['zh']!r}"
+    )
+    assert result["zh"] != result["en"]
+    # The part that used to be hardcoded English is present in both — that it
+    # moved is the point; that it disappeared would be a regression.
+    assert "已经恢复" in zh_frame
+    assert "has been restored" in en_frame
+
+
+@pytest.mark.parametrize("name", MIGRATED_TOGETHER)
+def test_no_hardcoded_chinese_survives_in_the_migrated_modules(name):
+    """The whole module, not the sinks the earlier test happens to recognise.
+
+    `test_no_bare_user_visible_literal_remains_in_the_migrated_modules` matches
+    a fixed list of assignment shapes. This one reads for the thing itself: a
+    CJK ideograph in a string literal is a Chinese sentence the language switch
+    cannot reach, whether it is handed to `textContent`, concatenated into a
+    meta line, or passed as a fall-through default.
+
+    Comments are stripped first, so a comment *discussing* a Chinese string
+    cannot fail this; and identifiers and non-code text are outside the string
+    literals that remain.
+    """
+    source = strip_js_comments((JS_DIR / name).read_text(encoding="utf-8"))
+    offenders = re.findall(r"'[^'\n]*[一-鿿][^'\n]*'", source)
+    # One exception, and it is not an exception of convenience: it is a scope
+    # identifier. `flushOfflineQueue` raises a failure tagged
+    # `operation: '离线队列'`, and `runtime.js` never renders an operation —
+    # `dismissNoticesFor` only compares it. Giving it a catalogue key would make
+    # the string a success retires its notice by depend on the interface
+    # language, so a notice raised before a switch would stop matching the
+    # success that follows it. The assertion below pins that it stays a literal.
+    allowed = {"'离线队列'"}
+    unexpected = [value for value in offenders if value not in allowed]
+    assert not unexpected, (
+        f"{name} still carries hardcoded Chinese outside the catalogue: "
+        f"{unexpected}"
+    )
+
+
+def test_the_offline_queue_scope_is_not_reader_facing():
+    """The one Chinese literal that stays in `runtime.js`, pinned deliberately.
+
+    It is here so the exception above cannot quietly widen: if this string ever
+    does reach the screen, or if it is replaced by a key, the offline queue's
+    failures would stop being retired by the next success of that operation.
+    """
+    runtime = strip_js_comments((JS_DIR / "runtime.js").read_text(encoding="utf-8"))
+    assert "notifyFailure({ code: 'client_unknown_error', operation: '离线队列' })" in runtime, (
+        "the offline queue's own failures no longer carry their operation scope"
+    )
+    assert "runtime.offline_queue" not in runtime, (
+        "the offline queue's operation scope must not become a catalogue key: "
+        "a success retires notices by comparing this string, and a switch in "
+        "the interface language must not change which notices a success clears"
+    )
+    # ...and nothing renders it: `normalizeFailure` keeps `operation` on the
+    # failure for `dismissNoticesFor` to compare, and no sink writes it out.
+    assert re.search(r"textContent\s*=\s*[\w.]*operation", runtime) is None, (
+        "an operation scope has reached a text node — it is an identifier, not copy"
+    )
+    assert re.search(r"title\.textContent\s*=\s*normalized\.title", runtime), (
+        "the notice title must still come from the code's resolved copy, not "
+        "from the scope identifier"
+    )
+    assert "title: copy.title" in runtime, (
+        "normalizeFailure must still take the notice title from the catalogue's "
+        "code-driven copy rather than from anything the caller supplied"
+    )
+
+
+@pytest.mark.parametrize("name", MIGRATED_TOGETHER)
+def test_every_key_these_modules_look_up_resolves_in_both_languages(name):
+    """A referenced key that is not defined renders as a dotted string.
+
+    `tests/test_i18n.py` owns parity and non-emptiness across the catalogue as a
+    whole; this asks the narrower question — does anything in *these four
+    modules* name a key that does not exist. A module that reached for
+    `analysis.job.complete` instead of `analysis.job.completed` would satisfy
+    every table-wide invariant in this file and put a dotted key on the status
+    chip beside a restored workspace.
+
+    Only literal `t('…')` / `localised('…')` arguments are readable this way.
+    The keys assembled at run time are covered by
+    {@link test_the_run_time_built_keys_resolve_in_both_languages}.
+    """
+    source = strip_js_comments((JS_DIR / name).read_text(encoding="utf-8"))
+    keys = set(re.findall(r"\bt\('([^']+)'", source)) | set(
+        re.findall(r"\blocalised\('([^']+)'", source)
+    )
+    assert keys, f"{name} names no catalogue key at all — did the migration land?"
+    zh = catalogue_table("ZH_CN")
+    en = catalogue_table("EN")
+    assert not keys - set(zh), f"{name} looks up keys absent from zh-CN: {sorted(keys - set(zh))}"
+    assert not keys - set(en), f"{name} looks up keys absent from en: {sorted(keys - set(en))}"
+
+
+#: The keys these four modules assemble from a wire value, and therefore the
+#: ones no single `t('...')` in the source can be found by grepping.
+#:
+#: There are two families and both are driven by a vocabulary the *server*
+#: supplies. `paperList.js` and `papers.js` name a signal by its code, so a new
+#: upstream signal has to have a label in this catalogue before an English reader
+#: can see it — and a code with no label degrades to the server's Chinese
+#: `label_zh`, which is the defect. The confidence qualifier is the same shape.
+RUN_TIME_BUILT_KEYS = (
+    "recommend.signal.cited_by",
+    "recommend.signal.citing",
+    "recommend.signal.related",
+    "recommend.signal.topical",
+    "recommend.signal.same_dataset",
+    "recommend.signal.fallback",
+    "recommend.confidence.declared",
+    "recommend.confidence.derived",
+)
+
+
+def test_the_run_time_built_keys_resolve_in_both_languages():
+    """The allowlist is wired into a real assertion, in both directions.
+
+    Same argument as the viewer's: a hand-written list that nothing reads is
+    worse than no list, because it looks like coverage. So the list is compared
+    against the vocabularies the modules actually build from — read out of
+    `config.js`, which is where the server-facing vocabulary lives — and then
+    every key on it is checked against the shipped catalogue in both languages.
+    """
+    config = (JS_DIR / "config.js").read_text(encoding="utf-8")
+
+    def _keys_of(name: str) -> list[str]:
+        block = re.search(rf"export const {name} = \{{(.*?)\n\}};", config, re.DOTALL)
+        assert block, f"{name} is missing from config.js"
+        return re.findall(r"^    (\w+):", block.group(1), re.MULTILINE)
+
+    signals = _keys_of("RECOMMENDATION_SIGNAL_LABELS")
+    confidences = _keys_of("RECOMMENDATION_CONFIDENCE_LABELS")
+    assert signals and confidences, "the vocabularies the keys are built from are empty"
+    expected = {
+        *(f"recommend.signal.{signal}" for signal in signals),
+        "recommend.signal.fallback",
+        *(f"recommend.confidence.{confidence}" for confidence in confidences),
+    }
+    assert set(RUN_TIME_BUILT_KEYS) == expected, (
+        "the run-time-built key allowlist no longer describes the modules; "
+        f"only on the allowlist: {sorted(set(RUN_TIME_BUILT_KEYS) - expected)}; "
+        f"only built by the modules: {sorted(expected - set(RUN_TIME_BUILT_KEYS))}"
+    )
+
+    zh = catalogue_table("ZH_CN")
+    en = catalogue_table("EN")
+    for key in RUN_TIME_BUILT_KEYS:
+        assert key in zh, f"{key} is assembled at run time but absent from zh-CN"
+        assert key in en, f"{key} is assembled at run time but absent from en"
+        assert zh[key] != en[key], f"{key} reads identically in both languages"
+
+    # The prefix is read out of the modules, so renaming it in one place cannot
+    # leave the other building keys this build has never heard of.
+    paper_list = (JS_DIR / "paperList.js").read_text(encoding="utf-8")
+    assert re.search(
+        r"const SIGNAL_LABEL_KEY_PREFIX = 'recommend\.signal\.';", paper_list
+    ), "paperList.js no longer declares the prefix it builds signal labels through"
+
+
+def test_the_migrated_modules_leave_the_servers_own_words_alone():
+    """What must *not* be keyed, pinned so the migration cannot overreach.
+
+    Localising the interface is not localising the payload. `paperList.js` shows
+    `label_zh` and `reason_zh`, and `papers.js` shows the rewrite fields, and
+    those are the words that arrived with the paper — a Chinese paper stays
+    Chinese under an English interface, which is the same boundary
+    `documentLocale()` exists to draw. A migration that reached into them would
+    produce a card that silently misreports what the server sent, which is worse
+    than one that shows an untranslated line and says so.
+    """
+    paper_list = strip_js_comments((JS_DIR / "paperList.js").read_text(encoding="utf-8"))
+    for field in ("reason?.label_zh", "reason?.reason_zh"):
+        assert field in paper_list, (
+            f"{field} is no longer read: the card would be reconstructing a "
+            "label the client was given rather than showing it"
+        )
+    papers = strip_js_comments((JS_DIR / "papers.js").read_text(encoding="utf-8"))
+    for field in (
+        "data.original_query",
+        "data.rewritten_query",
+        "data.reason",
+        "data.rewrite_model",
+        "entry?.label_zh",
+    ):
+        assert field in papers, (
+            f"{field} is no longer read off the payload: the meta line is "
+            "supposed to report what the server said, not paraphrase it"
+        )
+
+
+def test_the_empty_state_decision_cannot_depend_on_the_copy():
+    """The loading / no-match branch reads a key, not a sentence.
+
+    `getPaperStateDetails` used to decide which empty state to draw by sniffing
+    English prose — `/searching|generating/i`, `includes('No matching')`. That
+    is the one place in this migration where translating a string would have
+    silently changed what the code *does*: with Chinese copy, the sniff fails,
+    and a search that is still running is drawn as a result that found nothing.
+    So the branch is asserted to be key-based, and the module is asserted to
+    carry no prose-sniffing left.
+    """
+    paper_list = strip_js_comments((JS_DIR / "paperList.js").read_text(encoding="utf-8"))
+    match = re.search(r"function getPaperStateDetails\(.*?\n\}", paper_list, re.DOTALL)
+    assert match, "getPaperStateDetails() is missing from paperList.js"
+    body = match.group(0)
+    assert not re.search(r"/searching|generating/i", body), (
+        "the loading branch is decided by matching English prose, so a Chinese "
+        "reader would be shown an empty result while the search is still running"
+    )
+    assert "text.includes(" not in body and "title.includes(" not in body, (
+        "the no-match branch is decided by matching a resolved sentence rather "
+        "than the key that names it"
+    )
+    assert "emptyKey === NO_MATCH_KEY" in body, (
+        "the no-match branch must compare keys — a sentence comparison would "
+        "make the empty state depend on the interface language"
+    )
+    # The two loading keys and the no-match key are named at module level, next
+    # to the decision that consumes them — so a key that was inlined into the
+    # branch, or dropped from the list, fails here rather than silently making
+    # one of the three empty states unreachable.
+    module = (JS_DIR / "paperList.js").read_text(encoding="utf-8")
+    loading = re.search(r"const LOADING_STATE_KEYS = \[(.*?)\];", module, re.DOTALL)
+    assert loading, "paperList.js no longer declares the keys its loading state branches on"
+    assert loading.group(1).count("'") == 4, (
+        f"expected the two loading keys in LOADING_STATE_KEYS, got {loading.group(1)!r}"
+    )
+    for key in (
+        "papers.state.search.loading.title",
+        "papers.state.recommend.loading.title",
+    ):
+        assert key in loading.group(1), (
+            f"{key} is not one of the keys the loading decision branches on, so "
+            "a running search would be drawn as an empty result"
+        )
+    assert "const NO_MATCH_KEY = 'papers.state.search.none.title';" in module, (
+        "the no-match key must be the one the no-match branch compares against"
+    )
+    # `papers.state.none.title` is the *default* rather than a branch: it is what an
+    # empty key resolves to, and the two cancel paths pass `''` on purpose. So
+    # it is reached by the absence of a key, and is pinned as such.
+    assert "t(emptyKey || 'papers.state.none.title')" in body, (
+        "the fallback empty state must still be applied when no key is given — "
+        "the cancel paths pass an empty key on purpose"
+    )
+    branched = {key.strip().strip("'") for key in loading.group(1).split(",") if key.strip()}
+    branched.add("papers.state.search.none.title")
+    # Every empty state a caller names must be one the branch recognises.
+    # Anything else silently renders as the ordinary "nothing here" state, which
+    # is how a running search would come to look like a search that found
+    # nothing — and nothing else in this file can see it, because both keys are
+    # in the catalogue and both resolve.
+    #
+    # The keys the branch does not claim are the ordinary empty result by
+    # construction: that is what the function returns when no branch matches the
+    # key (each panel reaches its own recommendation/search empty copy through
+    # the elementId branch). They are named so they cannot be mistaken for a
+    # branch that has gone missing.
+    ordinary = {
+        "papers.state.search.idle.title",
+        "papers.state.recommend.idle.title",
+        "papers.state.search.prompt.title",
+        "papers.state.recommend.none.title",
+    }
+    asked = set()
+    for caller in ("papers.js", "paperList.js"):
+        source = strip_js_comments((JS_DIR / caller).read_text(encoding="utf-8"))
+        for call in re.findall(r"renderPaperList\((.*?)\);", source, re.DOTALL):
+            # The third argument is the empty state. Split on commas that are not
+            # inside a string, so a key cannot be cut in half.
+            parts, current, quote = [], "", None
+            for char in call:
+                if quote:
+                    current += char
+                    if char == quote:
+                        quote = None
+                    continue
+                if char in "'\"":
+                    quote = char
+                    current += char
+                    continue
+                if char == ",":
+                    parts.append(current.strip())
+                    current = ""
+                    continue
+                current += char
+            parts.append(current.strip())
+            assert len(parts) >= 3, f"renderPaperList({call!r}) has no empty-state argument"
+            key = parts[2].strip()
+            if key.startswith("'") and key.endswith("'"):
+                asked.add(key.strip("'"))
+    assert asked, "no caller names any empty state by key"
+    recognised = branched | ordinary
+    assert not asked - recognised, (
+        "a caller asks for empty states no branch of getPaperStateDetails "
+        f"recognises: {sorted(asked - recognised)} — they would all render as "
+        "the ordinary empty result"
+    )
+    # And the reverse: every branch is actually reachable, so a state cannot be
+    # unreachable while its copy sits in the catalogue looking covered.
+    unused = sorted(branched - asked)
+    assert not unused, (
+        "getPaperStateDetails branches on empty states no caller ever asks "
+        f"for: {unused} — a dead branch is a state that cannot be drawn"
+    )
 
 
 # --------------------------------------------------------------------------

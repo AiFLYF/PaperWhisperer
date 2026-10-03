@@ -215,7 +215,16 @@ def test_a_recommendation_carries_the_seed_paper_the_route_requires():
     # because the route would answer 400 `missing_seed_paper` and the failure
     # would read as a server fault rather than as "there is nothing to
     # recommend from".
-    assert "No paper identity is available" in body
+    #
+    # The sentence itself is a catalogue key now: the test pins the *guard*, not
+    # the wording, and pins that the key resolves in both languages — a literal
+    # assertion here would have failed the moment the copy was localised, which
+    # is the opposite of what this test is for.
+    assert "papers.recommend.no_paper_identity" in body
+    assert _catalogue_source().count("'papers.recommend.no_paper_identity'") == 2, (
+        "the refusal is shown from the catalogue, so the key must be defined in "
+        "both locales — once in each table, not twice in one"
+    )
     assert "seed.title" in body and "seed.doi" in body, (
         "the no-seed guard must check every identifier the route recognises"
     )
