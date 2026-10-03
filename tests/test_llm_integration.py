@@ -915,7 +915,7 @@ def _ask(analyzer, question: str, what: str, attempts: int = QA_ATTEMPTS) -> str
 
 
 @pytest.fixture
-def loaded_analyzer(live_llm):
+def loaded_analyzer(live_llm, local_embedder_usable):
     """An analyzer holding the real document, without re-running six sections.
 
     ``_load_document`` is the call ``analyze`` makes first, through the same
@@ -924,6 +924,17 @@ def loaded_analyzer(live_llm):
     spent reproducing state the parse step already established. It is a private
     method and deliberately so: the public alternative is another full
     analysis per Q&A test, which is minutes each.
+
+    ``local_embedder_usable`` is requested because these are the only tests in
+    the file that build a Q&A retriever and answer from retrieved evidence. When
+    the dense leg is active that retriever embeds the corpus; without the local
+    model the Q&A path cannot be exercised at all here. Note the guard turns out
+    to matter more than it looks: run alone these tests *pass* offline by
+    degrading to the lexical legs, but in a full run an earlier suite's embedding
+    state decides whether the dense leg is active, so without the guard they
+    order-dependently fail on the model load. The guard makes the four
+    deterministic — skipped when the model is absent, fully asserted when it is
+    present.
     """
     analyzer = _analyzer(live_llm["api_key"])
     analyzer._load_document(str(CORPUS_PDF))
