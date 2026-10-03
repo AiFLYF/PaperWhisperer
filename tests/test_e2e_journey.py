@@ -47,6 +47,7 @@ import tempfile
 import threading
 import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -219,16 +220,50 @@ def _drain_journey_workers() -> set[str]:
 
     Returns whatever worker threads are still alive when the drain gives up, so
     the caller can decide what to do about them rather than assuming success.
+
+    **The last call is a collecting stop, and it is not redundant.** The probe
+    this loop is built on sees *threads*, and it can go quiet while the handle
+    that reached a thread is still registered: a worker whose step returned in
+    the moment after the previous join expired keeps its entry (by design —
+    ``JobWorker.stop`` only forgets a handle once the thread is really gone),
+    and nothing would ever ask about that entry again. So a drain that returns
+    the instant the probe is empty leaves behind a worker every later module
+    reads as "a worker this process started" — which is how
+    ``tests/test_jobs_api.py::TestTheWorkerLifecycle`` came to fail on
+    another file's leftovers. One final ``stop_job_workers`` after the probe
+    goes quiet reaps every entry it can and costs nothing when there was never
+    anything to collect.
     """
     from paperwhisperer.api import routes_jobs
 
     for attempt in range(TEARDOWN_STOP_ATTEMPTS):
         if not _journey_worker_threads():
-            return set()
+            break
         if attempt:
             time.sleep(TEARDOWN_STOP_PAUSE)
         routes_jobs.stop_job_workers(timeout=TEARDOWN_STOP_TIMEOUT)
+    routes_jobs.stop_job_workers(timeout=TEARDOWN_STOP_TIMEOUT)
     return _journey_worker_threads()
+
+
+def _wait_for_thread_exit(thread_name: str, timeout: float = 30.0) -> bool:
+    """Wait until ``thread_name`` is gone from the live threads. Bounded.
+
+    Polling with a deadline rather than asserting ``not in
+    _journey_worker_threads()`` at one instant, because the window this is
+    arranging is genuinely a race in the product — ``JobWorker._loop`` re-checks
+    the stop flag *after* the step returns, so the thread exits some
+    microseconds after the step does. A test that needed that exit to have
+    already happened at a fixed instant would be testing the scheduler; this
+    waits for the thing it actually cares about and fails loudly if it never
+    arrives.
+    """
+    deadline = time.monotonic() + float(timeout)
+    while time.monotonic() < deadline:
+        if thread_name not in _journey_worker_threads():
+            return True
+        time.sleep(TEARDOWN_STOP_PAUSE)
+    return thread_name not in _journey_worker_threads()
 
 
 class _ReleasableStep:
@@ -366,10 +401,22 @@ def test_the_teardown_drain_collects_a_worker_a_single_bounded_stop_missed(
             "a stop that missed must keep the handle so a retry can reach the worker."
         )
 
-        # (3) The step returns (the parse completes), then the journey's own
-        # teardown drain re-issues the bounded stop.
+        # (3) The step returns (the parse completes), and the worker — which
+        # re-checks the stop flag once the step does — exits its loop on its own.
+        # Wait for that *before* draining: a drain whose first move is a thread
+        # probe is allowed to short-circuit when the probe is already empty, and
+        # that short-circuit is exactly the case this test exists for. Letting
+        # the drain run while the thread is still winding down would hide it.
         step.release()
         assert step.finished.wait(timeout=30), "步骤没有结束，drain 无从回收。"
+        assert _wait_for_thread_exit(thread_name), (
+            f"{thread_name} 在步骤结束后没有自行退出；drain 将不得不自己 join 它。"
+        )
+        # Now the drain runs against a worker whose thread has already gone and
+        # whose handle is still registered — the state a later module inherits.
+        assert probe_registry.get(routes_jobs.KIND_DOCUMENT_ANALYSIS) is worker, (
+            "线程已经结束，但句柄仍在注册表中——这正是 drain 必须回收的状态。"
+        )
         _drain_journey_workers()
 
         # (4) Thread probe: really gone.
@@ -379,6 +426,15 @@ def test_the_teardown_drain_collects_a_worker_a_single_bounded_stop_missed(
         )
         assert worker.running is False
         assert routes_jobs.stuck_workers() == []
+        # And the *registry* half, which the thread probe above cannot see: a
+        # handle whose thread died between one join expiring and the next is
+        # still registered, and to every later module that reads as a live
+        # worker. This is the assertion that fails if the drain returns as soon
+        # as the probe goes quiet without a final collecting stop.
+        assert probe_registry.get(routes_jobs.KIND_DOCUMENT_ANALYSIS) is None, (
+            "线程已经消失，但注册表里还留着它的句柄；"
+            "下一个模块读到的 active_workers() 会多出一个它没启动过的 worker。"
+        )
     finally:
         step.release()
 
@@ -424,23 +480,117 @@ class Journey:
         return self._retrieval
 
 
+#: Everything the journey fixture borrows from the process and owes back, as
+#: ``(owner module, attribute name, value it replaced)``. Recorded during setup
+#: and consulted by :func:`journey_worker_drained`'s finalizer, which is the one
+#: piece of this file that is guaranteed to run *after* the teardown — a
+#: function-scoped check would be measuring the journey while the journey is
+#: still up, which is the state where the borrowing is supposed to be in force.
+#:
+#: Module global because that is exactly what it is policing: pytest offers no
+#: scope in which a fixture can reach its own teardown, and the whole defect is
+#: process-wide state outliving the fixture that set it.
+_borrowed_process_state: list[tuple[Any, str, Any]] = []
+
+#: Stands in for "this attribute did not exist before I set it". ``config`` has
+#: no ``OBJECT_STORE_ROOT`` until something assigns one, so a faithful "give back
+#: what you took" has to be able to say "give back nothing" — restoring by
+#: assigning a remembered value would leave behind an attribute the process never
+#: had, and a later reader would reasonably read it as the shipped configuration.
+_MISSING = object()
+
+
+def _borrow_process_state(owner, attribute: str) -> None:
+    """Record a process-wide value the journey is about to replace."""
+    _borrowed_process_state.append((owner, attribute, getattr(owner, attribute, _MISSING)))
+
+
+def _return_borrowed_process_state() -> None:
+    """Put back everything :func:`_borrow_process_state` recorded, in reverse.
+
+    Reverse order because that is the order the replacements were made in, and
+    two of them (``routes_qa`` and ``orchestrator``) started life as the *same*
+    function object — restoring in reverse is what cannot leave one restored and
+    the other not.
+
+    The record is deliberately *not* emptied: ``journey_worker_drained`` reads it
+    after this runs, and a finalizer that consumed the evidence would leave that
+    check with nothing to grade.
+    """
+    for owner, attribute, original in reversed(_borrowed_process_state):
+        if original is _MISSING:
+            delattr(owner, attribute)
+        else:
+            setattr(owner, attribute, original)
+
+
+#: ``id()`` of every bundle the journey has closed, so
+#: :func:`journey_worker_drained`'s finalizer can ask the retriever cache whether it
+#: is still holding anything pointed at them. This is the only record of the ids the
+#: cache might have been keyed on: nothing else keeps the closed bundle alive, which is
+#: precisely why the cache cannot be asked "is this entry still valid?" on its own.
+_closed_bundle_ids: set[int] = set()
+
+
+def _forget_retrievers_over(bundle) -> None:
+    """Drop cached retrievers built over ``bundle``, which is about to be closed.
+
+    :func:`build_qa_retriever` memoises retrievers in a process-global keyed by
+    ``(id(bundle), document_id)`` — deliberately, because keying on the document
+    alone was a real bug (a test bundle torn down between cases left a retriever
+    over it in the cache for the next caller). The journey's step 5 goes through
+    that function, so the module-scoped run ends with the cache still holding a
+    retriever over the bundle this fixture is about to close.
+
+    Leaving that is worse than a wasted object. The cache's key is an ``id()``,
+    which names nothing once the referent is gone: the entry's only claim to mean
+    "this bundle" becomes unverifiable, and a reader cannot tell a retriever over
+    a live store from one over a closed one. Any future edit that empties the
+    cache for its own reasons — a memory bound, a store-backend switch — would
+    hand these back, and the caller would get a dead store with no way to see why.
+
+    Only entries over *this* bundle are removed. A blanket ``.clear()`` would be
+    less code and would also throw away retrievers other modules built over stores
+    that are still perfectly open — turning a leak into cross-test interference.
+    """
+    from paperwhisperer.analysis.orchestrator import _QA_RETRIEVERS
+
+    target = id(bundle)
+    for key in [key for key in _QA_RETRIEVERS if key[0] == target]:
+        del _QA_RETRIEVERS[key]
+
+
 @pytest.fixture(scope="module")
 def journey_worker_drained():
-    """Asserts, *after* the journey has torn itself down, that it took its worker.
+    """Asserts, *after* the journey has torn itself down, that it left nothing behind.
 
     ``journey`` requests this fixture, so pytest sets this up first and finalizes
-    it **last** — after ``journey``'s own finalizer has run the drain. That
-    ordering is the entire point: an assertion placed any earlier would run while
-    the journey is still up and would be measuring the wrong state. Finalization
-    is in reverse order of setup, so "depends on" here is how a fixture says
-    "assert after me".
+    it **last** — after ``journey``'s own finalizer has run the drain and put the
+    process back. That ordering is the entire point: an assertion placed any
+    earlier would run while the journey is still up and would be measuring the
+    wrong state. Finalization is in reverse order of setup, so "depends on" here
+    is how a fixture says "assert after me".
 
     The check is a thread probe over ``threading.enumerate()``, not a read of
     ``routes_jobs``' registry. The registry is what the drain writes, so
     consulting it to grade the drain is the code agreeing with itself; the only
     thing that can honestly answer "is the process drained?" is the interpreter's
     own list of live threads.
+
+    **And the process-wide state the journey borrowed is given back.** The second
+    half of the same contract: :func:`journey` replaces the Q&A path's store
+    resolver — a *module global*, not a FastAPI dependency — with a closure over
+    its own throwaway bundle, and redirects six ``config`` paths into its own
+    temporary tree. It has to, for the module's lifetime; what it must not do is
+    keep them after that, because the journey then closes that bundle and deletes
+    the tree. Leaving the replacements behind is not a tidy-up issue: every later
+    test in the process that asks the Q&A path for a store is handed the journey's
+    closed database and dies on ``数据库连接已关闭`` (sqlite_backend.py:181),
+    which is exactly how ``tests/test_llm_integration.py``'s four retrieval tests
+    failed in a full run while passing alone.
     """
+    from paperwhisperer.api import routes_jobs
+
     yield
     survivors = _journey_worker_threads()
     assert not survivors, (
@@ -449,6 +599,53 @@ def journey_worker_drained():
         f"{TEARDOWN_STOP_ATTEMPTS} attempts of a {TEARDOWN_STOP_TIMEOUT}s join, so a survivor "
         "means a worker was still mid-step when the module ended and never finished "
         "within the budget — the exact orphan this fixture is supposed to prevent."
+    )
+    # The thread probe above is the *thread* half of "it left nothing behind"; this
+    # is the registry half, and the two fail separately. ``stop_job_workers`` only
+    # forgets a handle once the thread is gone, so a step that returned just after
+    # a join expired leaves an entry whose thread no longer exists — invisible to
+    # the probe above and, to every later module, indistinguishable from a worker
+    # that is still draining the queue. That is what made
+    # ``tests/test_jobs_api.py::TestTheWorkerLifecycle`` fail on this module's
+    # leftovers while passing alone, so the drain now issues a final collecting
+    # stop and this asserts it landed.
+    still_registered = [worker.worker_id for worker in routes_jobs.active_workers()]
+    assert not still_registered, (
+        "the journey fixture tore itself down but left worker(s) in the process "
+        f"registry: {still_registered}. Their threads are gone, so nothing else in "
+        "the session will ever name them again — and every later module reading "
+        "routes_jobs.active_workers() sees a worker it did not start."
+    )
+    still_borrowed = [
+        f"{owner.__name__}.{attribute}"
+        for owner, attribute, original in _borrowed_process_state
+        if getattr(owner, attribute, _MISSING) is not original
+    ]
+    assert not still_borrowed, (
+        "the journey fixture tore itself down but kept the process-wide state it "
+        f"borrowed: {still_borrowed}. Those are the Q&A path's store resolver and the "
+        "runtime folders this module redirected into its own temporary tree, which is "
+        "now deleted along with the bundle this fixture closed. Any later test that "
+        "resolves a store is handed that closed database and fails with "
+        "'数据库连接已关闭' from a path that never ran. Restore them in journey's teardown."
+    )
+    # A module that never ran its journey fixture borrowed nothing, and an empty
+    # record must not be able to pass this check for free.
+    assert _borrowed_process_state, (
+        "journey_worker_drained ran without journey having recorded what it borrowed; "
+        "the teardown assertion above would pass vacuously"
+    )
+    from paperwhisperer.analysis.orchestrator import _QA_RETRIEVERS
+
+    cached_over_a_closed_bundle = [key[1] for key in _QA_RETRIEVERS if key[0] in _closed_bundle_ids]
+    assert not cached_over_a_closed_bundle, (
+        "the journey fixture tore itself down but left retrievers in the Q&A cache "
+        f"pointing at the closed bundle: {sorted(cached_over_a_closed_bundle)}. That "
+        "cache is keyed on id(bundle), and the bundle is gone: the entry now names "
+        "nothing a caller can check, and any later edit that drains the cache hands "
+        "back a retriever over a store whose connections are already closed — which "
+        "is the '数据库连接已关闭' this whole teardown exists to prevent. Call "
+        "_forget_retrievers_over(bundle) before bundle.close()."
     )
 
 
@@ -481,6 +678,15 @@ def journey(journey_worker_drained):
     to prove the drain actually collected it. Crucially the drain runs *before*
     ``bundle.close()``: closing a store while a worker is still executing on it is
     a use-after-free, which is the other half of the same defect.
+
+    **What the journey borrows, it gives back.** Two of the eight wirings above
+    are not FastAPI dependencies but plain module globals, so they outlive the
+    fixture unless something puts them back — and the tree this fixture closes
+    the bundle in is deleted the moment the ``with`` block ends. Kept, they hand
+    every later test in the session a store that is closed and a ``CONTEXT_FOLDER``
+    that no longer exists. So the six ``config`` redirects and the two store
+    resolvers go through :func:`_borrow_process_state`, and the teardown returns
+    them on every path out of the fixture, not only the tidy one.
     """
     from fastapi.testclient import TestClient
 
@@ -496,15 +702,19 @@ def journey(journey_worker_drained):
         root = Path(tmp)
         for name in ("uploads", "output", "context"):
             (root / name).mkdir(parents=True, exist_ok=True)
-        config.UPLOAD_FOLDER = str(root / "uploads")
-        config.OUTPUT_FOLDER = str(root / "output")
-        config.CONTEXT_FOLDER = str(root / "context")
-        config.STORAGE_SQLITE_PATH = str(root / "context" / "stores" / "e2e.sqlite3")
-        config.OBJECT_STORE_ROOT = str(root / "context" / "objects")
-        # The page renderer reads originals from its own configured root; point
-        # it at the same tree the upload wrote, or it answers
-        # ``original_unavailable`` for bytes that are right there.
-        config.PAGE_RENDER_ORIGINALS_DIR = str(root / "context" / "objects")
+        for attribute, value in (
+            ("UPLOAD_FOLDER", str(root / "uploads")),
+            ("OUTPUT_FOLDER", str(root / "output")),
+            ("CONTEXT_FOLDER", str(root / "context")),
+            ("STORAGE_SQLITE_PATH", str(root / "context" / "stores" / "e2e.sqlite3")),
+            ("OBJECT_STORE_ROOT", str(root / "context" / "objects")),
+            # The page renderer reads originals from its own configured root; point
+            # it at the same tree the upload wrote, or it answers
+            # ``original_unavailable`` for bytes that are right there.
+            ("PAGE_RENDER_ORIGINALS_DIR", str(root / "context" / "objects")),
+        ):
+            _borrow_process_state(config, attribute)
+            setattr(config, attribute, value)
 
         bundle = build_sqlite_bundle(config)
         objects = build_object_store(config)
@@ -513,26 +723,43 @@ def journey(journey_worker_drained):
         app.dependency_overrides[routes_evidence.get_store_bundle] = lambda: bundle
         app.dependency_overrides[routes_jobs.get_job_store] = lambda: job_store
         app.dependency_overrides[routes_v1.get_object_store] = lambda: objects
-        routes_qa.get_store_bundle = lambda: bundle
-        orchestrator.get_store_bundle = lambda: bundle
+        # These two are plain module globals rather than FastAPI dependencies,
+        # which is the only reason they need borrowing at all — and the reason
+        # they have to be given back. The journey lasts a module; the process
+        # lasts the session.
+        for owner in (routes_qa, orchestrator):
+            _borrow_process_state(owner, "get_store_bundle")
+            owner.get_store_bundle = lambda: bundle
 
-        with TestClient(app) as client:
-            with CORPUS_PDF.open("rb") as handle:
-                response = client.post(
-                    "/v1/documents",
-                    files={"file": (CORPUS_PDF.name, handle, "application/pdf")},
+        try:
+            with TestClient(app) as client:
+                with CORPUS_PDF.open("rb") as handle:
+                    response = client.post(
+                        "/v1/documents",
+                        files={"file": (CORPUS_PDF.name, handle, "application/pdf")},
+                    )
+                assert response.status_code == 201, (
+                    f"uploading a real PDF returned HTTP {response.status_code}: {response.text[:300]}"
                 )
-            assert response.status_code == 201, (
-                f"uploading a real PDF returned HTTP {response.status_code}: {response.text[:300]}"
-            )
-            yield Journey(client, bundle, response.json()["document"], root)
-        # The lifespan has made its one bounded stop. Re-issue it so *this*
-        # fixture's worker is drained here, deterministically, rather than by
-        # whichever later test module happens to shut a worker down next. Must
-        # run before ``bundle.close()`` below: a worker still mid-parse on a
-        # store we just closed is a use-after-free.
-        _drain_journey_workers()
-        bundle.close()
+                yield Journey(client, bundle, response.json()["document"], root)
+        finally:
+            # The lifespan has made its one bounded stop. Re-issue it so *this*
+            # fixture's worker is drained here, deterministically, rather than by
+            # whichever later test module happens to shut a worker down next. Must
+            # run before ``bundle.close()`` below: a worker still mid-parse on a
+            # store we just closed is a use-after-free.
+            #
+            # And the borrowing is returned on every path out of this fixture, not
+            # only the tidy one: a failed upload leaves the process redirected
+            # into a temporary directory that is about to be deleted, which is
+            # strictly worse than not having started.
+            try:
+                _drain_journey_workers()
+                _forget_retrievers_over(bundle)
+                _closed_bundle_ids.add(id(bundle))
+                bundle.close()
+            finally:
+                _return_borrowed_process_state()
 
 
 # ---------------------------------------------------------------------------

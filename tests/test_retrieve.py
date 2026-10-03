@@ -54,6 +54,7 @@ from paperwhisperer.rag.rerank import (
 )
 from paperwhisperer.rag.retrieve import (
     DEFAULT_RRF_K,
+    DENSE_MIN_SCORE,
     EMPTY_FILTERED,
     LEG_LEXICAL,
     PLANS,
@@ -1110,15 +1111,40 @@ class TestHybridIsNotDecorative:
             top_k=3,
         )
         assert any("弃权" in message for message in result.record.degradations)
+        # ...and it has to be the *tie band* that abstained here, or this test
+        # would keep passing after the band was deleted, because the level floor
+        # below it now abstains on the same query for its own reason. "Some
+        # abstention happened" is not what this test claims; "the band did" is.
+        assert any("区分力" in message for message in result.record.degradations), (
+            "这条测试测的是 tie band：dense 通道没有报告余弦跨度太小，"
+            f"只报告了 {list(result.record.degradations)}。"
+        )
 
-    def test_with_the_abstention_off_the_dense_leg_votes_noise(
+    def test_the_second_dense_abstention_survives_the_tie_band_being_switched_off(
         self, bundle, embedder, document_id
     ):
-        # The other side of the same coin, and the reason the band exists. With
-        # the check disabled the leg returns all three passages at cosine 0.0 and
-        # RRF counts that arbitrary order as an opinion, so the top-1 becomes
-        # whichever chunk id sorts first -- a passage about retrieval latency,
-        # not the answer.
+        # This test used to pin the opposite of what it pins now, and the change
+        # is the point rather than an inconvenience. It used to disable *one*
+        # abstention -- the tie band -- and assert that the leg then returned
+        # all three passages at cosine 0.0, so the top-1 became whichever chunk
+        # id sorted first: a passage about retrieval latency, not the answer.
+        # That was a characterisation of a defect reconstructed by hand, and a
+        # hand-built defect cannot notice when the real cause is closed. It is
+        # closed: `DENSE_MIN_SCORE` is a second, independent abstention, asked
+        # about a different thing -- the tie band asks whether the leg can tell
+        # its own best candidates apart, the level floor asks whether any of
+        # them is about the question at all -- and it is still on here.
+        #
+        # So the guarantee to pin is the one the shipped floors actually make:
+        # a query the dense leg cannot score above the floor makes the leg
+        # abstain, and with the only other legs weighted out there is nothing
+        # left that could answer, so the result is *no evidence*. Padding the
+        # ranking back out to `final_k` from a leg that said "I have nothing" is
+        # the defect, not a contract, and asserting it would re-inject it.
+        #
+        # `dense_tie_band=0.0` is kept precisely so that the abstention observed
+        # here can only be the level floor's: with the band off, the message the
+        # leg logs is the one that names the floor.
         result = HybridRetriever(bundle, embeddings=embedder, reranker=None).retrieve(
             FUZZY_QUERY,
             document_ids=[document_id],
@@ -1127,9 +1153,35 @@ class TestHybridIsNotDecorative:
             ),
             top_k=3,
         )
-        assert result.evidence[0].chunk_id == FUZZY_FIXTURE_PASSAGES[0][0]
-        dense_legs = [leg for item in result.record.candidates for leg in item.legs]
-        assert [leg.rank for leg in dense_legs] == [1, 2, 3]
+
+        # The measurement the abstention rests on, not the string it logged:
+        # "WikiBrainlang" is outside this embedder's vocabulary, so every cosine
+        # is exactly 0.0 -- which is below the floor, and also the reason this
+        # fixture is a fair test of the floor rather than of the band.
+        assert result.relevance.dense_top == pytest.approx(0.0, abs=1e-12)
+        assert result.relevance.min_dense_score == DENSE_MIN_SCORE
+        assert DENSE_MIN_SCORE > 0.0, "下限被关掉了，这条断言就没有钉住任何东西。"
+        assert result.relevance.dense_abstained is True
+
+        # Abstained, not "voted and lost": no candidate came back carrying a
+        # dense leg, and nothing was selected or minted.
+        assert [
+            leg for item in result.record.candidates for leg in item.legs
+        ] == []
+        assert result.record.candidates == ()
+        assert result.evidence == ()
+        assert result.relevance.evidence_ids == ()
+        assert result.insufficient_evidence
+
+        # And it is the *level* floor that spoke, not the band: the band is off,
+        # and the band has its own wording.
+        dense_degradations = [d for d in result.record.degradations if "dense" in d]
+        assert dense_degradations, result.record.degradations
+        assert any("下限" in message for message in dense_degradations), dense_degradations
+        assert not any("区分力" in message for message in dense_degradations), (
+            "dense 通道的理由是余弦跨度太小（tie band），不是余弦太低（下限）。"
+            "这条测试关掉了 tie band，就是要让下限成为唯一可能的理由。"
+        )
 
     def test_only_the_fuzzy_leg_claimed_the_answer(self, bundle, embedder, document_id):
         result = HybridRetriever(bundle, embeddings=embedder, reranker=None).retrieve(

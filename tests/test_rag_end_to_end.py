@@ -36,10 +36,21 @@ question set (7 each)         R@1       R@8       dense leg
 ============================  ========  ========  ================
 exact-term, hybrid            0.43      1.00      voted 7/7
 exact-term, lexical only      0.86      1.00      --
-paraphrase, hybrid            0.29      0.43      voted 7/7
+paraphrase, hybrid            0.29      0.43      voted 6/7
 paraphrase, lexical only      0.14      0.29      --
-paraphrase, dense only        0.29      0.71      --
+paraphrase, dense only        0.14      0.57      --
 ============================  ========  ========  ================
+
+**These were measured before the relevance floor, and the floor moved the two
+cells it can move.** The paraphrase leg now abstains on one question of seven —
+the English query against the Chinese passage, cosine 0.340 under the 0.40 floor
+— so "voted 6/7", and the dense-only arm loses that question's candidates, which
+is where its 0.71 → 0.57 and 0.29 → 0.14 come from. The floor costs that arm its
+only recall in this sample; the hybrid arms are unchanged. That is the trade the
+floor makes on purpose (a leg with nothing to say stops voting) and the cost is
+recorded rather than tuned around. The assertions below pin *which* questions the
+leg abstains on, so a floor that moved the count by a different route would fail
+rather than quietly re-measure.
 
 **These numbers cannot carry the weight a pass/fail gate would put on them, and
 this file no longer asks them to.** Seven questions is not a sample. One
@@ -54,9 +65,11 @@ the paired design at n=7 cannot distinguish the two systems at any confidence.
 Even the large dense-only effect (0.71 vs 0.29) has only three discordant pairs
 and comes out at p = 0.25.
 
-So the assertions in this file are capabilities — the dense leg is present, it
-abstains never here, and its votes are load-bearing (turning it on reorders the
-fused output on 7/7 paraphrase questions) — and the recall deltas are recorded
+So the assertions in this file are capabilities — the dense leg is present, its
+abstentions are exactly the questions whose measured top cosine is under the
+shipped floor, and its votes are load-bearing (turning it on reorders the fused
+output on every paraphrase question where it voted, and moves nothing at all
+where it abstained) — and the recall deltas are recorded
 in ``docs/RAG_MEASUREMENT.md`` with their sample size and interval attached.
 A capability assertion survives a corpus refresh or a model swap; a 0.14
 delta on n=7 does not, and asserting it only buys a test that fails at random.
@@ -484,6 +497,53 @@ def _recall(indexed: Indexed, questions, *, plan_overrides=None, top_k=TOP_K):
     return at_one / count, at_k / count, records
 
 
+def _has_cjk(text: str) -> bool:
+    """Whether any character in ``text`` is a CJK ideograph."""
+    return any("\u4e00" <= character <= "\u9fff" for character in text)
+
+
+def _dense_abstentions(
+    indexed: Indexed, *, plan_overrides=None
+) -> list[tuple[str, str, float | None, float, bool]]:
+    """Per question: ``(text, gold, dense_top, min_dense_score, abstained)``.
+
+    The dense leg's abstention is only meaningful next to the number it was
+    taken on, and both of those live on :class:`RelevanceReport` rather than in
+    the degradation string -- ``_recall`` hands back records, which do not carry
+    the report, so this retrieves the questions directly instead of going
+    through the recall helper and throwing most of it away.
+
+    ``abstained`` is read from the degradation text rather than from
+    ``relevance.dense_abstained`` on purpose: the two are the claim and the
+    record of it, and a report that says it abstained while the log says
+    otherwise (or the reverse) is a bug worth failing on.
+    """
+    from paperwhisperer.rag.retrieve import HybridRetriever, plan_for
+
+    retriever = HybridRetriever(indexed.bundle, embeddings=indexed.provider, reranker=None)
+    plan = plan_for("qa")
+    if plan_overrides:
+        plan = plan.with_overrides(**plan_overrides)
+    rows = []
+    for question in EXACT_TERM_QUESTIONS + PARAPHRASE_QUESTIONS:
+        result = retriever.retrieve(question.text, plan=plan, top_k=TOP_K)
+        report = result.relevance
+        assert report is not None, f"没有 relevance report：{question.text!r}"
+        abstained = any(
+            "dense" in d and ("弃权" in d or "未参与" in d or "失败" in d)
+            for d in result.record.degradations
+        )
+        # The report and the record have to agree, in both directions.
+        assert abstained == report.dense_abstained, (
+            f"弃权的记录和报告不一致：degradations={result.record.degradations} "
+            f"dense_abstained={report.dense_abstained}"
+        )
+        rows.append(
+            (question.text, question.gold, report.dense_top, report.min_dense_score, abstained)
+        )
+    return rows
+
+
 def _one_order(indexed: Indexed, question: Question, *, dense_weight: float) -> tuple[str, ...]:
     """The fused top-8 order for one question at one ``dense_weight``.
 
@@ -585,12 +645,23 @@ def test_dense_leg_contribution_versus_lexical_only(indexed: Indexed):
     The two facts worth protecting here are both about the *leg participating in
     fusion*, not about a measured recall delta:
 
-    * the dense leg is present and abstains never -- on this corpus it has an
-      opinion about every question, and every one of those opinions is fused;
+    * the dense leg's abstention is exactly its floor -- on this corpus it abstains
+      on the questions whose measured top cosine is below ``DENSE_MIN_SCORE`` and
+      on none of the others, and with the floor switched off it abstains nowhere.
+      (It used to be asserted that it abstains *never*. That is precisely what
+      the relevance floor was added to invalidate: one question here is an
+      English query against a Chinese passage and tops out at cosine 0.340,
+      below the floor -- the cross-lingual limitation recorded in
+      ``docs/RETRIEVAL_FLOOR.md`` section 3. "Abstains never" was a claim about
+      a product that padded; the claim that survives is about one that knows when
+      it has nothing to say and when it does.)
     * the dense leg's votes are load-bearing -- adding the leg at
       ``dense_weight > 0`` reorders the fused output relative to
-      ``dense_weight = 0`` on every question. This is the capability: a dense leg
-      that runs but never changes the answer is decoration.
+      ``dense_weight = 0`` on every question where the leg voted, and on none of
+      the questions where it abstained. That second half is not a concession: an
+      abstaining leg contributes no candidates, so its weight cannot move
+      anything, and a leg that abstained *and* reordered would be recording a
+      decision it did not honour.
 
     The recall numbers are measured and *recorded* (printed, and preserved in
     ``docs/RAG_MEASUREMENT.md``), not asserted. A measured recall delta is not a
@@ -642,19 +713,62 @@ def test_dense_leg_contribution_versus_lexical_only(indexed: Indexed):
     # --- Capability assertions. These are facts about the leg, not about a
     # measured delta, and they are what actually protect the dense path.
 
-    abstentions = [
-        q.text
-        for q in PARAPHRASE_QUESTIONS + EXACT_TERM_QUESTIONS
-        if any(
-            "dense" in d and ("弃权" in d or "未参与" in d or "失败" in d)
-            for d in _recall(indexed, [q])[2][0].degradations
-        )
+    rows = _dense_abstentions(indexed)
+    abstentions = [row for row in rows if row[4]]
+    below_floor = [
+        row for row in rows
+        if row[2] is not None and row[2] < row[3]
     ]
-    assert not abstentions, (
-        "dense 通道在这些问题上弃权或降级了："
-        f"{[t[:40] for t in abstentions]}。"
-        "这比 recall 下降更值得先查——通道根本没投票，测出来的任何差值都是"
-        "词法通道自己的数。"
+
+    # The leg abstains *because of the floor and only because of the floor*.
+    # Set equality, not a count: it fires on every question whose own measured
+    # top cosine is under `DENSE_MIN_SCORE` and on no question that cleared it,
+    # so it catches a floor that refuses too eagerly and a floor that refuses
+    # not eagerly enough.
+    assert {row[0] for row in abstentions} == {row[0] for row in below_floor}, (
+        "dense 通道的弃权集合和余弦低于下限的集合不是一回事。"
+        f"弃权={[t[:40] for t, *_ in abstentions]}，"
+        f"低于下限={[t[:40] for t, *_ in below_floor]}。"
+        "要么有腿弃权了但理由不是下限，要么有腿低于下限却还在投票。"
+    )
+    # Non-empty, or the equality above holds trivially and the floor is a
+    # do-nothing knob. At least one question here has to be below it for this
+    # file to say anything about floors at all.
+    assert abstentions, (
+        "没有任何问题的 dense 余弦低于下限：这条断言空转了。"
+        "要么是下限被调到语料之下了，要么是这条语料不再覆盖下限的判定区。"
+    )
+    # And the abstentions are the documented cross-lingual ones: an English
+    # question whose answer is Chinese. That is the limitation the floor is
+    # documented to have (docs/RETRIEVAL_FLOOR.md section 3), and it is the
+    # honest reason for it -- not a coincidence of this corpus, and not a
+    # signal that the floor is eating the paraphrase regime it exists for.
+    assert all(
+        not _has_cjk(text) and _has_cjk(gold)
+        for text, gold, *_ in abstentions
+    ), (
+        "有些弃权不是跨语言的："
+        f"{[t[:40] for t, g, *_ in abstentions if _has_cjk(t) or not _has_cjk(g)]}。"
+        "如果下限开始拒绝同语种的问题，那是下限选错了，不是语料的问题。"
+    )
+    # Every abstaining question's cosines were *measured*, not unavailable: a
+    # dense leg that could not run at all is a different failure and would not
+    # be described by a number sitting under the floor.
+    assert all(
+        dense_top is not None and dense_top < min_dense_score
+        for _t, _g, dense_top, min_dense_score, _a in abstentions
+    ), f"弃权的问题里有一个没有测到余弦：{[(t, d) for t, _g, d, _m, _a in abstentions]}"
+
+    # With the floor switched off the leg abstains nowhere on this corpus. Both
+    # arms are needed: the one above says the floor fires exactly where it should,
+    # this one says the floor is what makes it fire rather than the leg being
+    # broken independently of any threshold.
+    off_floor = _dense_abstentions(indexed, plan_overrides={"dense_min_score": -1.0})
+    assert not [text for text, *_rest, abstained in off_floor if abstained], (
+        "dense 通道在 dense_min_score=-1.0 下仍然弃权/降级："
+        f"{[t[:40] for t, *_r, a in off_floor if a]}。"
+        "下限关掉之后就没有理由弃权了；如果这里还有，那就是 tie band 或 provider"
+        "在起作用，跟下限无关——测出来的东西已经不是这条断言要说的那个东西。"
     )
 
     # The dense leg's votes must be load-bearing: with dense_weight=0 the fused
@@ -663,16 +777,45 @@ def test_dense_leg_contribution_versus_lexical_only(indexed: Indexed):
     # capability claim that "it participates in fusion" actually means, and it
     # is far more robust than a recall delta: it does not depend on which
     # questions happen to land inside the top-8.
+    #
+    # Scoped to the questions where the leg voted. It abstained on one of the
+    # seven (the cross-lingual queue question, cosine 0.340), and a leg that
+    # abstains contributes no candidates, so there is nothing for its weight to
+    # reorder. Asserting 7/7 here would be asserting that the floor is off.
+    abstained_texts = {text for text, _g, _d, _m, a in abstentions if a}
+    voted = [
+        q for q in PARAPHRASE_QUESTIONS
+        if q.text not in abstained_texts
+    ]
+    assert voted, (
+        "dense 腿在所有改述问题上都弃权了：这条断言就变成了空转，"
+        "而 dense 通道实际上是装饰。"
+    )
     reordered = 0
     for question in PARAPHRASE_QUESTIONS:
         with_dense = _one_order(indexed, question, dense_weight=1.0)
         without_dense = _one_order(indexed, question, dense_weight=0.0)
-        if with_dense != without_dense:
+        changed = with_dense != without_dense
+        if question.text in abstained_texts:
+            # An abstaining leg must be genuinely inert: no candidates, so the
+            # fused order is identical whether its weight is 1 or 0. A leg that
+            # logged an abstention and still fused its ranking is recording a
+            # decision it did not honour.
+            assert not changed, (
+                f"dense 通道在 {question.text[:40]!r} 上弃权了，可它的权重仍然改变了"
+                "融合排序。弃权必须意味着不投票，否则 RelevanceReport 就是一个谎报。"
+            )
+            continue
+        if changed:
             reordered += 1
-    assert reordered == len(PARAPHRASE_QUESTIONS), (
-        f"只有 {reordered}/{len(PARAPHRASE_QUESTIONS)} 条改述问题在开启 dense 通道后"
+        else:
+            assert False, (
+                f"dense 腿在 {question.text[:40]!r} 上投票了，却没有改变融合排序——"
+                "它现在是装饰。如果刚换了模型，先看上面的 abstentions 断言。"
+            )
+    assert reordered == len(voted), (
+        f"只有 {reordered}/{len(voted)} 条（投票了的）改述问题在开启 dense 通道后"
         "改变了融合排序。dense 腿在跑，但没有参与排序——它现在是装饰。"
-        "如果刚换了模型，先确认它不是一直在弃权（见上面的 abstentions 断言）。"
     )
 
     # Non-regression guard on the exact-term set, which the lexical leg owns.

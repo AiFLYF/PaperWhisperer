@@ -39,6 +39,7 @@ import io
 import json
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -741,6 +742,80 @@ class TestRecoveryFromAKilledApiWorker:
 # The lifespan actually runs a worker
 # --------------------------------------------------------------------------
 
+#: The budget of one bounded teardown stop. The same number the app lifespan's
+#: own shutdown uses, so an isolated worker is stopped the way production stops
+#: one rather than the way only a test would.
+STOP_TIMEOUT = 5.0
+
+#: How many times the isolation below re-issues that bounded stop before it
+#: gives up. Bounded because a shutdown that blocks is the failure this design
+#: exists to avoid; repeated because a worker whose budget expired stays
+#: *reachable*, so the next call re-joins it with a fresh budget and collects
+#: it. Three attempts of five seconds is enough for any step that is slow
+#: rather than stuck, and a genuinely stuck thread still lets the test run.
+STOP_ATTEMPTS = 3
+
+
+def job_worker_threads() -> set[str]:
+    """The names of every live ``job-worker-*`` thread in this process.
+
+    A thread probe rather than a read of the registry, and the reason is the
+    whole subject of this file's worker tests. ``active_workers()`` and
+    ``stuck_workers()`` both read the dict the teardown writes, so asserting
+    against them is the code agreeing with itself: a registry entry whose
+    thread has already exited is indistinguishable, there, from a thread that
+    is genuinely still draining the queue. Only the interpreter's own list of
+    live threads can tell the two apart.
+    """
+    return {thread.name for thread in threading.enumerate()
+            if thread.name.startswith("job-worker-")}
+
+
+@pytest.fixture
+def isolated_worker_registry():
+    """The process's worker registry, drained, for the length of one test.
+
+    **Why these tests need it at all.** :data:`routes_jobs._WORKERS` is a module
+    global, so a worker registered by an *earlier test module* is still there
+    when this class runs — and a worker whose in-flight step outlived that
+    module's shutdown stays there for the rest of the session, reachable but
+    not stopped. Asserting ``active_workers() == []`` without arranging for it
+    therefore asserted something about the run's history rather than about this
+    test: it passed when the file ran alone and failed in the full suite,
+    because a worker in ``tests/test_e2e_journey.py`` was mid-analysis when
+    that module ended. That is order-dependence, and a test whose pass/fail is
+    a function of which module ran before it pins nothing.
+
+    **Drained rather than cleared.** The registry is emptied by re-issuing the
+    bounded stop, not by dropping the entries: an entry removed while its
+    thread is alive is precisely the orphan commit ``341792e`` was about, and a
+    fixture must not be the thing that reintroduces it. Whatever cannot be
+    stopped within the attempts is cleared anyway so this class's assertions
+    stay about its own workers — and a thread that survives that is still
+    reported by :func:`job_worker_threads`, which is the honest observable
+    every other file in this area uses too.
+
+    **Nothing is restored on the way out.** The previous modules' workers have
+    been asked to stop by now, and handing a still-live handle back to the
+    registry would re-poison whichever module runs next — which is the leak
+    this fixture exists to keep from spreading.
+    """
+    def drain() -> None:
+        for _attempt in range(STOP_ATTEMPTS):
+            routes_jobs.stop_job_workers(timeout=STOP_TIMEOUT)
+            if not job_worker_threads():
+                break
+
+    drain()
+    routes_jobs._WORKERS.clear()
+    routes_jobs._STRANDED.clear()
+    try:
+        yield routes_jobs._WORKERS
+    finally:
+        drain()
+        routes_jobs._WORKERS.clear()
+        routes_jobs._STRANDED.clear()
+
 
 class TestTheWorkerLifecycle:
     def test_a_submitted_job_is_claimed_by_the_applications_own_worker(self, live_api, job_store):
@@ -762,10 +837,18 @@ class TestTheWorkerLifecycle:
         assert StubAnalyzer.calls, "the work never happened"
 
     def test_the_worker_is_stopped_on_teardown(self, bundle, objects, job_store,
-                                               stubbed_pipeline, monkeypatch):
+                                               stubbed_pipeline, monkeypatch,
+                                               isolated_worker_registry):
         """A worker that is not stopped on shutdown is a leaked thread, and a
         leaked worker holding a lease is worse than useless — the next process
         recovers its job and both processes bill for the same cloud parse.
+
+        **The assertion is about the threads, not about the registry.** The
+        failure this names is a thread that outlived the lifespan, and the only
+        honest evidence about threads is the interpreter's own list of them: a
+        registry that has forgotten a live worker reads exactly like a registry
+        that has finished with one. So the workers are named while they are up,
+        and their absence is proved by the probe.
         """
         monkeypatch.setattr(config, "JOBS_POLL_INTERVAL_SECONDS", 1)
         overrides = {
@@ -778,18 +861,41 @@ class TestTheWorkerLifecycle:
         app.dependency_overrides.update(overrides)
         try:
             with TestClient(app):
-                assert routes_jobs.active_workers()
+                started = routes_jobs.active_workers()
+                assert started, "the lifespan started no worker to stop"
+                # Proof it was *this* test's worker and not a stale entry: a real
+                # thread with this name existed while the app was up.
+                assert job_worker_threads(), "lifespan 注册了 worker，但没有线程"
+                thread_names = {f"job-worker-{worker.worker_id}" for worker in started}
+                assert thread_names & job_worker_threads(), (
+                    "lifespan 启动的 worker 没有对应的线程"
+                )
+
+            survivors = job_worker_threads() & thread_names
+            assert not survivors, (
+                f"lifespan 退出后线程仍然存活：{sorted(survivors)}。"
+                "一个没有被停止的 worker 会继续占用租约。"
+            )
+            # And the registry agrees, which is the question an operator asks.
+            # Asserted *after* the probe rather than instead of it.
             assert routes_jobs.active_workers() == []
+            assert routes_jobs.stuck_workers() == []
         finally:
             routes_jobs.stop_job_workers()
             for dependency in overrides:
                 app.dependency_overrides.pop(dependency, None)
 
     def test_jobs_disabled_starts_no_worker(self, bundle, objects, job_store,
-                                            stubbed_pipeline, monkeypatch):
+                                            stubbed_pipeline, monkeypatch,
+                                            isolated_worker_registry):
         """``JOBS_ENABLED`` is documented as the switch back to synchronous
         handling while diagnosing something, so it has to actually leave the
         worker unstarted rather than half-starting it.
+
+        Pinned as *no new thread*, not only as an empty registry. A worker that
+        was started and then quietly stopped would still leave an empty registry
+        behind, and that is a deployment paying for a thread it was told had
+        been switched off.
         """
         monkeypatch.setattr(config, "JOBS_ENABLED", False)
         overrides = {
@@ -800,9 +906,14 @@ class TestTheWorkerLifecycle:
         }
         monkeypatch.setattr(routes_jobs, "resolve_object_store", lambda: objects)
         app.dependency_overrides.update(overrides)
+        before = job_worker_threads()
         try:
             with TestClient(app):
                 assert routes_jobs.active_workers() == []
+                assert job_worker_threads() == before, (
+                    f"JOBS_ENABLED=False 仍然启动了线程："
+                    f"{sorted(job_worker_threads() - before)}"
+                )
         finally:
             routes_jobs.stop_job_workers()
             for dependency in overrides:
