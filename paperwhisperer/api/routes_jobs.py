@@ -401,15 +401,19 @@ def resolve_stage_api_key(job_id: str, context: JobContext | None = None) -> str
 #: nobody noticed and the trail would show a job that went straight from parsing
 #: to analysing as though that were the plan.
 #:
-#: **``normalizing`` and ``indexing`` are empty because of where they sit, not
-#: because this pipeline declines to index.** Both are *before* ``analyzing`` in
-#: the spine, so filling them in would make every reader wait on a full
-#: embedding pass before the first section of their summary existed. The
-#: document is chunked and indexed instead at the tail of
-#: :func:`paperwhisperer.analysis.service.finalize_analysis_result`, by
-#: :func:`paperwhisperer.analysis.service.register_analysis_document`: after the
-#: analysis, after the report on disk, and idempotently, so the cost is paid
-#: once per document rather than once per analysis.
+#: **``normalizing`` and ``indexing`` are empty as spine steps, not because
+#: this pipeline never indexes.** The document *is* chunked and indexed — twice
+#: over, in fact, once idempotently at the head of
+#: :func:`_analyse_stage` so the fact layer has retrieved evidence to extract
+#: from, and once at the tail of
+#: :func:`paperwhisperer.analysis.service.finalize_analysis_result` by
+#: :func:`paperwhisperer.analysis.service.register_analysis_document` so the
+#: published ``document_id`` names a document the Evidence API can find. What
+#: these two states decline to be is a *separate step*: both sit before
+#: ``analyzing`` in the spine, so a reader would wait on them as an empty
+#: boundary stage. The cost is the same index either way, paid once per
+#: document because both call sites go through the idempotent
+#: :func:`~paperwhisperer.analysis.orchestrator.index_document_for_retrieval`.
 #:
 #: These two reasons used to say the opposite — that "文档检索由 /v1/documents
 #: 负责" — while :func:`~paperwhisperer.analysis.service.attach_document_identity`
@@ -423,8 +427,9 @@ def resolve_stage_api_key(job_id: str, context: JobContext | None = None) -> str
 DOCUMENT_ANALYSIS_PLACEHOLDERS = (
     ("quality_check", "本任务不建立质量门：解析器自身已按质量阈值决定是否升级。"),
     ("fallback", "本任务的解析阶段已包含解析器自身的升级策略。"),
-    ("normalizing", "本阶段不切分文档：切分在分析完成之后进行，以免读者先等嵌入才看到摘要。"),
-    ("indexing", "本阶段不建立索引：文档由 finalize_analysis_result 在分析完成后登记并建索引。"),
+    ("normalizing", "本阶段不单独切分文档：切分随事实层所需的检索索引一并建立。"),
+    ("indexing", "本阶段不单独建索引：分析阶段在抽取事实层前建立检索索引，"
+                 "分析完成后再登记文档，两者均为幂等操作。"),
 )
 
 
@@ -541,35 +546,53 @@ def _analyse_stage(context: JobContext) -> None:
     model's prose — which is the same rule that keeps content off the stream and
     out of ``result`` in ``infra.jobs``.
 
-    **It parses again, and that parse is a cache hit.**
-    :meth:`~paperwhisperer.analysis.orchestrator.DocumentAnalyzer.analyze_stream`
-    loads its document through
-    :func:`~paperwhisperer.documents.loader.DocumentLoader.load_with_outcome`,
-    which calls the *same* ``parse_document`` this pipeline's parse stage called,
-    and ``parse_document``'s cache is keyed by the file's content digest. The
-    bytes re-materialised here are the bytes it saw, so the second parse reads the
-    cache rather than a parser. It is the same parse, twice, because the analyzer
-    takes a path and this stage is not allowed to reach inside it — and the price
-    of not reaching inside is one cache read, which is the cheapest available
-    alternative to owning a second copy of the escalation policy.
+    **This is the fact layer, not the six-section path.** The analysis itself is
+    :func:`~paperwhisperer.analysis.service.analyze_with_fact_layer`, which
+    extracts the eight structured facts in one call and renders every card from
+    them, so this is the only analysis path in the product that produces a
+    ``paper_facts`` payload and an ``analysis_run`` record — the provenance the
+    export report promises. The legacy six-section generator
+    (:meth:`~paperwhisperer.analysis.orchestrator.DocumentAnalyzer.analyze_stream`)
+    is still in :mod:`paperwhisperer.analysis.orchestrator` and still callable,
+    but nothing routes to it: the measured comparison on the same document was
+    roughly two model calls against thirteen and a five-fold wall-clock
+    difference, and the gate comment that used to ask for that comparison before
+    this swap ("deliberately left as the caller's decision") has now been
+    answered, so the decision is this swap.
 
-    **The document is registered by the finaliser, after the analysis.** This
-    stage does not index, and the reason is ordering rather than a division of
-    labour: ``indexing`` is a spine state that runs *before* ``analyzing``, so
-    an embedding pass there would delay the reader's summary. ``finalize`` calls
-    :func:`~paperwhisperer.analysis.service.register_analysis_document` after
-    the report is written and before the session is persisted, so the
-    ``document_id`` this pipeline publishes names a document the Evidence API
-    can find, and a failure to index costs the citation surface and nothing
-    else. The stage only reports what that call decided.
+    **The index is built here, before the analysis, because the fact layer
+    refuses to run without evidence.** :func:`analyze_with_fact_layer` takes an
+    ``evidence_provider`` over an *already indexed* document and raises without
+    one — a fact layer with no citations renders as though every claim in it had
+    been verified. So this stage materialises the document, asks
+    :func:`~paperwhisperer.analysis.orchestrator.build_qa_retriever` to index
+    it (idempotently, and only when it is not already indexed at the current
+    index version), and wraps that retriever in
+    :func:`~paperwhisperer.analysis.paper_facts.make_evidence_provider`. That
+    ordering reverses the latency contract the six-section path was built
+    around — there, indexing deliberately trailed the summary so a reader never
+    waited on an embedding — but the trade is different now and unavoidable: the
+    evidence *is* the input, so the document has to be retrievable before the
+    first token. What is paid here is the same index the finaliser would have
+    built anyway, moved earlier rather than duplicated, and it is warm on the
+    second analysis of the same document.
 
-    **Sections are published into the scratch as they arrive.** That is what lets
-    a streaming client follow a job rather than the other way round: the legacy
-    ``/api/analyze/stream`` keeps emitting its ``section`` events, but they now
-    come from a durable scratch rather than from a generator that dies with the
-    connection. A heartbeat per section is one small row write, and it is what
-    turns "the work is over there and I can see how far it got" from a claim into
-    a fact.
+    **The parse is a cache hit.** Both the pre-index above and the fact layer's
+    own load call :func:`~paperwhisperer.ingestion.orchestrator.parse_document`,
+    which is the same call this pipeline's parse stage made and whose cache is
+    keyed by the file's content digest. The bytes re-materialised here are the
+    bytes it saw, so re-reading them here reads the cache, not a parser. This is
+    the same "parse is cache hit" fact the old streaming stage documented; only
+    the consumer of the parse changed.
+
+    **Per-section streaming is gone, and that is the accepted cost.** The six
+    sections no longer arrive one at a time, so there is nothing to heartbeat
+    between and the ``section`` scratch is written once, at the end, with the
+    finished set. What the reader sees instead is the whole result after a run
+    that takes a fraction of the time; the ``section`` event stream still fires
+    (once, with the finished sections) so ``/api/analyze/stream`` keeps its
+    event vocabulary. The legacy generator is untouched and still streams, for
+    the Q&A and comparison paths that want it.
     """
     payload = dict(context.job.payload or {})
     api_key = resolve_stage_api_key(context.job.job_id, context)
@@ -586,8 +609,10 @@ def _analyse_stage(context: JobContext) -> None:
     # Imported here for the same reason as the parser: the analysis package
     # pulls in the store bundle, and building an analyzer at import time would
     # build it before a test has had a chance to override that bundle.
-    from paperwhisperer.analysis.orchestrator import DocumentAnalyzer
-    from paperwhisperer.analysis.service import finalize_analysis_result
+    from paperwhisperer.analysis.orchestrator import build_qa_retriever
+    from paperwhisperer.analysis.paper_facts import make_evidence_provider
+    from paperwhisperer.analysis.service import analyze_with_fact_layer
+    from paperwhisperer.documents.loader import DocumentLoader
 
     source_filename = str(payload.get("source_filename") or "document")
     mermaid = bool(payload.get("generate_mermaid", True))
@@ -596,31 +621,60 @@ def _analyse_stage(context: JobContext) -> None:
 
     staged = _materialise_original(context, key)
     try:
-        analyzer = DocumentAnalyzer(api_key)
-        sections: dict[str, Any] = {}
-        analysis: dict[str, Any] | None = None
-        for event in analyzer.analyze_stream(staged, mermaid, evaluation, brief):
-            if event.get("type") == "section":
-                sections[str(event.get("name") or "")] = event.get("section") or {}
-                context.update(context={"sections": dict(sections)})
-                context.heartbeat()
-            elif event.get("type") == "done":
-                analysis = event.get("result")
+        context.heartbeat()
+        # Load once, here, through the exact loader the analyzer uses, and keep
+        # the result. A parse mints a fresh ``document_id`` whenever the parser
+        # does not supply a content-derived one, so a second parse of the same
+        # bytes is a second document — and indexing one while extracting from
+        # the other would produce a run whose every citation addresses a document
+        # the store never registered. The single ``loaded`` below is therefore
+        # handed to the fact layer rather than re-derived inside it.
+        loaded = DocumentLoader.load_with_outcome(staged)
+        document = getattr(loaded.outcome, "document", None)
+        if document is None:
+            raise StepFailed(
+                (loaded.outcome.error_message if loaded.outcome is not None else "")
+                or "文档解析失败。",
+                retryable=False,
+            )
+        context.heartbeat()
 
-        if analysis is None:
-            raise StepFailed("分析阶段结束但没有产出结果。", retryable=False)
+        # Build the retriever over the indexed document and turn it into the
+        # per-field evidence provider the fact layer requires. `build_qa_retriever`
+        # indexes only what is not already indexed and caches the retriever, so a
+        # repeated analysis of the same document pays neither a second embedding
+        # nor a second chunking pass.
+        retriever = build_qa_retriever(get_store_bundle(), document=document)
+        context.heartbeat()
+        evidence_provider = make_evidence_provider(retriever, document.document_id)
 
-        result = finalize_analysis_result(
-            result=analysis,
-            analyzer=analyzer,
-            original_filename=source_filename,
-            generate_evaluation_bool=evaluation,
+        # One call, one result: the fact layer extracts, renders every card, and
+        # records the run; `finalize_analysis_result` (called inside
+        # `analyze_with_fact_layer`) attaches the run/facts, the document id, the
+        # parse provenance and the session.
+        result = analyze_with_fact_layer(
+            staged,
+            source_filename,
+            api_key,
+            mermaid,
+            evaluation,
             session_id=str(context.job.session_id or ""),
             generate_research_brief_bool=brief,
+            document_id=document.document_id,
+            evidence_provider=evidence_provider,
+            store=get_store_bundle(),
+            loaded_document=loaded,
         )
         context.heartbeat()
     finally:
         remove_file_safely(staged, "job analysis staging file")
+
+    # The sections the fact layer produced, published into the scratch as a
+    # finished set. `job_sections` is what `/api/analyze/stream` reads to emit
+    # `section` events, so the event vocabulary is preserved — there is simply
+    # one publication instead of one per section.
+    sections = dict(result.get("sections") or {})
+    context.update(context={"sections": dict(sections)})
 
     # The hand-off for a synchronous caller, and the reason it has to be
     # process-local: the result carries the session *token*, which is exactly the

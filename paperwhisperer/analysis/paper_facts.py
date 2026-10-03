@@ -2322,6 +2322,8 @@ class FactLayerPipeline:
         *,
         evidence: Sequence[Evidence] | None = None,
         generate_evaluation: bool = True,
+        generate_mermaid: bool = True,
+        generate_research_brief: bool = True,
         quote_fallback: bool = True,
         legacy_content: str = "",
         created_at: str = "",
@@ -2333,6 +2335,17 @@ class FactLayerPipeline:
         ``document`` is used only for the section tree, which is why the
         Mermaid first layer costs nothing: there is no model in that path and
         therefore nothing for a document argument to buy.
+
+        ``generate_mermaid``, ``generate_evaluation`` and
+        ``generate_research_brief`` are the caller's three section switches and
+        all three are honoured here. They cost nothing to honour -- two of them
+        are pure renderings of data the extraction already paid for -- so a
+        flag that was accepted and then ignored was a switch that lied to the
+        caller: the card appeared, the run was billed for it, and a reader who
+        had explicitly switched it off could not tell it from one they had
+        asked for. ``evaluation`` is the only one of the three that additionally
+        gates a model call, and that is why it is the one that was already
+        correct.
 
         ``quote_fallback`` is the third and last call this path can make. It
         fires only when the extraction verified no span at all, so the common
@@ -2375,9 +2388,11 @@ class FactLayerPipeline:
             "summary": render_overview(facts),
             "quotes": quotes,
             "mindmap": render_mindmap(facts),
-            "mermaid": build_mermaid_sections(tree) if tree is not None else "",
+            "mermaid": (
+                build_mermaid_sections(tree) if tree is not None and generate_mermaid else ""
+            ),
             "evaluation": render_evaluation(facts, appraisal) if generate_evaluation else "",
-            "research_brief": render_brief(facts),
+            "research_brief": render_brief(facts) if generate_research_brief else "",
         }
 
         run = build_analysis_run(

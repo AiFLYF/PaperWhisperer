@@ -49,10 +49,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from paperwhisperer.analysis import orchestrator as analysis_orchestrator
+from paperwhisperer.analysis import paper_facts as analysis_paper_facts
+from paperwhisperer.analysis import sections as analysis_sections
 from paperwhisperer.analysis import service as analysis_service
 from paperwhisperer.api import routes_evidence, routes_jobs, routes_v1
 from paperwhisperer.app import app
 from paperwhisperer.core import config
+from paperwhisperer.documents.loader import DocumentLoader, LoadedDocument
 from paperwhisperer.infra import jobs as J
 from paperwhisperer.infra.object_store import FilesystemObjectStore
 from paperwhisperer.infra.stores import build_sqlite_bundle
@@ -130,27 +133,36 @@ class StubParser:
         raise AssertionError("the job's parse stage should have been stubbed out")
 
 
-class StubAnalyzer:
-    """A ``DocumentAnalyzer`` that answers without a model.
+class StubFactLayerEntry:
+    """The fact-layer analysis entry point, answering without a model or index.
 
-    Recording *when* it was constructed is the point of this file: the claim
-    under test is that the analysis did not happen inside the request, and the
-    only honest evidence for that is a stub that would have noticed.
+    The migration made the analysis a *function* seam rather than a class one, so
+    there is no longer a "was it constructed" question to ask — only "was it
+    called". Both are recorded here, under the names the rest of this file uses:
+    :data:`calls` for the analysis itself and :data:`retriever_builds` for the
+    pre-index the fact layer needs. The second one is new with the migration and
+    is the more expensive of the two, since indexing embeds the document; a
+    request that built the index inline would pay an embedding pass before
+    answering 202.
     """
 
-    instances: list[StubAnalyzer] = []
     calls: list[str] = []
+    retriever_builds: list[str] = []
 
-    def __init__(self, api_key: str) -> None:
-        self.api_key = api_key
-        self.version = "stub-1.0"
-        StubAnalyzer.instances.append(self)
-
-    def analyze_stream(self, file_path, *args, **kwargs):
-        StubAnalyzer.calls.append(str(file_path))
-        yield {"type": "section", "name": "summary", "section": {"summary": "要点"}}
-        yield {"type": "section", "name": "evaluation", "section": {"evaluation": "评价"}}
-        yield {"type": "done", "result": {"sections": {"summary": {}, "evaluation": {}}}}
+    def __call__(self, file_path, original_filename, api_key, *args, **kwargs):
+        StubFactLayerEntry.calls.append(str(file_path))
+        # A constant, not the session id it was handed: ``build_session_id("")``
+        # mints a real one for an anonymous upload, and echoing it would make
+        # this assertion pass without proving the stub ran.
+        return {
+            "session_id": "sess_stub",
+            "session_token": "token-not-a-real-secret",
+            "source_filename": original_filename,
+            "sections": {name: {"status": "success", "content": f"{name} 内容"}
+                         for name in analysis_sections.SECTION_KEYS},
+            "citations": [],
+            "claims": [],
+        }
 
 
 # --------------------------------------------------------------------------
@@ -185,12 +197,23 @@ def job_store(bundle):
 
 @pytest.fixture
 def stubbed_pipeline(monkeypatch, tmp_path):
-    """Stub the parse, the analyzer and the finaliser; isolate the runtime dirs.
+    """Stub the parse, the fact-layer analysis and the pre-index; isolate the dirs.
 
-    Each stage imports its collaborator *inside* the function, from the module
-    it names, so replacing the module attribute is enough and is also the most
+    Each stage imports its collaborator *inside* the function, from the module it
+    names, so replacing the module attribute is enough and is also the most
     honest seam available: it proves the stage is calling the function it claims
     to rather than a local copy of it.
+
+    **The analysis seam moved.** It used to be ``DocumentAnalyzer.analyze_stream``
+    in :mod:`paperwhisperer.analysis.orchestrator`; the analysing stage now calls
+    :func:`analysis.service.analyze_with_fact_layer` (the fact layer, the only
+    path that records the provenance the export needs), and it does so *after*
+    loading the document once and building a retriever over an indexed copy of
+    it. So the stub replaces that entry point, and the loader and the two
+    retrieval collaborators are replaced with it — a stub that only answered the
+    analysis call would still let a real parse and a real embedding run, which
+    is neither hermetic nor what these tests are about (they are about the job
+    system, not about retrieval).
 
     The runtime folders go to ``tmp_path`` because the stages materialise a real
     file out of the object store, and a test must never write to a developer's
@@ -215,24 +238,33 @@ def stubbed_pipeline(monkeypatch, tmp_path):
     monkeypatch.setattr(gateway, "build_default_parsers", lambda: [StubParser()])
     monkeypatch.setattr(routes_v1, "build_default_parsers", lambda: [StubParser()])
 
-    StubAnalyzer.instances = []
-    StubAnalyzer.calls = []
-    monkeypatch.setattr(analysis_orchestrator, "DocumentAnalyzer", StubAnalyzer)
+    # The document the analysing stage indexes and then hands to the fact layer.
+    # A real ``ParsedDocument`` because the stage reads ``document_id`` off it
+    # before anything else, and a ``SimpleNamespace`` would fail later for a
+    # reason that has nothing to do with the job system.
+    def fake_load(file_path):
+        calls.file_path = str(file_path)
+        calls.body = Path(str(file_path)).read_text(encoding="utf-8", errors="ignore")
+        return LoadedDocument(text=calls.body, outcome=StubParseOutcome())
 
-    def fake_finalize(*, result, analyzer, original_filename, **kwargs):
-        # A constant, not the session id it was handed: ``build_session_id("")``
-        # mints a real one for an anonymous upload, and echoing it would make
-        # this assertion pass without proving the stub ran.
-        return {
-            "session_id": "sess_stub",
-            "session_token": "token-not-a-real-secret",
-            "source_filename": original_filename,
-            "sections": result.get("sections") or {},
-            "citations": [],
-            "claims": [],
-        }
+    monkeypatch.setattr(DocumentLoader, "load_with_outcome", staticmethod(fake_load))
 
-    monkeypatch.setattr(analysis_service, "finalize_analysis_result", fake_finalize)
+    # The pre-index. A retriever over a bundle would embed real vectors; the job
+    # system does not care how the evidence was gathered, only that the stage
+    # reached the analysis on the worker thread. It *does* record that it ran,
+    # because with the fact layer the index is built inside the request path's
+    # own stage rather than after the summary, and that is worth watching.
+    def fake_build_qa_retriever(bundle, document=None):
+        StubFactLayerEntry.retriever_builds.append(str(getattr(document, "document_id", "")))
+        return SimpleNamespace(indexed=document)
+
+    monkeypatch.setattr(analysis_orchestrator, "build_qa_retriever", fake_build_qa_retriever)
+    monkeypatch.setattr(analysis_paper_facts, "make_evidence_provider",
+                        lambda retriever, document_id, **kwargs: (lambda field, doc: ((), ())))
+
+    StubFactLayerEntry.calls = []
+    StubFactLayerEntry.retriever_builds = []
+    monkeypatch.setattr(analysis_service, "analyze_with_fact_layer", StubFactLayerEntry())
     return calls
 
 
@@ -375,8 +407,10 @@ class TestSubmission:
         response = upload(api, api_key="sk-live-0000000000000000")
         assert response.status_code == 202
 
-        assert StubAnalyzer.instances == [], "analyzer was constructed inside the request"
-        assert StubAnalyzer.calls == [], "analysis ran inside the request"
+        assert StubFactLayerEntry.calls == [], "the analysis ran inside the request"
+        assert StubFactLayerEntry.retriever_builds == [], (
+            "the document was indexed inside the request, before the job was even queued"
+        )
         job = job_store.get_job(response.json()["job_id"])
         assert job.state == J.STATE_QUEUED
 
@@ -834,7 +868,7 @@ class TestTheWorkerLifecycle:
 
         assert job.terminal, "the lifespan's worker never claimed the job"
         assert job.state == J.STATE_COMPLETED
-        assert StubAnalyzer.calls, "the work never happened"
+        assert StubFactLayerEntry.calls, "the work never happened"
 
     def test_the_worker_is_stopped_on_teardown(self, bundle, objects, job_store,
                                                stubbed_pipeline, monkeypatch,
@@ -1091,7 +1125,7 @@ class TestCancellation:
         # the queue rather than claiming it and dropping it.
         job_store.apply_queued_cancellations()
         assert job_store.get_job(job_id).state == J.STATE_CANCELLED
-        assert StubAnalyzer.calls == [], "a cancelled job still spent money"
+        assert StubFactLayerEntry.calls == [], "a cancelled job still spent money"
 
     def test_cancelling_twice_is_not_an_error(self, api, job_store):
         """It is a client retrying a request whose response it never saw.

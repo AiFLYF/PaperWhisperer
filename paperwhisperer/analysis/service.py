@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import datetime
 from typing import Any
 from urllib.parse import quote
@@ -51,9 +52,10 @@ from urllib.parse import quote
 from paperwhisperer.analysis import paper_facts
 from paperwhisperer.analysis.orchestrator import (
     DocumentAnalyzer,
+    build_analysis_metadata,
     build_parse_provenance,
 )
-from paperwhisperer.analysis.sections import SECTION_KEYS, SECTION_LABELS
+from paperwhisperer.analysis.sections import SECTION_KEYS
 from paperwhisperer.core import config
 from paperwhisperer.core.text import build_session_id, now_iso
 from paperwhisperer.ingestion.latex import (
@@ -2349,13 +2351,22 @@ def analyze_saved_file(
 ) -> dict:
     """Analyze a file on disk and return the finalized, session-backed result.
 
-    The old path, unchanged. It is what the routes call today, and it is what
-    produces the numbers
-    :func:`paperwhisperer.analysis.paper_facts.legacy_call_budget` reconstructs.
-    Swapping it for :func:`analyze_with_fact_layer` is a one-line change at the
-    call site, deliberately left as the caller's decision so that the two can
+    The old six-section path, unchanged, and now no longer on the main
+    analysis route: ``_analyse_stage`` in :mod:`paperwhisperer.api.routes_jobs`
+    calls :func:`analyze_with_fact_layer` instead. What this function is kept
+    for is *comparison* — it is what produces the numbers
+    :func:`paperwhisperer.analysis.paper_facts.legacy_call_budget` reconstructs,
+    and running it against the same document is how the fact layer's cost and
+    coverage claims were measured before the swap.
+
+    The gate this docstring used to carry — "swapping it is a one-line change at
+    the call site, deliberately left as the caller's decision so that the two can
     be compared on the same document rather than one replacing the other
-    unmeasured.
+    unmeasured" — has now been satisfied: the comparison was run on the same
+    document (about two model calls against thirteen, roughly a five-fold
+    wall-clock difference), and the decision was made in favour of the fact
+    layer. The legacy path is deliberately kept callable so that claim stays
+    checkable rather than becoming folklore.
     """
     resolved_api_key = config.resolve_api_key(api_key)
     if not resolved_api_key:
@@ -2390,6 +2401,7 @@ def analyze_with_fact_layer(
     document_id: str = "",
     evidence_provider: Any | None = None,
     store: Any | None = None,
+    loaded_document: Any | None = None,
 ) -> dict:
     """Analyze a file through the fact layer and return the same result shape.
 
@@ -2405,13 +2417,25 @@ def analyze_with_fact_layer(
     reason: a fact layer with no citations renders as though every claim in it
     had been verified, and there is no way for a reader to tell the difference.
 
-    ``generate_mermaid_bool`` is accepted for signature symmetry and is
-    ignored, because the Mermaid first layer is generated from the section
-    tree and is therefore always available. It is kept so the two entry points
-    can be swapped without touching the call site; the argument that would
-    turn it back into a model call is ``deepen_mermaid``, which is not
-    implemented here precisely because the model may not alter the section
-    level.
+    ``generate_mermaid_bool``, ``generate_evaluation_bool`` and
+    ``generate_research_brief_bool`` are all honoured and all three are passed
+    through to the pipeline, which is where they belong. They used to be
+    accepted and dropped, with only the evaluation flag reaching
+    :meth:`~paperwhisperer.analysis.paper_facts.FactLayerPipeline.run`; a caller
+    who switched the Mermaid card off still got one, and one who switched it on
+    and paid nothing extra got no way to tell that from a card the run had
+    chosen not to build. Keeping the arguments is also what lets the two entry
+    points stay substitutable at the call site.
+
+    ``elapsed_seconds`` is measured here rather than left to the caller, because
+    this is the only place that knows where the analysis begins and ends. The
+    old path stamped it on its own result; a result that carried no such field
+    left the interface showing "N/A" for a run that had in fact taken most of a
+    minute, which is the same invisible difference the three flags above were.
+    The measurement covers the parse and the whole DAG and stops before
+    :func:`finalize_analysis_result`, matching where the old path drew its
+    boundary -- the reader is being told how long the *analysis* took, not how
+    long the session write and the trailing registration added.
     """
     resolved_api_key = config.resolve_api_key(api_key)
     if not resolved_api_key:
@@ -2422,8 +2446,25 @@ def analyze_with_fact_layer(
             "请先建索引，或继续使用旧分析路径。"
         )
 
+    started_at = time.monotonic()
     analyzer = DocumentAnalyzer(resolved_api_key)
-    document = _load_document_once(analyzer, file_path)
+    if loaded_document is not None:
+        # A caller that already parsed the file — because it had to index the
+        # document before it could build an evidence provider — hands the very
+        # parse it used back here rather than letting this function parse a
+        # second time. That is not a micro-optimisation: a parse mints a fresh
+        # ``document_id`` whenever the parser does not supply a content-derived
+        # one, so two parses of one file are two documents. Indexing the first
+        # and extracting from the second would give a run whose evidence
+        # citations address a document the store never registered — the exact
+        # unaddressable-citation defect this whole path exists to remove. One
+        # parse, one identity, is therefore the only correct arrangement.
+        _adopt_loaded_document(analyzer, loaded_document)
+        document = getattr(loaded_document.outcome, "document", None)
+        if document is None:
+            raise ValueError("文档解析结果中没有可用的结构化文档，无法生成章节树。")
+    else:
+        document = _load_document_once(analyzer, file_path)
 
     pipeline = paper_facts.FactLayerPipeline(
         complete=analyzer.client.complete,
@@ -2435,6 +2476,8 @@ def analyze_with_fact_layer(
     outcome = pipeline.run(
         document=document,
         generate_evaluation=generate_evaluation_bool,
+        generate_mermaid=generate_mermaid_bool,
+        generate_research_brief=generate_research_brief_bool,
         legacy_content=analyzer.document_content,
         created_at=now_iso(),
     )
@@ -2442,6 +2485,16 @@ def analyze_with_fact_layer(
         outcome,
         content=analyzer.document_content,
         parse_outcome=analyzer.parse_outcome,
+        generate_mermaid=generate_mermaid_bool,
+        generate_evaluation=generate_evaluation_bool,
+        generate_research_brief=generate_research_brief_bool,
+    )
+    result["elapsed_seconds"] = round(time.monotonic() - started_at, 1)
+    logger.info(
+        "Fact-layer analysis completed in %.1fs for %s (%d facts)",
+        result["elapsed_seconds"],
+        original_filename,
+        len(outcome.facts.all_facts()),
     )
     return finalize_analysis_result(
         result=result,
@@ -2467,12 +2520,25 @@ def _load_document_once(analyzer: DocumentAnalyzer, file_path) -> Any:
     from paperwhisperer.documents.loader import DocumentLoader
 
     loaded = DocumentLoader.load_with_outcome(file_path)
-    analyzer.document_content = loaded.text
-    analyzer.parse_outcome = loaded.outcome
+    _adopt_loaded_document(analyzer, loaded)
     document = getattr(loaded.outcome, "document", None)
     if document is None:
         raise ValueError("文档解析结果中没有可用的结构化文档，无法生成章节树。")
     return document
+
+
+def _adopt_loaded_document(analyzer: DocumentAnalyzer, loaded: Any) -> None:
+    """Point ``analyzer`` at a parse a caller already performed.
+
+    The two attributes are one decision: the text the prompts see and the
+    structured document the identity, the formula index and the citation locators
+    come from must be the *same* parse of the *same* bytes. Setting one without
+    the other is how a citation ends up addressing a document id that was never
+    registered, so this is one function rather than two assignments at each
+    call site.
+    """
+    analyzer.document_content = loaded.text
+    analyzer.parse_outcome = loaded.outcome
 
 
 def _embedding_usage(store: Any) -> Any:
@@ -2502,6 +2568,9 @@ def _result_from_outcome(
     *,
     content: str,
     parse_outcome: Any = None,
+    generate_mermaid: bool = True,
+    generate_evaluation: bool = True,
+    generate_research_brief: bool = True,
 ) -> dict:
     """Shape the DAG's output like an analysis result.
 
@@ -2517,17 +2586,49 @@ def _result_from_outcome(
     some fields are unverified or absent, not that a section threw. Both are
     reasons a reader should not take the cards at face value, which is what the
     field is for.
+
+    **The follow-up suggestions are the old path's, derived the old way.** They
+    used to be hard-coded here -- four questions and an empty action list --
+    which meant this path shipped an interface with no follow-up affordances
+    and, worse, disagreed with the path it was written to replace about what
+    those affordances were. They are now produced by the very same
+    :func:`~paperwhisperer.analysis.orchestrator.build_analysis_metadata` the
+    legacy path calls, from the very same ``sections`` statuses, so there is one
+    implementation of "what can I usefully ask next" rather than two that
+    disagree about it. That is why the counts are what they are: the questions
+    grow to six and the actions to five when the sections that justify them are
+    present, which is the behaviour the reader already had.
+
+    **A switched-off section is ``disabled``, not ``empty``.** The card is empty
+    either way, so the text cannot tell the two apart, but the two mean opposite
+    things to the code that reads the statuses: ``empty`` is a section that
+    should have produced text and did not, and it is what
+    :func:`build_analysis_metadata` turns into a "go and ask about the
+    gaps" action. A reader who switched the research brief off and is then
+    offered a follow-up about why their research brief is missing has been told
+    their own click was a failure. So the flags are threaded in here, where the
+    statuses are computed, rather than being re-inferred from an empty string.
     """
+    disabled_by_flag = {
+        "mermaid": not generate_mermaid,
+        "evaluation": not generate_evaluation,
+        "research_brief": not generate_research_brief,
+    }
     sections_map: dict[str, dict] = {}
     for key in SECTION_KEYS:
         text = outcome.cards.get(key, "")
-        status = "success" if text else "empty"
+        status = "disabled" if disabled_by_flag.get(key) else "success" if text else "empty"
         sections_map[key] = {
             "status": status,
             "content": text,
             "error": "",
             "retryable": False,
         }
+
+    # One derivation of the follow-up affordances from the statuses computed
+    # above, so the questions, the actions and the quality verdict cannot
+    # disagree about which sections actually produced anything.
+    metadata = build_analysis_metadata(sections_map)
 
     result: dict[str, Any] = {
         "char_count": len(content),
@@ -2536,24 +2637,16 @@ def _result_from_outcome(
     }
     for key in SECTION_KEYS:
         result[key] = outcome.cards.get(key, "")
+    # The statuses are computed once, above, and both the quality verdict and
+    # the follow-up affordances are derived from that single map -- so the
+    # interface can never claim a section is complete while offering the reader
+    # an action for filling it in.
     result["analysis_status"] = {
+        **metadata["analysis_status"],
         "quality": "partial" if outcome.report.is_degraded else "complete",
-        "completed_sections": [
-            SECTION_LABELS[key]
-            for key, value in sections_map.items()
-            if value["status"] == "success"
-        ],
-        "failed_sections": [],
-        "disabled_sections": [],
-        "section_statuses": {key: value["status"] for key, value in sections_map.items()},
     }
-    result["suggested_questions"] = [
-        "这篇论文要解决的核心问题是什么？",
-        "它的主要方法和创新点分别是什么？",
-        "实验或论证最支持哪些结论？",
-        "这篇论文有哪些局限性和后续研究方向？",
-    ]
-    result["next_actions"] = []
+    result["suggested_questions"] = metadata["suggested_questions"]
+    result["next_actions"] = metadata["next_actions"]
     return attach_fact_layer(
         result, facts=outcome.facts, run=outcome.run, report=outcome.report
     )

@@ -17,9 +17,11 @@ be lifted at all.
 from __future__ import annotations
 
 import io
+from types import SimpleNamespace
 
 import pytest
 
+from paperwhisperer.analysis import sections
 from paperwhisperer.core import config
 
 #: A cap of exactly 1 MB, so the rejection message renders as a real number
@@ -62,25 +64,160 @@ class RecordingAnalyzer:
     def reset(cls):
         cls.instances = []
 
-    def analyze(self, file_path, mermaid=True, evaluation=True, research_brief=True):
-        return {
-            "summary": "summary 内容",
-            "quotes": "quotes 内容",
-            "mindmap": "mindmap 内容",
-            "char_count": 10,
+    def _build_result(self):
+        """The result every path in this file hands to the caller.
+
+        One builder, so the legacy ``analyze_stream`` generator above and the
+        fact-layer stub below cannot drift apart and quietly start producing two
+        different ``summary`` strings for the same "analysis".
+        """
+        sections_map = {
+            name: {"status": "success", "content": f"{name} 内容",
+                   "error": "", "retryable": False}
+            for name in sections.SECTION_KEYS
         }
+        result = {
+            "char_count": 10,
+            "source_filename": "paper.txt",
+            "sections": sections_map,
+        }
+        for name in sections.SECTION_KEYS:
+            result[name] = sections_map[name]["content"]
+        return result
+
+    def analyze(self, file_path, mermaid=True, evaluation=True, research_brief=True):
+        return self._build_result()
 
     def analyze_stream(self, file_path, mermaid=True, evaluation=True, research_brief=True):
-        yield {"type": "section", "name": "summary", "section": {"content": "summary 内容"}}
-        yield {
-            "type": "done",
-            "result": {
-                "summary": "summary 内容",
-                "quotes": "quotes 内容",
-                "mindmap": "mindmap 内容",
-                "char_count": 10,
-            },
+        result = self._build_result()
+        for name in sections.SECTION_KEYS:
+            yield {"type": "section", "name": name,
+                   "section": result["sections"][name]}
+        yield {"type": "done", "result": result}
+
+
+def _stub_fact_layer_seams(monkeypatch):
+    """Drive the migrated ``/api/analyze`` stage through stubs, not the network.
+
+    The analysing stage
+    (:func:`paperwhisperer.api.routes_jobs._analyse_stage`) was moved off the
+    legacy six-section generator (``DocumentAnalyzer.analyze_stream``) onto the
+    fact layer, and it now runs four collaborators *before* it produces any
+    content, each imported at call time from the module it names:
+
+    1. ``DocumentLoader.load_with_outcome`` — the real parse, and the one parse
+       whose ``document_id`` the rest of the stage must reuse,
+    2. ``orchestrator.build_qa_retriever`` — the pre-index the fact layer refuses
+       to run without,
+    3. ``paper_facts.make_evidence_provider`` — the per-field citations wrapper,
+    4. ``service.analyze_with_fact_layer`` — the analysis itself.
+
+    Stubbing ``DocumentAnalyzer`` alone (which the fixture below also does) is no
+    longer enough: with the real ``analyze_with_fact_layer`` in place it builds a
+    *real* analyzer and runs the real DAG, and step 2 builds a dense retriever —
+    an embedding pass that, with no local model cached, fails the job and turns
+    the request into a 422. So all four are replaced here.
+
+    **The last stub is deliberately shallow, and deliberately calls the real
+    finaliser.** It builds a ``RecordingAnalyzer`` (so the "the oversized cases
+    must never construct one" assertions keep their meaning) and produces its
+    content through the same ``_build_result`` helper, then hands off to the
+    *real* :func:`paperwhisperer.analysis.service.finalize_analysis_result`,
+    because that is where the product behaviour these tests are about lives: the
+    session id is sanitised, the session token is minted, the session is
+    persisted, the Markdown report is written, and the result gains the 200-vs-422
+    semantics the route answers with. Stubbing the finaliser too would turn the
+    accepted-upload tests into tests of a fake.
+
+    ``register_analysis_document`` is the one thing inside the finaliser that
+    leaves the process (it indexes the document for the citation API, which
+    embeds), and nothing here is about citations — so it is replaced with a no-op
+    reporting the same ``registered`` shape the real one would. Everything after
+    it is real.
+    """
+    from paperwhisperer.analysis import orchestrator as analysis_orchestrator
+    from paperwhisperer.analysis import paper_facts as analysis_paper_facts
+    from paperwhisperer.analysis import service as analysis_service
+    from paperwhisperer.documents.loader import DocumentLoader, LoadedDocument
+
+    # (1) The parse. A stub outcome rather than a real ``ParseOutcome`` because
+    # the stage reads exactly three things off it — ``.document`` (for
+    # ``document_id``), ``.error_message`` (only when there is no document) and
+    # nothing else — and arranging a genuine parse here would be a second thing
+    # under test in a file about the HTTP request path.
+    def fake_load_with_outcome(file_path):
+        return LoadedDocument(
+            text="stub document body",
+            outcome=SimpleNamespace(
+                document=SimpleNamespace(
+                    document_id="doc_stub", page_count=1, char_count=18,
+                    source_filename="paper.txt",
+                ),
+                error_message="",
+                used_cloud=False,
+            ),
+        )
+
+    monkeypatch.setattr(DocumentLoader, "load_with_outcome",
+                        staticmethod(fake_load_with_outcome))
+
+    # (2) The pre-index and (3) the evidence provider: dummies, because a real
+    # retriever embeds the document and this file's assertions are about byte
+    # ceilings, not citations.
+    monkeypatch.setattr(
+        analysis_orchestrator, "build_qa_retriever",
+        lambda bundle, document=None: SimpleNamespace(indexed=document),
+    )
+    monkeypatch.setattr(
+        analysis_paper_facts, "make_evidence_provider",
+        lambda retriever, document_id, **kwargs: SimpleNamespace(document_id=document_id),
+    )
+
+    # The citation index, the one part of the finaliser that leaves the process.
+    def fake_register_analysis_document(result, parse_outcome=None):
+        result["document_registration"] = {
+            "status": "registered",
+            "document_id": str(result.get("document_id") or "doc_stub"),
+            "chunk_count": 0,
+            "index_version": "test",
+            "code": "",
+            "notice": "",
         }
+        return result
+
+    monkeypatch.setattr(analysis_service, "register_analysis_document",
+                        fake_register_analysis_document)
+
+    # (4) The analysis. The signature is the real one — including the
+    # keyword-only collaborators the migrated stage now passes — so a caller
+    # that started passing a new argument would be caught here rather than
+    # silently swallowed by ``**kwargs``.
+    def fake_analyze_with_fact_layer(
+        file_path, original_filename, api_key, generate_mermaid_bool,
+        generate_evaluation_bool, session_id, generate_research_brief_bool=True,
+        *, document_id="", evidence_provider=None, store=None, loaded_document=None,
+    ):
+        stub = RecordingAnalyzer(api_key)
+        result = stub._build_result()
+        result["document_id"] = document_id
+        result["source_filename"] = original_filename
+        # ``run``/``report`` stay ``None``: the fact layer's provenance payload is
+        # covered where it is actually produced (``test_fact_layer_route.py``),
+        # and leaving them off keeps this stub from having to fabricate a
+        # ``PaperFacts`` no assertion in this file looks at.
+        return analysis_service.finalize_analysis_result(
+            result=result,
+            analyzer=stub,
+            original_filename=original_filename,
+            generate_evaluation_bool=generate_evaluation_bool,
+            session_id=session_id,
+            generate_research_brief_bool=generate_research_brief_bool,
+            run=None,
+            report=None,
+        )
+
+    monkeypatch.setattr(analysis_service, "analyze_with_fact_layer",
+                        fake_analyze_with_fact_layer)
 
 
 @pytest.fixture
@@ -98,8 +235,20 @@ def analyzer(monkeypatch, isolated_job_stores):
     ``analysis.service.analyze_saved_file`` (which binds the name itself), so
     that module is patched too.
 
+    The stage has since been migrated onto the fact layer
+    (:func:`paperwhisperer.analysis.service.analyze_with_fact_layer`), which
+    routes nothing at ``analyze_stream`` any more — so on its own this stub no
+    longer decides what the accepted-upload tests analyse.
+    :func:`_stub_fact_layer_seams` installs the four replacements the migrated
+    stage actually reads, and does so around the real finaliser; the
+    ``DocumentAnalyzer`` patches below stay because the import-paper path and
+    the job stage's analyzer-shaped collaborators still construct one directly,
+    and the fact-layer stub still builds a ``RecordingAnalyzer`` so the
+    "no analyzer was ever constructed" assertions on the refused uploads keep
+    meaning something.
+
     ``tests/conftest.py::no_unstubbed_job_stage_model`` is the suite-wide
-    backstop for the same seam; this per-test stub is applied after it and so
+    backstop for the analyzer seam; this per-test stub is applied after it and so
     wins for the duration of the test.
     """
     RecordingAnalyzer.reset()
@@ -109,6 +258,7 @@ def analyzer(monkeypatch, isolated_job_stores):
         "paperwhisperer.api.routes_documents",
     ):
         monkeypatch.setattr(f"{module}.DocumentAnalyzer", RecordingAnalyzer)
+    _stub_fact_layer_seams(monkeypatch)
     yield RecordingAnalyzer
     RecordingAnalyzer.reset()
 

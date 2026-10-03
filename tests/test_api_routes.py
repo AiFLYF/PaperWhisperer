@@ -12,6 +12,7 @@ import asyncio
 import io
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -32,6 +33,7 @@ class RecordingAnalyzer:
 
     instances: list[RecordingAnalyzer] = []
     sections_to_fail: set[str] = set()
+    sections_to_be_empty: set[str] = set()
     answer_text = "answer body"
     chunks = ("第一段", "第二段")
     rewrite_meta = None
@@ -50,6 +52,7 @@ class RecordingAnalyzer:
     def reset(cls, **overrides):
         cls.instances = []
         cls.sections_to_fail = set()
+        cls.sections_to_be_empty = set()
         cls.answer_text = "answer body"
         cls.chunks = ("第一段", "第二段")
         cls.rewrite_meta = None
@@ -78,16 +81,25 @@ class RecordingAnalyzer:
     def _build_result(self, mermaid=True, evaluation=True, brief=True):
         if self.analysis_result is not None:
             return self.analysis_result
-        statuses = {name: "success" for name in sections.SECTION_KEYS}
-        statuses.update({name: "disabled" for name, on in
-                         (("mermaid", mermaid), ("evaluation", evaluation),
-                          ("research_brief", brief)) if not on})
-        result = {"char_count": 10, "sections": {
-            name: {"status": statuses[name], "content": f"{name} 内容",
-                   "error": "", "retryable": False}
-            for name in sections.SECTION_KEYS}}
+        switched_off = {
+            "mermaid": not mermaid,
+            "evaluation": not evaluation,
+            "research_brief": not brief,
+        }
+        empty = set(self.sections_to_be_empty)
+        sections_map = {}
         for name in sections.SECTION_KEYS:
-            result[name] = f"{name} 内容"
+            if switched_off.get(name):
+                status, content = "disabled", ""
+            elif name in empty:
+                status, content = "empty", ""
+            else:
+                status, content = "success", f"{name} 内容"
+            sections_map[name] = {"status": status, "content": content,
+                                  "error": "", "retryable": False}
+        result = {"char_count": 10, "sections": sections_map}
+        for name in sections.SECTION_KEYS:
+            result[name] = sections_map[name]["content"]
         return result
 
     def analyze(self, file_path, mermaid=True, evaluation=True, brief=True):
@@ -150,6 +162,135 @@ class RecordingAnalyzer:
                 "errors": []}
 
 
+def _stub_fact_layer_seams(monkeypatch):
+    """Drive the migrated ``/api/analyze`` stage through stubs, not the network.
+
+    The analysing stage
+    (:func:`paperwhisperer.api.routes_jobs._analyse_stage`) was moved off the
+    legacy six-section generator (``DocumentAnalyzer.analyze_stream``) onto the
+    fact layer, and it now runs four collaborators *before* it produces any
+    content, each imported at call time from the module it names:
+
+    1. ``DocumentLoader.load_with_outcome`` — the real parse (and the one parse
+       whose ``document_id`` the rest of the stage must reuse),
+    2. ``orchestrator.build_qa_retriever`` — the pre-index the fact layer
+       refuses to run without,
+    3. ``paper_facts.make_evidence_provider`` — the per-field citations wrapper,
+    4. ``service.analyze_with_fact_layer`` — the analysis itself.
+
+    Patching only ``DocumentAnalyzer`` (which the fixture below also does) is no
+    longer enough: with the real ``analyze_with_fact_layer`` in place it builds a
+    *real* ``DocumentAnalyzer`` and runs the real DAG, and step 2 builds a dense
+    retriever — an embedding pass that, on a machine without the local model
+    cached, either hangs for minutes on download retries or fails the job. So
+    every one of the four is replaced here.
+
+    **The last stub is deliberately shallow, and deliberately calls the real
+    finaliser.** It builds a ``RecordingAnalyzer`` (so ``analyzer.last()`` keeps
+    working) and produces its content through the same
+    :meth:`RecordingAnalyzer._build_result` helper the legacy path used, so the
+    three switches still decide the section statuses exactly as they did. Then
+    it hands off to the *real*
+    :func:`paperwhisperer.analysis.service.finalize_analysis_result`, because
+    that is where the product's real behaviour lives for everything these tests
+    are actually about: the session id is sanitised, the session token is minted,
+    the session is persisted, the Markdown report is written, and the result
+    gains the 200-vs-422 semantics the route answers with. Stubbing the finaliser
+    too would turn these into tests of a fake.
+
+    ``register_analysis_document`` is the one thing inside the finaliser that
+    reaches outside the process (it indexes the document for the citation API,
+    which embeds), and none of these tests are about citations — so it is
+    replaced with a no-op that reports the same ``registered`` shape the real one
+    would, keeping the run hermetic and offline. Everything after it is real.
+    """
+    from paperwhisperer.analysis import orchestrator as analysis_orchestrator
+    from paperwhisperer.analysis import paper_facts as analysis_paper_facts
+    from paperwhisperer.analysis import service as analysis_service
+    from paperwhisperer.documents.loader import DocumentLoader, LoadedDocument
+
+    # (1) The parse. A stub outcome rather than a real ``ParseOutcome`` because
+    # the stage reads exactly three things off it — ``.document`` (for
+    # ``document_id``), ``.error_message`` (only when there is no document) and
+    # nothing else — and arranging a genuine parser to run would be a second
+    # thing under test in a test about the HTTP route.
+    def fake_load_with_outcome(file_path):
+        return LoadedDocument(
+            text="stub document body",
+            outcome=SimpleNamespace(
+                document=SimpleNamespace(
+                    document_id="doc_stub", page_count=1, char_count=18,
+                    source_filename="paper.txt",
+                ),
+                error_message="",
+                used_cloud=False,
+            ),
+        )
+
+    monkeypatch.setattr(DocumentLoader, "load_with_outcome",
+                        staticmethod(fake_load_with_outcome))
+
+    # (2) The pre-index and (3) the evidence provider: dummies, because a real
+    # retriever embeds the document and the fact layer's citations are not what
+    # any test here is about.
+    monkeypatch.setattr(
+        analysis_orchestrator, "build_qa_retriever",
+        lambda bundle, document=None: SimpleNamespace(indexed=document),
+    )
+    monkeypatch.setattr(
+        analysis_paper_facts, "make_evidence_provider",
+        lambda retriever, document_id, **kwargs: SimpleNamespace(document_id=document_id),
+    )
+
+    # The citation index, the one part of the finaliser that leaves the process.
+    def fake_register_analysis_document(result, parse_outcome=None):
+        result["document_registration"] = {
+            "status": "registered",
+            "document_id": str(result.get("document_id") or "doc_stub"),
+            "chunk_count": 0,
+            "index_version": "test",
+            "code": "",
+            "notice": "",
+        }
+        return result
+
+    monkeypatch.setattr(analysis_service, "register_analysis_document",
+                        fake_register_analysis_document)
+
+    # (4) The analysis. The signature is the real one, so a caller that started
+    # passing a new argument would be caught here rather than silently dropped.
+    def fake_analyze_with_fact_layer(
+        file_path, original_filename, api_key, generate_mermaid_bool,
+        generate_evaluation_bool, session_id, generate_research_brief_bool=True,
+        **kwargs,
+    ):
+        stub = RecordingAnalyzer(api_key)
+        stub.calls.append((
+            "analyze_with_fact_layer", str(file_path), generate_mermaid_bool,
+            generate_evaluation_bool, generate_research_brief_bool,
+        ))
+        result = stub._build_result(
+            generate_mermaid_bool, generate_evaluation_bool, generate_research_brief_bool
+        )
+        # ``run``/``report`` stay ``None``: the fact layer's provenance payload is
+        # covered where it is actually produced (``test_fact_layer_route.py``),
+        # and leaving them off keeps this stub from having to fabricate a
+        # ``PaperFacts`` the assertions here never look at.
+        return analysis_service.finalize_analysis_result(
+            result=result,
+            analyzer=stub,
+            original_filename=original_filename,
+            generate_evaluation_bool=generate_evaluation_bool,
+            session_id=session_id,
+            generate_research_brief_bool=generate_research_brief_bool,
+            run=None,
+            report=None,
+        )
+
+    monkeypatch.setattr(analysis_service, "analyze_with_fact_layer",
+                        fake_analyze_with_fact_layer)
+
+
 @pytest.fixture
 def analyzer(monkeypatch, isolated_job_stores):
     """Swap in ``RecordingAnalyzer`` and hand back the class for configuration.
@@ -170,6 +311,15 @@ def analyzer(monkeypatch, isolated_job_stores):
     backstop for the same seam; this per-test stub is applied after it and so
     wins for the duration of the test.
 
+    **The analysis seam itself has since moved again.** That stage no longer
+    calls ``analyze_stream`` on the analyzer at all — it runs the fact layer,
+    which is a *function* seam four collaborators deep. So
+    :func:`_stub_fact_layer_seams` installs those four replacements as well; the
+    ``DocumentAnalyzer`` patches below stay because the Q&A / papers routes still
+    construct the analyzer directly, and the stub above still builds a
+    ``RecordingAnalyzer`` so ``analyzer.last()`` keeps meaning something for
+    every test in this file.
+
     ``isolated_job_stores`` is requested because every test here drives
     ``/api/analyze`` (or its streaming sibling), which since T2.3 writes a job
     row and an ``original`` object through process-wide store singletons. Without
@@ -186,6 +336,7 @@ def analyzer(monkeypatch, isolated_job_stores):
         "paperwhisperer.api.routes_papers",
     ):
         monkeypatch.setattr(f"{module}.DocumentAnalyzer", RecordingAnalyzer)
+    _stub_fact_layer_seams(monkeypatch)
     yield RecordingAnalyzer
     RecordingAnalyzer.reset()
 
@@ -277,11 +428,12 @@ class TestAnalyzeRoute:
             "/api/analyze", files=upload_bytes(), data=form(api_key=BROWSER_KEY, **{field: "false"})
         )
         call = analyzer.last().calls[0]
-        # Since T2.3 the analyser runs inside the job's analysing stage, which
-        # drives ``analyze_stream`` (not the one-shot ``analyze``) so that section
-        # events can be published into the job's scratch. The switch positions
-        # are the same on both methods.
-        assert call[0] == "analyze_stream"
+        # The analyser runs inside the job's analysing stage, which drives the
+        # fact-layer entry (``analyze_with_fact_layer``) rather than the legacy
+        # ``analyze_stream`` generator. The switch positions are the same on both
+        # methods, which is what this test is pinning: a switch the reader turned
+        # off has to arrive ``False`` at the position the seam reads it from.
+        assert call[0] == "analyze_with_fact_layer"
         assert call[position] is False
 
     def test_the_switches_default_to_on(self, analysis_client, analyzer):
@@ -299,17 +451,18 @@ class TestAnalyzeRoute:
                                                            monkeypatch):
         def explode(*args, **kwargs):
             raise RuntimeError("模型不可用")
-            yield  # pragma: no cover - makes this a generator, as analyze_stream is
 
-        # Since T2.3 the model runs inside the job's analysing stage, so a model
-        # failure is injected at the seam that stage actually reads (the
-        # analyzer) and surfaces as a *failed job* rather than an exception in the
+        # The analysis runs inside the job's analysing stage and reaches the model
+        # through the fact-layer entry, so a model failure is injected at that
+        # seam and surfaces as a *failed job* rather than an exception in the
         # request. The route's answer for a failed job is 422
         # ``document_analysis_failed`` — see ``routes_documents.analyze``. What
-        # this test guards is unchanged by that move: the failure is reported
+        # this test guards is unchanged by the migration: the failure is reported
         # (never a 200), it carries the analysis-failure code, and the staging
         # upload is still cleaned up.
-        monkeypatch.setattr(analyzer, "analyze_stream", explode)
+        monkeypatch.setattr(
+            "paperwhisperer.analysis.service.analyze_with_fact_layer", explode
+        )
         response = client.post("/api/analyze", files=upload_bytes(), data=form(api_key=BROWSER_KEY))
         assert response.status_code == 422
         assert response.json()["code"] == "document_analysis_failed"
@@ -357,22 +510,54 @@ class TestAnalyzeStreamRoute:
         names = [p["name"] for name, p in sse_events(response.text) if name == "section"]
         assert sorted(names) == sorted(sections.SECTION_KEYS)
 
-    def test_a_switched_off_section_produces_no_event(self, analysis_client, sse_events):
+    def test_a_switched_off_section_arrives_as_a_disabled_event(self, analysis_client, sse_events):
         response = analysis_client.post(
             "/api/analyze/stream", files=upload_bytes(),
             data=form(api_key=BROWSER_KEY, generate_evaluation="false"),
         )
-        names = [p["name"] for name, p in sse_events(response.text) if name == "section"]
-        assert "evaluation" not in names
+        events = sse_events(response.text)
+        evaluation = [p["section"] for name, p in events
+                      if name == "section" and p["name"] == "evaluation"]
+        # A switched-off section now ARRIVES as an event with status ``disabled``
+        # and no content — the legacy path simply omitted it. This is a strictly
+        # stronger contract than the absence it replaced: the client is told the
+        # card was turned off on purpose, rather than having to guess whether the
+        # empty card means "failed" or "you chose this". It is exactly why
+        # ``_result_from_outcome`` distinguishes ``disabled`` from ``empty`` — the
+        # latter would offer the reader a follow-up about a card their own click
+        # suppressed. The migrated stage publishes all sections in one shot, so
+        # every key appears.
+        assert len(evaluation) == 1
+        assert evaluation[0]["status"] == "disabled"
+        assert evaluation[0]["content"] == ""
+        assert events[-1][0] == "done"
 
-    def test_a_failed_section_is_streamed_rather_than_fatal(self, analysis_client, analyzer, sse_events):
-        analyzer.sections_to_fail = {"quotes"}
+    def test_a_section_without_content_is_degraded_but_not_fatal(self, analysis_client, analyzer,
+                                                              sse_events):
+        # The fact layer has no per-section ``failed`` event any more: it extracts
+        # the eight facts in one call and renders every card from them, so a card
+        # it could not produce is ``empty`` (present, empty, not an error) rather
+        # than ``failed``, and the whole run still finishes. This test pins that
+        # real behaviour — the honest replacement for the old
+        # ``sections_to_fail -> failed`` event. Making ``quotes`` come back empty
+        # is the product's genuine way of saying "this section has no content",
+        # and the contract under test is that such a run is *degraded, not
+        # fatal*: every section still arrives, the stream still ends in ``done``,
+        # and the reader gets the sections that did work.
+        analyzer.sections_to_be_empty = {"quotes"}
         response = analysis_client.post(
             "/api/analyze/stream", files=upload_bytes(), data=form(api_key=BROWSER_KEY)
         )
         events = sse_events(response.text)
-        failed = [p for name, p in events if name == "section" and p["section"]["status"] == "failed"]
-        assert [item["name"] for item in failed] == ["quotes"]
+        by_name = {p["name"]: p["section"] for name, p in events if name == "section"}
+        assert sorted(by_name) == sorted(sections.SECTION_KEYS)
+        # The degraded section is reported as empty — present, no content, not an
+        # error — and no section carries a ``failed`` status the product can no
+        # longer emit.
+        assert by_name["quotes"]["status"] == "empty"
+        assert by_name["quotes"]["content"] == ""
+        assert not [n for n, sec in by_name.items() if sec["status"] == "failed"]
+        assert by_name["summary"]["status"] == "success"
         assert events[-1][0] == "done"
 
     def test_a_missing_api_key_is_refused_before_the_stream_opens(self, analysis_client):
@@ -392,14 +577,15 @@ class TestAnalyzeStreamRoute:
                                                        monkeypatch):
         def explode(*args, **kwargs):
             raise RuntimeError("流式分析崩溃")
-            yield  # pragma: no cover - makes this a generator
 
         # The stream is a view of a durable job, so a producer failure is now a
         # failed job rather than a dead generator. The seam that produces the
-        # sections is the analyzer the job stage reads at call time; the route
-        # turns the failed job into an ``error`` event, which is the same
+        # sections is the fact-layer entry the job stage reads at call time; the
+        # route turns the failed job into an ``error`` event, which is the same
         # event vocabulary the browser already consumes.
-        monkeypatch.setattr(analyzer, "analyze_stream", explode)
+        monkeypatch.setattr(
+            "paperwhisperer.analysis.service.analyze_with_fact_layer", explode
+        )
         response = client.post(
             "/api/analyze/stream", files=upload_bytes(), data=form(api_key=BROWSER_KEY)
         )

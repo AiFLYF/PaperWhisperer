@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
@@ -165,18 +166,28 @@ def _install_stub(monkeypatch, routes, fake_analyze):
     (:mod:`paperwhisperer.api.routes_jobs`) import their collaborators **at call
     time**. Patching ``analyze_saved_file`` on the route module therefore
     intercepted nothing — the real parser and the real analyzer both ran, and
-    the request made a live call to the configured model endpoint. The stubs are
-    installed on the two seams the job actually executes, mirroring
+    the request made a live call to the configured model endpoint.
+
+    Two stubs are installed here, mirroring
     ``tests/test_jobs_api.py::stubbed_pipeline``:
 
     * the parse stage reads ``parse_document`` from
       :mod:`paperwhisperer.ingestion.orchestrator`;
-    * the analysing stage reads ``DocumentAnalyzer`` from
-      :mod:`paperwhisperer.analysis.orchestrator`.
+    * the analysing stage is handed the four seams listed in
+      :func:`_stub_fact_layer_seams` below.
 
-    These tests are about the upload edge and the contract wiring, not about the
-    parser or the model; both were always stubbed (as one ``analyze_saved_file``)
-    and are stubbed again, here at the seams that are actually executed.
+    ``DocumentAnalyzer`` is still replaced on the module the stage used to read
+    it from. Nothing on the ``/api/analyze`` path constructs one any more, so
+    this is belt-and-braces rather than load-bearing — but it is what the
+    tripwire in
+    :meth:`TestMalformedUploadIsRejectedAtTheEdge.test_a_rejected_upload_never_reaches_the_analyzer`
+    patches over, and removing it would turn that test into a no-op rather than
+    into a different test.
+
+    These tests are about the upload edge and the contract wiring, not about
+    the parser, the embedder or the model; all three were always stubbed (as one
+    ``analyze_saved_file``) and are stubbed again, here at the seams that are
+    actually executed.
     """
     from paperwhisperer.ingestion import orchestrator as ingestion_orchestrator
     from paperwhisperer.ingestion.schema import ParsedDocument
@@ -192,6 +203,169 @@ def _install_stub(monkeypatch, routes, fake_analyze):
 
     monkeypatch.setattr(ingestion_orchestrator, "parse_document", fake_parse)
     monkeypatch.setattr(routes, "DocumentAnalyzer", _StubAnalyzer)
+    _stub_fact_layer_seams(monkeypatch)
+
+
+def _stub_fact_layer_seams(monkeypatch):
+    """Drive the migrated ``/api/analyze`` analysing stage through stubs.
+
+    The analysing stage (:func:`paperwhisperer.api.routes_jobs._analyse_stage`)
+    was moved off the legacy six-section generator
+    (``DocumentAnalyzer.analyze_stream``) onto the fact layer, and it now runs
+    four collaborators *before* it produces any content, each imported at call
+    time from the module it names:
+
+    1. ``DocumentLoader.load_with_outcome`` — the load, and the one parse whose
+       ``document_id`` the rest of the stage must reuse;
+    2. ``orchestrator.build_qa_retriever`` — the pre-index the fact layer
+       refuses to run without;
+    3. ``paper_facts.make_evidence_provider`` — the per-field citations wrapper;
+    4. ``service.analyze_with_fact_layer`` — the analysis itself.
+
+    Patching only ``DocumentAnalyzer`` is no longer enough, and the symptom it
+    produced was a *misleading* one rather than a loud one: with the real
+    ``analyze_with_fact_layer`` in place it builds a real ``DocumentAnalyzer``
+    and runs the real DAG, and step 2 builds a dense retriever — an embedding
+    pass that, with no local model cached, fails the job, and the route answers
+    ``422`` for an upload these tests assert is a ``200``. A 422 that is really
+    an embedding download is exactly the kind of failure a test that only reads
+    a status code will happily encode as "the contract refuses this".
+
+    **The last stub is deliberately shallow, and deliberately calls the real
+    finaliser.** It builds the same minimal analysis body the legacy
+    ``_StubAnalyzer.analyze_stream`` used to yield — the ``summary`` / ``char_count``
+    / ``sections`` these edge tests assert on — and then hands off to the *real*
+    :func:`paperwhisperer.analysis.service.finalize_analysis_result`, because
+    that is where the product's real behaviour lives for everything these tests
+    are about: the session id is sanitised, the session token is minted, the
+    session is persisted, the Markdown report is written, and the result gains
+    the 200-vs-422 semantics the route answers with. Stubbing the finaliser too
+    would turn these into tests of a fake.
+
+    ``register_analysis_document`` is the one thing inside the finaliser that
+    reaches outside the process (it indexes the document for the citation API,
+    which embeds), and none of these tests are about citations — so it is
+    replaced with a no-op reporting the same ``registered`` shape the real one
+    would, keeping the run hermetic and offline. Everything after it is real.
+    """
+    from paperwhisperer.analysis import orchestrator as analysis_orchestrator
+    from paperwhisperer.analysis import paper_facts as analysis_paper_facts
+    from paperwhisperer.analysis import service as analysis_service
+    from paperwhisperer.documents.loader import DocumentLoader, LoadedDocument
+
+    # (1) The load. A stub outcome rather than a real ``ParseOutcome`` because
+    # the stage reads exactly three things off it — ``.document`` (for
+    # ``document_id``), ``.error_message`` (only when there is no document) and
+    # nothing else — and arranging a genuine parser to run would be a second
+    # thing under test in a test about the HTTP route. Note the deliberate
+    # mismatch with the *parse* stub installed by ``_install_stub``: the parse
+    # stage goes through ``ingestion.orchestrator.parse_document`` and the
+    # analysing stage does not, it goes through this loader. Two seams, one
+    # stubbed load each, and leaving either real means a parser reading a
+    # ``b"body"`` upload (which is what the PDF-alias test sends).
+    def fake_load_with_outcome(file_path):
+        return LoadedDocument(
+            text="document text",
+            outcome=SimpleNamespace(
+                document=SimpleNamespace(
+                    document_id="doc_stub",
+                    page_count=1,
+                    char_count=len("document text"),
+                    source_filename=str(file_path),
+                ),
+                error_message="",
+                used_cloud=False,
+            ),
+        )
+
+    monkeypatch.setattr(
+        DocumentLoader, "load_with_outcome", staticmethod(fake_load_with_outcome)
+    )
+
+    # (2) The pre-index and (3) the evidence provider: dummies, because a real
+    # retriever embeds the document and the fact layer's citations are not what
+    # any test in this file is about.
+    monkeypatch.setattr(
+        analysis_orchestrator,
+        "build_qa_retriever",
+        lambda bundle, document=None: SimpleNamespace(indexed=document),
+    )
+    monkeypatch.setattr(
+        analysis_paper_facts,
+        "make_evidence_provider",
+        lambda retriever, document_id, **kwargs: SimpleNamespace(
+            document_id=document_id
+        ),
+    )
+
+    # The citation index, the one part of the finaliser that leaves the process.
+    def fake_register_analysis_document(result, parse_outcome=None):
+        result["document_registration"] = {
+            "status": "registered",
+            "document_id": str(result.get("document_id") or "doc_stub"),
+            "chunk_count": 0,
+            "index_version": "test",
+            "code": "",
+            "notice": "",
+        }
+        return result
+
+    monkeypatch.setattr(
+        analysis_service, "register_analysis_document", fake_register_analysis_document
+    )
+
+    # (4) The analysis. The signature is the real one — including the
+    # keyword-only arguments the stage passes — so a caller that started passing
+    # a new one raises here instead of having it silently dropped by a
+    # ``**kwargs``.
+    def fake_analyze_with_fact_layer(
+        file_path,
+        original_filename,
+        api_key,
+        generate_mermaid_bool,
+        generate_evaluation_bool,
+        session_id,
+        generate_research_brief_bool=True,
+        *,
+        document_id="",
+        evidence_provider=None,
+        store=None,
+        loaded_document=None,
+    ):
+        analyzer = _StubAnalyzer(api_key)
+        result = {
+            "summary": "ok",
+            "char_count": len(analyzer.document_content),
+            "source_filename": str(file_path),
+            "sections": {
+                "summary": {
+                    "status": "success",
+                    "content": "ok",
+                    "error": "",
+                    "retryable": False,
+                }
+            },
+        }
+        # ``run``/``report`` stay ``None``: the fact layer's provenance payload
+        # is covered where it is actually produced
+        # (``tests/test_fact_layer_route.py``), and leaving them off keeps this
+        # stub from having to fabricate a ``PaperFacts`` these assertions never
+        # look at. ``finalize_analysis_result`` accepts exactly that — it is how
+        # the legacy six-section path calls it.
+        return analysis_service.finalize_analysis_result(
+            result=result,
+            analyzer=analyzer,
+            original_filename=original_filename,
+            generate_evaluation_bool=generate_evaluation_bool,
+            session_id=session_id,
+            generate_research_brief_bool=generate_research_brief_bool,
+            run=None,
+            report=None,
+        )
+
+    monkeypatch.setattr(
+        analysis_service, "analyze_with_fact_layer", fake_analyze_with_fact_layer
+    )
 
 
 def _upload_client(monkeypatch):
@@ -222,13 +396,17 @@ BROWSER_KEY = "sk-test-browser-key"
 
 
 class _StubAnalyzer:
-    """A ``DocumentAnalyzer`` the job's analysing stage can drive, with no model.
+    """A ``DocumentAnalyzer`` with no model behind it, for the finaliser.
 
-    The stage drives ``analyze_stream`` (publishing each ``section`` event into
-    the job's scratch and finishing on ``done``), then calls
-    ``finalize_analysis_result`` — which is left real, so the session and report
-    are still written exactly as in production. The result it yields is the
-    minimal analysis body these edge tests assert on.
+    Nothing on the ``/api/analyze`` path constructs one any more — the analysing
+    stage is the fact layer, and ``_stub_fact_layer_seams`` builds this class
+    itself to stand in for the analyzer ``finalize_analysis_result`` wants to
+    read ``.document_content`` and ``.version`` off. ``analyze_stream`` was the
+    seam the route used before the migration and is kept only so this class
+    still describes the whole legacy surface; the ``analyze`` entry point stays
+    because the legacy generator itself is still callable, and a stub that only
+    had the method the route used would be a stub that fails for the wrong
+    reason the moment anything else reaches for it.
     """
 
     version = "test-version"
@@ -677,14 +855,30 @@ class TestMalformedUploadIsRejectedAtTheEdge:
         # The contract runs inside ``_validate_upload``, before the file is
         # written to disk and before any job is submitted. Asserting the upload
         # folder is empty (above) proves the write did not happen; this proves
-        # the expensive path after it did not run either. Since T2.3 the analyzer
-        # is constructed by the job's analysing stage, so the tripwire is on the
-        # class that stage instantiates — if the rejected upload ever reached a
-        # job, constructing it would raise and fail this test.
+        # the expensive path after it did not run either.
+        #
+        # The tripwire has to sit on the seam the job *actually* executes, and
+        # that moved. Before the fact-layer migration the analysing stage
+        # instantiated ``analysis.orchestrator.DocumentAnalyzer``, so exploding
+        # that class was the assertion. It instantiates nothing now: it reads
+        # the loader, the retriever and ``service.analyze_with_fact_layer``. An
+        # upload that reached a job would now fail on the *load*, before the
+        # analyzer name was ever spoken of, so a tripwire left on
+        # ``DocumentAnalyzer`` would pass no matter what the route did — the
+        # worst kind of still-green test. So the loader and the analysis entry
+        # point are both armed here, plus the old class for the case where a
+        # future route goes back to constructing one.
+        from paperwhisperer.analysis import service as analysis_service
+        from paperwhisperer.documents.loader import DocumentLoader
+
         def explode(*args, **kwargs):
-            raise AssertionError("the analyzer was reached for a rejected upload")
+            raise AssertionError("the analysis was reached for a rejected upload")
 
         monkeypatch.setattr(analysis_orchestrator, "DocumentAnalyzer", explode)
+        monkeypatch.setattr(
+            DocumentLoader, "load_with_outcome", staticmethod(explode)
+        )
+        monkeypatch.setattr(analysis_service, "analyze_with_fact_layer", explode)
 
         response = upload_client.post(
             "/api/analyze",

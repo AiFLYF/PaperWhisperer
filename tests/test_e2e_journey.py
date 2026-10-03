@@ -1145,38 +1145,28 @@ def test_step5_live_answer_to_the_late_question_carries_claims_and_citations(jou
             assert not claim.get("uses_quotation_marks"), "a paraphrase carries quotation marks"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "DEFECT (partially fixed; owner: analysis route wiring). The transport half of D3 is "
-        "CLOSED and verified: the exported report now carries whatever the analysis actually "
-        "produced. finalize_analysis_result (analysis/service.py) no longer lets the session drop the "
-        "keys /api/export reads -- _session_payload_carrying_provenance places parse/analysis_run/"
-        "citations/claims at the session top level (the exact contract routes_documents."
-        "_export_result_from_session lifts) and hands document_id/paper_facts to "
-        "build_session_payload through its own kwargs, so a run that DOES carry paper_facts/"
-        "analysis_run now renders both '生成条件与溯源' and '引用与证据链接' (verified with a stubbed run). "
-        "What remains is the recording half: the job's _analyse_stage (api/routes_jobs.py:586) still "
-        "calls finalize_analysis_result(run=None, report=None) -- the legacy six-section path -- so the "
-        "one analysis route the product exposes produces no paper_facts/analysis_run for the export to "
-        "carry. The only honest producer of a run is analysis.service.analyze_with_fact_layer (the "
-        "client tracks no token usage), which needs the document indexed inside the job and changes "
-        "/api/analyze's output, cost and streaming -- an explicit migration the codebase deliberately "
-        "gated ('a one-line change at the call site ... so that the two can be compared on the same "
-        "document rather than one replacing the other unmeasured'). That swap is a product decision, "
-        "not a composition repair, and cannot be validated without a live model, so it is left for that "
-        "decision rather than made here. Until it lands, the real /api/analyze export is still a shell "
-        "-- correctly so, because that run recorded no run to report."
-    ),
-)
 def test_step9_export_carries_the_provenance(journey, live_model):
-    """Step 9: the export records what produced it, and never quotes a paraphrase.
+    """Step 9: the analysis records a run, and the export carries it.
 
-    Driven through the real ``/api/export/{session}`` for a session a real
-    analysis created. The export must carry a provenance section. The session
-    no longer drops the provenance (that half is fixed); what is still missing is
-    that the one analysis route the product exposes runs the legacy path and
-    records no run for the export to carry. See the reason.
+    Driven through the real ``/api/analyze`` and then the real
+    ``/api/export/{session}``, so both halves are the product's own wiring: the
+    analysis route now runs the fact layer, which is the only path that records
+    a ``paper_facts`` / ``analysis_run`` pair, and the session must carry that
+    record through to the exported report.
+
+    This used to be a strict ``xfail``. The transport half of the defect was
+    fixed first (``_session_payload_carrying_provenance`` lifts the keys the
+    export route reads), but it could not be closed against the real route
+    because the one analysis route the product exposed ran the legacy six-section
+    path and recorded no run at all — an export of a run that recorded nothing
+    is correctly empty. The analysis route now runs the fact layer, so the run is
+    recorded and the export has something true to carry. The marker is retired
+    deliberately and this test now pins the *fixed* behaviour: it asserts the
+    route's own response carries ``paper_facts`` and ``analysis_run`` (the
+    recording half) *and* that the export renders the provenance section (the
+    transport half). A test that reconstructed the old defect by hand could only
+    ever confirm the defect was reproducible; this one fails if either half
+    regresses.
     """
     with CORPUS_PDF.open("rb") as handle:
         response = journey.client.post(
@@ -1194,13 +1184,28 @@ def test_step9_export_carries_the_provenance(journey, live_model):
             pytest.skip(f"analysis could not complete; endpoint unavailable: {response.text[:200]}")
         pytest.fail(f"analysis returned HTTP {response.status_code}: {response.text[:300]}")
     result = response.json()
+
+    # The recording half, on the route's own response: the fact-layer analysis
+    # must produce a fact layer and a run record. These are the keys the export
+    # and the UI read, so asserting them here is asserting the product, not a
+    # reconstruction of it.
+    assert result.get("paper_facts"), (
+        "/api/analyze recorded no paper_facts; the analysis route is not running the "
+        "fact layer, so there is no provenance for the export to carry."
+    )
+    assert result.get("analysis_run"), (
+        "/api/analyze recorded no analysis_run; the export will render as a shell."
+    )
+
     export = journey.client.get(
         f"/api/export/{result['session_id']}",
         params={"session_token": result["session_token"], "format": "markdown"},
     )
     assert export.status_code == 200, f"export returned HTTP {export.status_code}"
     body = export.text
+    # The transport half: the recorded run now reaches the exported report.
     assert "生成条件与溯源" in body, (
-        "the exported markdown has no provenance section; the analysis route records no "
-        f"analysis_run and the session drops the fact layer. Export was {len(body)} bytes."
+        "the exported markdown has no provenance section even though the analysis "
+        "recorded a run; the session is dropping the fact layer on the way to the "
+        f"export. Export was {len(body)} bytes."
     )
