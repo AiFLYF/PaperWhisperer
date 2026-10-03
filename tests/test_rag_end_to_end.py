@@ -144,6 +144,8 @@ from paperwhisperer.llm.embeddings_local import (
     local_identity,
 )
 
+from .conftest import require_local_embedder
+
 CORPUS = Path(__file__).resolve().parents[1] / "eval" / "corpus"
 
 #: Five real papers spanning the corpus's shapes: a bilingual synthetic report, a
@@ -297,6 +299,31 @@ def _skip_unless_usable() -> None:
 
 
 @pytest.fixture(scope="session")
+def local_embedder_session():
+    """Skip unless the *real* local provider actually loads — or ask to fail.
+
+    :func:`_skip_unless_usable` only checks that the extra is *installed*, and
+    the ``provider`` fixture's own ``try`` only wraps the *constructor* — which
+    does not read the weights, so on a machine with the extra installed and the
+    weights absent (this one) that guard never fired and eight tests reported a
+    red suite about an environment problem. Probing with a real
+    ``embed_query`` is what turns it back into the skip it was meant to be.
+
+    ``PAPERWHISPERER_REQUIRE_LOCAL_EMBEDDINGS=1`` still wins: a deployment that
+    sets it is saying the weights *must* be there, and "skip" would be the wrong
+    way to say so, so the shared probe is not called at all.
+
+    Session-scoped so that guard costs one probe per run rather than one per
+    test — this file builds a provider anyway, and the point is not to make the
+    green machine slower to find out that it is green.
+    """
+    if os.getenv(REQUIRE_WEIGHTS_ENV) == "1":
+        return True
+    require_local_embedder()
+    return True
+
+
+@pytest.fixture(scope="session")
 def local_config():
     """Point the chunker's index identity at the local provider.
 
@@ -331,13 +358,17 @@ def local_config():
 
 
 @pytest.fixture(scope="session")
-def provider(local_config) -> LocalEmbeddingProvider:
+def provider(local_config, local_embedder_session) -> LocalEmbeddingProvider:
     """One real local provider for the whole session.
 
     Session-scoped because the model load is the expensive part and because
     measuring "how long does indexing take" on a run that reloaded 220 MB of
     ONNX weights five times would measure the wrong thing. A private cache keeps
     one test's texts from becoming another's cache hits.
+
+    ``local_embedder_session`` is what makes the ``try`` below reachable for the
+    failure that actually happens offline: the constructor succeeds, the first
+    ``embed_*`` does not.
     """
     try:
         return LocalEmbeddingProvider(cache=EmbeddingCache(max_entries=4096))
@@ -936,7 +967,9 @@ def test_dimension_mismatch_is_refused_loudly(monkeypatch, local_config):
     )
 
 
-def test_loaded_model_width_is_verified_not_assumed(monkeypatch, local_config):
+def test_loaded_model_width_is_verified_not_assumed(
+    monkeypatch, local_config, local_embedder_session
+):
     """The registry is a table; the loaded model is the fact. The fact wins.
 
     ``fastembed``'s registry declares 384 for this model, and a private ONNX

@@ -20,6 +20,13 @@ canned JSON, and retrieval runs over a temporary SQLite store with a real
 ``HybridRetriever`` and the lexical leg — which is the leg that answers exact
 questions, and the one a personal-tier deployment with no embedding endpoint
 would actually have.
+
+**The tests that index a document need the real local weights**, because
+``index_document_for_retrieval(bundle, document, None)`` resolves the
+configured provider and the dense leg genuinely runs. They are marked with
+``local_embedder_session`` and skip when it cannot load; the eight tests that
+never reach it are left unmarked, deliberately, so a machine without the model
+still gets a real verdict on them.
 """
 
 from __future__ import annotations
@@ -50,6 +57,38 @@ from paperwhisperer.ingestion.schema import (
     SourceLocator,
 )
 from paperwhisperer.rag.citations import ClaimPresentation
+
+from .conftest import require_local_embedder
+
+# --------------------------------------------------------------------------
+# The embedder guard
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="session")
+def local_embedder_session():
+    """Skip the embedder-bound tests unless the *real* local provider loads.
+
+    Every retrieval path here reaches ``index_document_for_retrieval`` with
+    ``embedder=None``, which ``orchestrator._configured_embedder`` resolves
+    against the deployment's own configuration -- so the dense leg is genuinely
+    live in these tests, and genuinely needs the weights. It is applied per test
+    rather than to the module because eight tests in this file never get near it
+    (the prefix-window geometry, the frozen dataclass, the JSON parsers, the
+    document-id hash), and a module-level mark would hide eight passing tests
+    behind an environment problem that does not touch them.
+
+    Session-scoped, unlike the shared ``local_embedder_usable``, and the reason
+    is the model load itself: ``_configured_embedder`` caches its provider for
+    the whole process, so the tests below already share one load. A
+    function-scoped probe would add thirty-three more of them to a machine that
+    *can* load the weights -- paying, on every green run, to protect the one
+    machine that cannot. The probe is still the shared one; only its scope is
+    local.
+    """
+    require_local_embedder()
+    return True
+
 
 # --------------------------------------------------------------------------
 # Doubles
@@ -343,8 +382,9 @@ class TestLateEvidenceIsRetrieved:
         )
         assert LATE_SENTENCE not in full_text[:budget]
 
-    def test_a_question_only_late_passages_answer_is_answered(self, monkeypatch, bundle,
-                                                               late_document):
+    def test_a_question_only_late_passages_answer_is_answered(
+        self, monkeypatch, bundle, late_document, local_embedder_session
+    ):
         """The acceptance criterion: 后文（实验/限制章节）的问题可正确回答."""
         analyzer = make_analyzer(
             monkeypatch, bundle, qa_document=late_document, reply="{}"
@@ -372,8 +412,9 @@ class TestLateEvidenceIsRetrieved:
         assert result.citations, "an answer with evidence behind it cited nothing"
         assert result.claims[0].verified_text == LATE_SENTENCE
 
-    def test_the_late_passage_really_reached_the_prompt(self, monkeypatch, bundle,
-                                                       late_document):
+    def test_the_late_passage_really_reached_the_prompt(
+        self, monkeypatch, bundle, late_document, local_embedder_session
+    ):
         """The model was shown the experiment passage, not just told about it.
 
         Without this the test above would pass even if the answer were right by
@@ -389,7 +430,7 @@ class TestLateEvidenceIsRetrieved:
         assert "4 实验" in prompt or "消融" in prompt
 
     def test_the_prompt_carries_no_document_prefix_outside_the_evidence(
-        self, monkeypatch, bundle, late_document
+        self, monkeypatch, bundle, late_document, local_embedder_session
     ):
         """The prompt is the evidence block, and nothing else from the document.
 
@@ -417,6 +458,7 @@ class TestLateEvidenceIsRetrieved:
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("local_embedder_session")
 class TestInsufficientEvidence:
     """Both ways an answer can fail to be supported, which are not the same.
 
@@ -623,6 +665,7 @@ def _bad_claim(evidence_id: str, quote: str = INVENTED_QUOTE) -> dict:
     }
 
 
+@pytest.mark.usefixtures("local_embedder_session")
 class TestCitationGate:
     def test_a_quote_that_exists_aligns_and_is_reported_as_a_direct_quote(
         self, monkeypatch, bundle
@@ -898,6 +941,7 @@ class TestCitationGate:
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("local_embedder_session")
 class TestConfidenceDerivation:
     def _two_claim_reply(self, evidence_id: str) -> str:
         return claim_payload(
@@ -1015,6 +1059,7 @@ class TestConfidenceDerivation:
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("local_embedder_session")
 class TestStreamingCarriesTheStructure:
     def _streamed(self, analyzer, question):
         return list(analyzer.stream_answer_question(question))
@@ -1154,7 +1199,9 @@ class TestStreamingCarriesTheStructure:
 
 
 class TestAnswerResultSurface:
-    def test_the_result_carries_every_documented_field(self, monkeypatch, bundle):
+    def test_the_result_carries_every_documented_field(
+        self, monkeypatch, bundle, local_embedder_session
+    ):
         document = _single_evidence_document(text=GATE_PASSAGE)
         analyzer = make_analyzer(
             monkeypatch, bundle, qa_document=document, reply="{}"
@@ -1193,7 +1240,9 @@ class TestAnswerResultSurface:
         assert claim["uses_quotation_marks"] is True
         assert claim["presentation"] == "direct_quote"
 
-    def test_a_citation_names_a_passage_a_chip_can_open(self, monkeypatch, bundle):
+    def test_a_citation_names_a_passage_a_chip_can_open(
+        self, monkeypatch, bundle, local_embedder_session
+    ):
         document = _single_evidence_document(text=GATE_PASSAGE, page=7)
         analyzer = make_analyzer(
             monkeypatch, bundle, qa_document=document, reply="{}"
@@ -1286,7 +1335,7 @@ class TestQaGuards:
         assert first.document_id == second.document_id
         assert parsed_document_from_text("别的内容。").document_id != first.document_id
 
-    def test_indexing_is_idempotent(self, bundle, late_document):
+    def test_indexing_is_idempotent(self, bundle, late_document, local_embedder_session):
         """A second question about the same document does not re-index it."""
         index_document_for_retrieval(bundle, late_document, None)
         before = bundle.metadata.list_chunks(late_document.document_id)
@@ -1294,8 +1343,9 @@ class TestQaGuards:
         after = bundle.metadata.list_chunks(late_document.document_id)
         assert [chunk.chunk_id for chunk in before] == [chunk.chunk_id for chunk in after]
 
-    def test_the_prompt_offers_exactly_the_evidence_it_retrieved(self, monkeypatch, bundle,
-                                                                  late_document):
+    def test_the_prompt_offers_exactly_the_evidence_it_retrieved(
+        self, monkeypatch, bundle, late_document, local_embedder_session
+    ):
         """Every id in the reply contract is one a reader could have been shown."""
         analyzer = make_analyzer(monkeypatch, bundle, qa_document=late_document, reply="{}")
         retrieved = analyzer._retrieve_for_question(LATE_QUESTION)
@@ -1306,8 +1356,9 @@ class TestQaGuards:
         expected = {item.evidence_id for item in retrieved.evidence}
         assert offered == expected
 
-    def test_the_answer_prompt_asks_for_the_declared_contract(self, monkeypatch, bundle,
-                                                              late_document):
+    def test_the_answer_prompt_asks_for_the_declared_contract(
+        self, monkeypatch, bundle, late_document, local_embedder_session
+    ):
         """The schema is in the prompt, so a compliant model produces parseable claims."""
         analyzer = make_analyzer(monkeypatch, bundle, qa_document=late_document, reply="{}")
         index_document_for_retrieval(bundle, late_document, None)
@@ -1318,7 +1369,7 @@ class TestQaGuards:
             assert f'"{field}"' in prompt, f"the reply contract omits {field}"
 
     def test_history_is_forwarded_but_never_becomes_evidence(
-        self, monkeypatch, bundle, late_document
+        self, monkeypatch, bundle, late_document, local_embedder_session
     ):
         """Follow-up context is useful and is not a citation.
 

@@ -413,3 +413,42 @@ def api_key_env(monkeypatch):
     """
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
     return "test-key"
+
+
+def require_local_embedder() -> None:
+    """Skip unless the *real* local embedding provider is loadable here.
+
+    The dense leg's floors are cosines against one specific model, so a test that
+    exercises them honestly cannot run against a stand-in. When that model is
+    absent — a fresh clone with no download yet, an offline machine, a CI runner
+    without the extra — the correct outcome is a skip, not a failure: nothing
+    about the code under test has been shown to be wrong, the environment simply
+    cannot supply a required external resource.
+
+    This mirrors the guard ``tests/test_retrieval_floor.py`` has always used
+    (``a missing extra is a skip, not a failure``). It lives here so every suite
+    that genuinely needs the real embedder shares one definition of "usable"
+    rather than each re-inventing a probe — and so none of them reports a red
+    suite that is really just a green machine with no model on it.
+
+    It is a no-op whenever the model is present: callers then run their full,
+    unmodified assertions.
+    """
+    from paperwhisperer.llm.embeddings_local import LocalEmbeddingProvider
+
+    try:
+        LocalEmbeddingProvider().embed_query("a probe")
+    except Exception as exc:  # noqa: BLE001 - a missing/unusable model is a skip
+        pytest.skip(f"the local embedding provider is not usable here: {exc}")
+
+
+@pytest.fixture
+def local_embedder_usable():
+    """Requestable no-op guard for suites that need the real embedder.
+
+    Depending on this is enough — it runs :func:`require_local_embedder` at
+    setup and skips the test if the model is absent. Put it on the module (as an
+    ``autouse`` fixture) or on the specific fixture that reaches the embedder.
+    """
+    require_local_embedder()
+    return True

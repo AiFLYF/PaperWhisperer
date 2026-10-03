@@ -116,7 +116,7 @@ class _RecordingParser:
 
 
 @pytest.fixture
-def deployment(tmp_path, monkeypatch):
+def deployment(tmp_path, monkeypatch, local_embedder_usable):
     """The assembled product on a real PDF, wired to a private tree.
 
     Function-scoped on purpose: the reparse tests mutate real state — one deletes
@@ -127,6 +127,14 @@ def deployment(tmp_path, monkeypatch):
 
     Config is redirected with ``monkeypatch`` so nothing is written outside
     ``tmp_path`` and the developer's real runtime folders are untouched.
+
+    The seed upload is also what *indexes* the document (``persist_document`` →
+    ``index_document_for_retrieval`` → the configured embedder), so this fixture
+    depends on ``local_embedder_usable``. Every reparse assertion starts from an
+    indexed document; without the model the seed upload answers 400 and the
+    fixture dies before the test body runs. The two tests that take no
+    ``deployment`` -- the pure parser-routing and code-table checks -- do not
+    reach the embedder and still run.
     """
     from fastapi.testclient import TestClient
 

@@ -288,8 +288,16 @@ def upload(client, name: str = "paper.txt", body: bytes = b"first page text seco
 
 
 @pytest.fixture
-def document_id(v1_client, parser):
-    """One uploaded, parsed, indexed document."""
+def document_id(v1_client, parser, local_embedder_usable):
+    """One uploaded, parsed, indexed document.
+
+    Uploading is what indexes: ``persist_document`` calls
+    ``index_document_for_retrieval``, which resolves the configured embedder and
+    embeds every chunk. So this fixture, and every test built on it, needs the
+    real local embedding model -- absent it the upload answers 400 and the test
+    fails on a missing ``document`` key that says nothing about the route.
+    ``local_embedder_usable`` turns that into a skip.
+    """
     response = upload(v1_client)
     assert response.status_code == 201, response.text
     return response.json()["document"]["document_id"]
@@ -309,7 +317,7 @@ def _response_schema(openapi, operation, status):
     return schema
 
 
-def test_document_resource_field_names_are_frozen(v1_client, parser):
+def test_document_resource_field_names_are_frozen(v1_client, parser, local_embedder_usable):
     """The document resource's keys are a promise; assert the whole set."""
     document = upload(v1_client).json()["document"]
     assert set(document) == {
@@ -336,7 +344,7 @@ def test_document_resource_field_names_are_frozen(v1_client, parser):
     assert set(document["links"]) == {"self", "metadata", "pages", "page_image", "qa", "reparse"}
 
 
-def test_parse_report_field_names_are_frozen(v1_client, parser):
+def test_parse_report_field_names_are_frozen(v1_client, parser, local_embedder_usable):
     """The provenance block is shared with the legacy analysis payload.
 
     Pinned against ``PARSE_REPORT_KEYS`` rather than a literal so that a
@@ -353,7 +361,9 @@ def test_parse_report_field_names_are_frozen(v1_client, parser):
     assert set(metadata.json()) == set(routes_v1.PARSE_REPORT_KEYS)
 
 
-def test_job_state_field_names_are_frozen(v1_client, parser, job_store):
+def test_job_state_field_names_are_frozen(
+    v1_client, parser, job_store, local_embedder_usable
+):
     """The polling shape and the SSE shape are different, and both are pinned."""
     job_id = upload(v1_client).json()["job"]["job_id"]
 
@@ -369,7 +379,7 @@ def test_job_state_field_names_are_frozen(v1_client, parser, job_store):
     assert set(payload) != set(state)
 
 
-def test_openapi_schema_matches_what_the_routes_return(v1_client, parser):
+def test_openapi_schema_matches_what_the_routes_return(v1_client, parser, local_embedder_usable):
     """A contract document that does not match the code is worse than none.
 
     Each response schema is compared against the keys a live response actually
@@ -424,7 +434,7 @@ def test_openapi_schema_matches_what_the_routes_return(v1_client, parser):
 # --------------------------------------------------------------------------
 
 
-def test_upload_creates_a_document_and_a_job(v1_client, parser):
+def test_upload_creates_a_document_and_a_job(v1_client, parser, local_embedder_usable):
     """The create is a document *and* the job that produced it."""
     response = upload(v1_client)
     assert response.status_code == 201
@@ -448,7 +458,9 @@ def test_upload_creates_a_document_and_a_job(v1_client, parser):
     assert job.json()["result"]["document_id"] == document["document_id"]
 
 
-def test_upload_stores_the_original_so_a_reparse_can_read_it(v1_client, parser, objects):
+def test_upload_stores_the_original_so_a_reparse_can_read_it(
+    v1_client, parser, objects, local_embedder_usable
+):
     """The legacy route deletes its upload; this one must not."""
     from paperwhisperer.infra.object_store import LAYER_ORIGINAL
 
@@ -587,7 +599,7 @@ def _canonical_payload(document_id: str = "doc_external") -> dict:
     ).to_dict()
 
 
-def test_register_adopts_a_parsed_document(v1_client):
+def test_register_adopts_a_parsed_document(v1_client, local_embedder_usable):
     response = v1_client.post(
         "/v1/documents/register", json={"document": _canonical_payload()}
     )
@@ -603,7 +615,7 @@ def test_register_adopts_a_parsed_document(v1_client):
     assert "未记录" in body["document"]["parse"]["summary"]
 
 
-def test_register_rejects_a_second_registration(v1_client):
+def test_register_rejects_a_second_registration(v1_client, local_embedder_usable):
     payload = {"document": _canonical_payload()}
     assert v1_client.post("/v1/documents/register", json=payload).status_code == 201
     again = v1_client.post("/v1/documents/register", json=payload)
@@ -805,7 +817,9 @@ def test_a_parse_that_produces_nothing_is_422_not_500(v1_client, monkeypatch):
 # --------------------------------------------------------------------------
 
 
-def test_delete_removes_the_document_its_index_and_its_original(v1_client, parser, bundle):
+def test_delete_removes_the_document_its_index_and_its_original(
+    v1_client, parser, bundle, local_embedder_usable
+):
     document = upload(v1_client).json()["document"]
     response = v1_client.delete(f"/v1/documents/{document['document_id']}")
     assert response.status_code == 200
@@ -955,7 +969,7 @@ def _stream_then_disconnect(
     return anyio.run(drive)
 
 
-def test_a_job_streams_a_snapshot_then_its_transitions(v1_client, parser):
+def test_a_job_streams_a_snapshot_then_its_transitions(v1_client, parser, local_embedder_usable):
     """Snapshot first, then every event, ending on the terminal one.
 
     The ``id:`` line is asserted alongside the event names because it is the
