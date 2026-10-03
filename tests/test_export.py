@@ -581,7 +581,13 @@ def test_the_client_export_writes_the_same_provenance_fields_as_the_server():
         assert key in body, key
     # And it does not invent a document version either.
     assert "document_id" in body
-    assert "EXPORT_UNKNOWN_VALUE" in body
+    # The "not recorded" sentinel is written rather than a row omitted. It is
+    # reached through `unknownValue()`, which resolves the catalogue entry with
+    # `EXPORT_UNKNOWN_VALUE` kept as the floor — so the table still writes the
+    # exact value it always has, in the reader's language. The token itself moved
+    # out of this function body when the labels were routed through the
+    # catalogue; the behaviour did not.
+    assert "unknownValue()" in body or "EXPORT_UNKNOWN_VALUE" in body
 
 
 # --------------------------------------------------------------------------

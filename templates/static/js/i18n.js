@@ -348,6 +348,274 @@ const ZH_CN = {
     'export.status.needs_review': EXPORT_STATUS_LABELS.needs_review,
     'export.status.not_found': EXPORT_STATUS_LABELS.not_found,
 
+    // --- export.js: the report that leaves the interface ------------------------
+    //
+    // These strings are written *into* the downloaded file rather than onto the
+    // page, which is what makes this block load bearing rather than cosmetic: a
+    // reader who exports from an English interface and opens the file six months
+    // later must still be able to read what produced it. So `buildProvenanceRows`
+    // resolves every row label through `t()` **at export time**, and the label
+    // travels with the file while the value stays what the run recorded — a label
+    // is the interface's, a value is the run's, and the run's is never rewritten.
+    //
+    // Markdown and HTML syntax stays in the module and only the prose is keyed,
+    // which is the split `EXPORT_CITATIONS_HEADING` above already made: the
+    // catalogue holds a heading, the exporter supplies the `## `. The three
+    // exceptions are the placeholders whose styling *is* their sentence — an
+    // italic `_…_` and a `- _…_` list item — where splitting the marker off the
+    // text would leave a half-styled empty line in a file nobody reviews.
+    'export.section_table.header': '状态',
+    'export.section_table.sections': '章节',
+    'export.section_table.completed': '已完成',
+    'export.section_table.failed': '失败',
+    'export.section_table.disabled': '已禁用',
+    'export.section_table.quality': '质量',
+    'export.section_table.none': '无',
+    'export.na': 'N/A',
+    'export.list.none': '- _无。_',
+    'export.paper.untitled': '未命名论文',
+
+    // The provenance table. Every row is always written, whatever the run
+    // recorded, because a row that silently disappears reads as "not important"
+    // while an explicitly empty row reads as "this run did not record it".
+    'export.provenance.table_header': '项目',
+    'export.provenance.value_header': '值',
+    'export.provenance.html_header': '<tr><th>项目</th><th>值</th></tr>',
+    'export.provenance.note': '这张表记录的是“生成这份文件的条件”。打开一个六个月前的导出件时，它是判断这份结论还能不能信的唯一依据。',
+    'export.provenance.row.exported_at': '导出时间',
+    'export.provenance.row.source_file': '源文件',
+    'export.provenance.row.document_id': '文档 ID',
+    'export.provenance.row.session_id': '会话 ID',
+    'export.provenance.row.run_id': '分析运行 ID',
+    'export.provenance.row.model': '模型',
+    'export.provenance.row.prompt_version': '提示词版本',
+    'export.provenance.row.evidence_version': '证据版本',
+    'export.provenance.row.llm_calls': 'LLM 调用次数',
+    'export.provenance.row.input_tokens': '输入 tokens',
+    'export.provenance.row.output_tokens': '输出 tokens',
+    'export.provenance.row.cost': '成本',
+    'export.provenance.row.fact_coverage': '事实覆盖',
+    'export.provenance.row.parser': '解析器',
+    'export.provenance.row.media_type': '媒体类型',
+    'export.provenance.row.used_cloud': '是否经过云端解析',
+    'export.provenance.row.fallback_used': '是否发生 fallback',
+    'export.provenance.row.cache_hit': '是否命中解析缓存',
+    'export.provenance.row.degradations': '降级说明',
+    'export.provenance.row.warnings': '解析告警',
+    'export.provenance.join': '；',
+
+    // The three-value cells. `是`/`否` are the whole answer to a yes/no
+    // provenance row, so they follow the switch rather than staying Chinese in
+    // an exported English report.
+    'export.value.yes': '是',
+    'export.value.no': '否',
+
+    // The citation index. The policy note is the T1.6 gate restated inside the
+    // exported file: it is the only place a downstream reader is told that the
+    // absence of quotation marks means "unverified" rather than "prose".
+    'export.citation.presentation': '- 呈现方式: {value}',
+    'export.citation.status': '- 字段状态: {value}',
+    'export.citation.evidence_id': '- 证据 ID: {value}',
+    'export.citation.links': '- 证据链接: [打开该引用]({deep_link}) · [Evidence API]({api_url})',
+    'export.citation.open_link': '打开该引用',
+    'export.citations.none': '本次分析没有产出带引用的结论。',
+    'export.citations.no_facts': '本次分析没有产出事实层，因此没有可导出的引用链接。',
+    'export.citations.policy_note': '直接引语逐字回源校验过；转述是我们的表述，不加引号。两种呈现方式在这里是分开的字段，不靠标点区分。',
+
+    // The report's own headings and its empty-state placeholders.
+    'export.report.title': 'PaperWhisperer 会话报告',
+    'export.report.subtitle': '当前分析会话的完整导出，含追问记录与可视化资源。',
+    'export.report.generated_by': '由 [PaperWhisperer](https://github.com/AiFLYF/PaperWhisperer) 生成。',
+    'export.report.overview': '会话概览',
+    'export.report.table_header': '项目',
+    'export.report.guidance': '工作台指引',
+    'export.report.section_status': '章节状态',
+    'export.report.section.overview': '概览',
+    'export.report.section.citations': '关键引用',
+    'export.report.section.structure': '文本结构',
+    'export.report.section.evaluation': '批判性评估',
+    'export.report.section.brief': '深度研究简报',
+    'export.report.section.followups': '建议追问',
+    'export.report.section.questions': '问题',
+    'export.report.section.actions': '下一步行动',
+    'export.report.section.trace': '研究轨迹',
+    'export.report.section.queue': '阅读队列',
+    'export.report.section.search': '论文检索结果',
+    'export.report.section.recommendations': '自动推荐',
+    'export.report.section.mermaid': 'Mermaid 源码',
+    'export.report.section.svg': '可视化结构图 SVG',
+    'export.report.svg_companion': '渲染后的 SVG 会作为配套文件一起导出：`{file}`。',
+    'export.report.section.qa': '问答记录',
+    'export.report.turn_mode': '模式：{mode}',
+    'export.report.metadata': '导出元数据',
+    'export.report.app': '应用：[PaperWhisperer](https://github.com/AiFLYF/PaperWhisperer)',
+    'export.report.export_time': '导出会话时间：{time}',
+    'export.report.no_summary': '_本次分析没有生成摘要。_',
+    'export.report.no_citations': '_本次分析没有生成引用。_',
+    'export.report.no_structure': '_本次分析没有生成文本结构。_',
+    'export.report.no_question': '_没有记录提问内容。_',
+    'export.report.no_answer': '_没有记录回答内容。_',
+
+    // The session-overview rows the report opens with.
+    'export.report.row.source_file': '源文件',
+    'export.report.row.session_id': '会话 ID',
+    'export.report.row.generated_at': '生成时间',
+    'export.report.row.duration': '分析用时',
+    'export.report.duration_value': '{value} 秒',
+    'export.report.row.char_count': '字符数',
+    'export.report.row.qa_turns': '问答轮数',
+    'export.report.row.saved_papers': '已收藏论文',
+
+    // The export preview panel, which is the only part of this module the
+    // reader sees before the file exists.
+    'export.preview.grid_label': '导出内容摘要',
+    'export.preview.guidance_label': '工作台指引',
+    'export.preview.note': '包含分析结果、研究简报、阅读队列、建议追问、研究轨迹与本地问答记录。',
+    'export.preview.card.analysis': '分析',
+    'export.preview.card.analysis_value': '{count} 项就绪',
+    'export.preview.card.analysis_review': '{count} 个章节需要复核',
+    'export.preview.card.analysis_ok': '核心章节已就绪',
+    'export.preview.card.qa': '问答',
+    'export.preview.card.qa_value': '{count} 轮',
+    'export.preview.card.qa_included': '本次会话会包含本地对话记录',
+    'export.preview.card.qa_empty': '先追问几句，让报告更完整',
+    'export.preview.card.papers': '论文',
+    'export.preview.card.papers_value': '{count} 条线索',
+    'export.preview.card.papers_saved': '{count} 篇已收藏到队列',
+    'export.preview.card.papers_empty': '导出前先收藏值得一读的论文',
+    'export.preview.card.visuals': '可视化',
+    'export.preview.card.map_ready': '结构图已就绪',
+    'export.preview.card.no_map': '没有结构图',
+    'export.preview.card.svg_ready': 'Mermaid SVG 会一并导出',
+    'export.preview.card.visuals_empty': '启用结构图即可导出可视化内容',
+
+    // The three guidance cards, shown in the panel and written into the report.
+    'export.guidance.state.label': '工作台状态',
+    'export.guidance.state.ready_review': '{ready} 项就绪 · {review} 项待复核',
+    'export.guidance.state.ready': '{count} 个章节已就绪',
+    'export.guidance.state.disabled': '本次运行有 {count} 个可选章节被禁用。',
+    'export.guidance.state.core': '核心分析卡片已就绪，可以复核并导出。',
+    'export.guidance.next.label': '推荐的下一步',
+    'export.guidance.next.fallback': '提出一个有依据的追问',
+    'export.guidance.next.detail_fallback': '先用证据模式核实论断，再切换到批判或复现模式。',
+    'export.guidance.trail.label': '研究轨迹',
+    'export.guidance.trail.saved': '已收藏 {count} 篇论文',
+    'export.guidance.trail.leads': '{count} 条论文线索',
+    'export.guidance.trail.saved_detail': '已收藏的论文会包含在本次会话导出中。',
+    'export.guidance.trail.detail': '先检索或获取推荐论文，再把最有价值的线索收藏进队列。',
+
+    // The format `<select>`. Markdown and HTML are file-format names, so the two
+    // locales read identically here by construction; the entries exist so the
+    // control is read through the catalogue like everything else, with
+    // `format.label` from `config.js` kept as the floor beneath it.
+    'export.format_option.md': 'Markdown',
+    'export.format_option.html': 'HTML',
+
+    // The action, its button feedback and its outcome. The button replaces its
+    // own label for 1800ms, so these two strings are the *only* thing standing
+    // between "pressed" and "done" on that control.
+    'export.status.needs_analysis': '请先分析文档再导出会话',
+    'export.status.not_ready': '导出内容尚未就绪',
+    'export.button.done': '已导出报告',
+    'export.button.done_svg': '已导出报告 + SVG',
+    'export.status.done': '会话报告已导出',
+    'export.status.done_svg': '会话报告与 SVG 已导出',
+
+    // The standalone HTML export. Its `<html lang>` is set from `getLocale()`
+    // rather than hardcoded, because a file declared Chinese that reads English
+    // misinforms a screen reader about the phonetics of everything in it.
+    'export.html.title_suffix': ' — PaperWhisperer 导出',
+    'export.html.heading': 'PaperWhisperer 会话报告',
+    'export.html.exported_at': '导出于 {time}',
+    'export.html.section_empty': '（本次分析没有这一节的内容）',
+
+    // --- api.js: the client's own failure sentences ---------------------------
+    //
+    // `runtime.js` decides what a failure *looks* like from its `code`, and the
+    // `ERROR_COPY` table above is what it shows. These are the sentences that
+    // reach the reader by the other route: `ApiError.message` rendered by
+    // `showError(error)` and by `appendChatText` in the answer transcript. They
+    // are keyed here rather than left as `api.js` literals for exactly that
+    // reason, and each keeps the wording it had, so the default locale renders
+    // byte for byte what it rendered before.
+    //
+    // What is **not** in this block is the server's own `error` prose. That is
+    // carried through untouched — as `data.error`, as `error.message`, and as
+    // `errorPresentation`'s `serverDetail` — because rewriting a sentence the
+    // server wrote is how a client starts reporting things the server never
+    // said.
+    'api.cancelled': '请求已取消。',
+    'api.unreachable': '网络请求失败。',
+    'api.response_too_large': '响应超出大小上限。',
+    'api.not_json_object': '响应不是 JSON 对象。',
+    'api.html_response': '服务端返回了一个网页，而不是接口的响应。请检查服务地址是否指向了网页。',
+    'api.invalid_json': '响应不是合法 JSON。',
+    'api.offline': '当前处于离线状态。',
+    'api.timeout': '在等待响应的时间上限内没有收到答复。',
+    'api.request_failed': '请求失败。',
+    'api.stream_failed': '连接失败。',
+    'api.no_event_stream': '服务端没有返回流式响应。',
+    'api.no_stream_support': '这个浏览器不支持流式响应。',
+    'api.stream_stalled': '数据流长时间没有任何进展。',
+    'api.stream_too_large': '流式响应超出大小上限。',
+    'api.stream_interrupted': '数据流在传输途中断开。',
+    'api.no_job_id': '没有可以重新连接的任务 id。',
+    'api.resync_failed': '无法重新连接到正在运行的任务。',
+    'api.empty_response': '服务端返回了空响应。',
+    'api.unreadable_response': '响应无法解析。',
+
+    // --- chat.js: the answer panel ----------------------------------------------
+    //
+    // The verdict is the most consequential sentence this interface shows: it is
+    // the only place a reader is told how much of an answer the document actually
+    // supports. So it follows the switch like everything else — but the *branch*
+    // it is drawn from was always a lookup on the server's machine-readable
+    // `confidence`, never a comparison of prose, so translating these strings
+    // cannot change which of the three the reader is shown.
+    'chat.confidence.supported': '这次回答中的每条论断都由本文档中的一个段落支撑，其中任何直接引用都已回源校验。',
+    'chat.confidence.partially_supported': '这次回答中的一些论断没有由本文档中的段落支撑。未被支撑的部分已在下方标出。',
+    'chat.confidence.insufficient_evidence': '这次回答没有本文档中的证据支撑，因此其中没有任何内容被当作论文自己的论断呈现。',
+    'chat.confidence.unknown': '这次回答没有说明它受到多大程度的支持，请按未经校验对待。',
+    'chat.retrieval.count_one': '为这次问题从本文档中检索到了 {count} 个段落。',
+    'chat.retrieval.count_other': '为这次问题从本文档中检索到了 {count} 个段落。',
+    'chat.retrieval.degraded': '检索被降级：{reasons}。',
+    'chat.retrieval.join': '；',
+
+    // The transcript's chrome: the role headers and the Copy control.
+    'chat.role.user': '用户 · {mode}',
+    'chat.role.assistant': '助手',
+    'chat.role.system': '系统',
+    'chat.role.system_error': '系统错误',
+    'chat.action.sending': '发送中…',
+    'chat.action.copy_blocked_title': '这次回答没有完成，因此不能作为已校验的回答复制。',
+
+    // The pending notice. Scoped by operation so the flight's own success
+    // retires it; see `ASK_OPERATION` in `chat.js`.
+    'chat.pending.title': '回答生成中',
+    'chat.pending.body': '正在基于当前文档生成回答。',
+
+    // The status line through the turn.
+    'chat.status.question_needed': '需要提问内容',
+    'chat.status.analysis_required': '提问前需要先分析文档',
+    'chat.status.answering': '正在基于当前文档回答…',
+    'chat.status.streaming': '正在流式输出回答…',
+    'chat.status.ready': '回答已就绪',
+    'chat.status.ready_partial': '回答已就绪 —— 部分内容未通过校验',
+    'chat.status.ready_unsupported': '回答已就绪 —— 当前文档无法支撑',
+    'chat.status.interrupted': '回答在完成之前中断',
+    'chat.status.failed': '提问失败',
+    'chat.status.canceled': '提问已取消',
+    'chat.error.request_failed': '提问失败。',
+
+    // The interrupted-stream report. This is the sentence that stops a partial
+    // answer being read as the paper's, so it is keyed in the reader's language
+    // rather than left English beside a Chinese transcript.
+    'chat.incomplete.partial': '连接在这次回答完成之前断开了。上方显示的是未完成的文本，不是经过校验的回答：它没有与文档比对过，其中也没有任何引用通过校验。',
+    'chat.incomplete.none': '连接在这次回答开始之前断开了。没有返回任何内容。',
+    'chat.incomplete.retry_hint': '回答流在完成之前中断了。重新提问即可重试。',
+    'chat.canceled.hint': '回答在完成之前被取消。重新提问即可重试。',
+    'chat.answer.empty': '没有可显示的回答内容。',
+
     // --- the unrecognised code ---------------------------------------------
     // Shown when the server sends a `code` this build has no entry for.
     'error.unknown.title': UNKNOWN_ERROR_PRESENTATION.title,
@@ -862,6 +1130,220 @@ const EN = {
     'export.status.extracted': 'Extracted and backed by a citation',
     'export.status.needs_review': 'Did not pass evidence verification, needs manual review',
     'export.status.not_found': 'The paper does not state it',
+
+    // --- export.js: the report that leaves the interface ------------------------
+    // The counterpart of the `zh-CN` block above, row for row. See that block for
+    // why the provenance table is resolved at export time rather than at render
+    // time: the label follows the reader who downloaded the file, and the value
+    // stays what the run recorded.
+    'export.section_table.header': 'Status',
+    'export.section_table.sections': 'Sections',
+    'export.section_table.completed': 'Completed',
+    'export.section_table.failed': 'Failed',
+    'export.section_table.disabled': 'Disabled',
+    'export.section_table.quality': 'Quality',
+    'export.section_table.none': 'None',
+    'export.na': 'N/A',
+    'export.list.none': '- _None._',
+    'export.paper.untitled': 'Untitled paper',
+
+    'export.provenance.table_header': 'Item',
+    'export.provenance.value_header': 'Value',
+    'export.provenance.html_header': '<tr><th>Item</th><th>Value</th></tr>',
+    'export.provenance.note': 'This table records the conditions under which this file was produced. When you open an export from six months ago, it is the only basis for judging whether its conclusions can still be trusted.',
+    'export.provenance.row.exported_at': 'Exported at',
+    'export.provenance.row.source_file': 'Source file',
+    'export.provenance.row.document_id': 'Document ID',
+    'export.provenance.row.session_id': 'Session ID',
+    'export.provenance.row.run_id': 'Analysis run ID',
+    'export.provenance.row.model': 'Model',
+    'export.provenance.row.prompt_version': 'Prompt version',
+    'export.provenance.row.evidence_version': 'Evidence version',
+    'export.provenance.row.llm_calls': 'LLM calls',
+    'export.provenance.row.input_tokens': 'Input tokens',
+    'export.provenance.row.output_tokens': 'Output tokens',
+    'export.provenance.row.cost': 'Cost',
+    'export.provenance.row.fact_coverage': 'Fact coverage',
+    'export.provenance.row.parser': 'Parser',
+    'export.provenance.row.media_type': 'Media type',
+    'export.provenance.row.used_cloud': 'Parsed by a cloud parser',
+    'export.provenance.row.fallback_used': 'A fallback parser ran',
+    'export.provenance.row.cache_hit': 'Served from the parse cache',
+    'export.provenance.row.degradations': 'Degradations',
+    'export.provenance.row.warnings': 'Parse warnings',
+    'export.provenance.join': '; ',
+
+    'export.value.yes': 'Yes',
+    'export.value.no': 'No',
+
+    'export.citation.presentation': '- Presentation: {value}',
+    'export.citation.status': '- Field status: {value}',
+    'export.citation.evidence_id': '- Evidence ID: {value}',
+    'export.citation.links': '- Evidence links: [Open this citation]({deep_link}) · [Evidence API]({api_url})',
+    'export.citation.open_link': 'Open this citation',
+    'export.citations.none': 'This analysis produced no claims with citations.',
+    'export.citations.no_facts': 'This analysis produced no fact layer, so there are no citation links to export.',
+    'export.citations.policy_note': 'Direct quotations were verified verbatim against the source; a paraphrase is our own wording and carries no quotation marks. The two presentations are separate fields here, not a matter of punctuation.',
+
+    'export.report.title': 'PaperWhisperer Session Report',
+    'export.report.subtitle': 'Rich export of the current analysis session, including follow-up Q&A and visual assets.',
+    'export.report.generated_by': 'Generated by [PaperWhisperer](https://github.com/AiFLYF/PaperWhisperer).',
+    'export.report.overview': 'Session Overview',
+    'export.report.table_header': 'Item',
+    'export.report.guidance': 'Workspace Guidance',
+    'export.report.section_status': 'Section Status',
+    'export.report.section.overview': 'Overview',
+    'export.report.section.citations': 'Key Citations',
+    'export.report.section.structure': 'Text Structure',
+    'export.report.section.evaluation': 'Evaluation',
+    'export.report.section.brief': 'Deep Research Brief',
+    'export.report.section.followups': 'Suggested Follow-ups',
+    'export.report.section.questions': 'Questions',
+    'export.report.section.actions': 'Next Actions',
+    'export.report.section.trace': 'Research Trace',
+    'export.report.section.queue': 'Reading Queue',
+    'export.report.section.search': 'Paper Search Results',
+    'export.report.section.recommendations': 'Auto Recommendations',
+    'export.report.section.mermaid': 'Mermaid Source',
+    'export.report.section.svg': 'Visual Map SVG',
+    'export.report.svg_companion': 'The rendered SVG is exported as a companion file: `{file}`.',
+    'export.report.section.qa': 'Ask Questions',
+    'export.report.turn_mode': 'Mode: {mode}',
+    'export.report.metadata': 'Export Metadata',
+    'export.report.app': 'App: [PaperWhisperer](https://github.com/AiFLYF/PaperWhisperer)',
+    'export.report.export_time': 'Session export time: {time}',
+    'export.report.no_summary': '_No summary generated._',
+    'export.report.no_citations': '_No citations generated._',
+    'export.report.no_structure': '_No text structure generated._',
+    'export.report.no_question': '_No question text._',
+    'export.report.no_answer': '_No answer text._',
+
+    'export.report.row.source_file': 'Source file',
+    'export.report.row.session_id': 'Session ID',
+    'export.report.row.generated_at': 'Generated at',
+    'export.report.row.duration': 'Analysis duration',
+    'export.report.duration_value': '{value} s',
+    'export.report.row.char_count': 'Character count',
+    'export.report.row.qa_turns': 'Q&A turns',
+    'export.report.row.saved_papers': 'Saved papers',
+
+    'export.preview.grid_label': 'Export contents summary',
+    'export.preview.guidance_label': 'Workspace guidance',
+    'export.preview.note': 'Includes analysis, research brief, reading queue, suggested follow-ups, research trace, and local Q&A history.',
+    'export.preview.card.analysis': 'Analysis',
+    'export.preview.card.analysis_value': '{count} ready',
+    'export.preview.card.analysis_review': '{count} section(s) need review',
+    'export.preview.card.analysis_ok': 'Core sections are ready',
+    'export.preview.card.qa': 'Q&A',
+    'export.preview.card.qa_value': '{count} turns',
+    'export.preview.card.qa_included': 'Local conversation will be included',
+    'export.preview.card.qa_empty': 'Ask follow-ups to enrich the report',
+    'export.preview.card.papers': 'Papers',
+    'export.preview.card.papers_value': '{count} leads',
+    'export.preview.card.papers_saved': '{count} saved to queue',
+    'export.preview.card.papers_empty': 'Save strong leads before export',
+    'export.preview.card.visuals': 'Visuals',
+    'export.preview.card.map_ready': 'Map ready',
+    'export.preview.card.no_map': 'No map',
+    'export.preview.card.svg_ready': 'Mermaid SVG can be exported',
+    'export.preview.card.visuals_empty': 'Enable structure diagram for visuals',
+
+    'export.guidance.state.label': 'Workspace state',
+    'export.guidance.state.ready_review': '{ready} ready · {review} need review',
+    'export.guidance.state.ready': '{count} sections ready',
+    'export.guidance.state.disabled': '{count} optional section(s) disabled for this run.',
+    'export.guidance.state.core': 'Core analysis cards are ready for review and export.',
+    'export.guidance.next.label': 'Best next step',
+    'export.guidance.next.fallback': 'Ask a grounded follow-up',
+    'export.guidance.next.detail_fallback': 'Use Evidence mode to verify claims before switching to critique or reproduce mode.',
+    'export.guidance.trail.label': 'Research trail',
+    'export.guidance.trail.saved': '{count} saved paper(s)',
+    'export.guidance.trail.leads': '{count} paper lead(s)',
+    'export.guidance.trail.saved_detail': 'Saved papers are included in the session export.',
+    'export.guidance.trail.detail': 'Search or recommend papers, then save the strongest leads to the queue.',
+
+    // Markdown and HTML are file-format names, so these two read the same in
+    // both languages. They are keyed anyway so the control is read through the
+    // catalogue like everything else on the surface.
+    'export.format_option.md': 'Markdown',
+    'export.format_option.html': 'HTML',
+
+    'export.status.needs_analysis': 'Analyze a document before exporting',
+    'export.status.not_ready': 'Export content is not ready',
+    'export.button.done': 'Exported Report',
+    'export.button.done_svg': 'Exported Report + SVG',
+    'export.status.done': 'Session report exported',
+    'export.status.done_svg': 'Session report and SVG exported',
+
+    'export.html.title_suffix': ' — PaperWhisperer export',
+    'export.html.heading': 'PaperWhisperer Session Report',
+    'export.html.exported_at': 'Exported at {time}',
+    'export.html.section_empty': '(This analysis has no content for this section.)',
+
+    // --- api.js: the client's own failure sentences ---------------------------
+    // The counterpart of the `zh-CN` block above. These are the sentences that
+    // reach the reader through `ApiError.message` rather than through the
+    // code-driven notice; see that block for what is deliberately left out.
+    'api.cancelled': 'The request was cancelled.',
+    'api.unreachable': 'The network request failed.',
+    'api.response_too_large': 'The response exceeded the size limit.',
+    'api.not_json_object': 'The response was not a JSON object.',
+    'api.html_response': 'The server returned a web page rather than an API response. Check that the service address points at an endpoint and not at a web page.',
+    'api.invalid_json': 'The response was not valid JSON.',
+    'api.offline': 'This device is currently offline.',
+    'api.timeout': 'No reply arrived within the wait limit.',
+    'api.request_failed': 'The request failed.',
+    'api.stream_failed': 'The connection failed.',
+    'api.no_event_stream': 'The server did not return a streaming response.',
+    'api.no_stream_support': 'This browser does not support streaming responses.',
+    'api.stream_stalled': 'The stream made no progress for a long time.',
+    'api.stream_too_large': 'The streamed response exceeded the size limit.',
+    'api.stream_interrupted': 'The data stream broke partway through.',
+    'api.no_job_id': 'There is no job id to re-attach to.',
+    'api.resync_failed': 'Could not re-attach to the running job.',
+    'api.empty_response': 'The server returned an empty response.',
+    'api.unreadable_response': 'The response could not be parsed.',
+
+    // --- chat.js: the answer panel ----------------------------------------------
+    // The counterpart of the `zh-CN` block above. The three confidence sentences
+    // stay three distinct sentences in each language, because "separable in
+    // words, not only in tone" is the property this table exists for.
+    'chat.confidence.supported': 'Every claim in this answer is carried by a passage from this document, and any quotation was checked against it.',
+    'chat.confidence.partially_supported': 'Some claims in this answer are not carried by a passage from this document. The unsupported ones are marked below.',
+    'chat.confidence.insufficient_evidence': 'This answer is not backed by evidence from this document, so nothing in it is presented as the paper’s own claim.',
+    'chat.confidence.unknown': 'This answer did not report how well it is supported, so treat it as unverified.',
+    'chat.retrieval.count_one': 'Retrieved 1 passage from this document for this question.',
+    'chat.retrieval.count_other': 'Retrieved {count} passages from this document for this question.',
+    'chat.retrieval.degraded': 'Retrieval was degraded: {reasons}.',
+    'chat.retrieval.join': '; ',
+
+    'chat.role.user': 'User · {mode}',
+    'chat.role.assistant': 'Assistant',
+    'chat.role.system': 'System',
+    'chat.role.system_error': 'System Error',
+    'chat.action.sending': 'Sending...',
+    'chat.action.copy_blocked_title': 'This answer did not finish, so it cannot be copied as a verified answer.',
+
+    'chat.pending.title': 'Answering',
+    'chat.pending.body': 'Generating an answer from the current document.',
+
+    'chat.status.question_needed': 'Question needed',
+    'chat.status.analysis_required': 'Analyze a document before asking',
+    'chat.status.answering': 'Answering based on current document...',
+    'chat.status.streaming': 'Streaming answer...',
+    'chat.status.ready': 'Answer ready',
+    'chat.status.ready_partial': 'Answer ready — partly unverified',
+    'chat.status.ready_unsupported': 'Answer ready — not backed by this document',
+    'chat.status.interrupted': 'Answer interrupted before it completed',
+    'chat.status.failed': 'Question request failed',
+    'chat.status.canceled': 'Question canceled',
+    'chat.error.request_failed': 'Question request failed.',
+
+    'chat.incomplete.partial': 'The connection ended before this answer finished. What is shown above is the partial text, not a verified answer: it has not been checked against the document, and no citation for it was verified.',
+    'chat.incomplete.none': 'The connection ended before this answer began. Nothing was returned.',
+    'chat.incomplete.retry_hint': 'The answer stream ended before it completed. Ask again to retry.',
+    'chat.canceled.hint': 'Canceled before the answer completed. Ask again to retry.',
+    'chat.answer.empty': 'No answer available.',
 
     // --- the unrecognised code ---------------------------------------------
     // Shown when the server sends a `code` this build has no entry for. Saying

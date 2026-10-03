@@ -7,6 +7,7 @@ import { copyText, hideError, scrollWindowTo, setButtonLoading, setCancelVisible
 import { fillQuestionInput } from './suggestions.js';
 import { renderExportPreview } from './export.js';
 import { collectCitations, renderInlineClaims } from './evidence.js';
+import { t } from './i18n.js';
 
 /** The Q&A panel: streaming answers, cancellation and transcript storage. */
 
@@ -17,6 +18,12 @@ import { collectCitations, renderInlineClaims } from './evidence.js';
  * it: a success retires notices *by operation*, so a typo in one of them leaves
  * "回答生成中" on screen after the answer has arrived, with nothing to dismiss
  * it and nothing wrong to look at.
+ *
+ * Deliberately *not* a catalogue key, and this is the same reasoning
+ * `tests/test_i18n.py` pins for `runtime.js`'s offline-queue scope: a notice is
+ * retired by comparing this string, so making it depend on the interface
+ * language would mean a switch between the failure and its success stops the
+ * success from clearing it. It is an identifier, not copy.
  */
 const ASK_OPERATION = 'ask';
 
@@ -127,21 +134,70 @@ function buildAnswerClaims(payload, collected) {
  * response deliberately carries for exactly this reason and that this client was
  * dropping.
  */
+/**
+ * What the server will and will not vouch for, as the catalogue key per
+ * confidence value.
+ *
+ * The backend computes `confidence` from the claims and explicitly never asks the
+ * model for it. Rendering an answer without it means a refusal
+ * (`evidence_count: 0`, no claims) arrives in the same visual chrome as a fully
+ * supported one — same header, same Copy button, same follow-up chips — and the
+ * only signal is a sentence in the body the reader has to notice and
+ * understand. `notes` and `retrieval.degradations` are the two other facts the
+ * response deliberately carries for exactly this reason and that this client was
+ * dropping.
+ *
+ * **Keys, not sentences, and that is the whole point.** The branch that renders
+ * one of these is a membership test on the server's own machine-readable
+ * `confidence`, so translating them cannot change *which* verdict a reader is
+ * shown — only the language it is shown in. This is the same discipline
+ * `paperList.js` applies to its empty states, and the reason the prose-sniffing
+ * defect the previous migration round found could not exist here.
+ */
 const CONFIDENCE_COPY = {
-    supported: 'Every claim in this answer is carried by a passage from this document, and any quotation was checked against it.',
-    partially_supported: 'Some claims in this answer are not carried by a passage from this document. The unsupported ones are marked below.',
-    insufficient_evidence: 'This answer is not backed by evidence from this document, so nothing in it is presented as the paper’s own claim.'
+    supported: 'chat.confidence.supported',
+    partially_supported: 'chat.confidence.partially_supported',
+    insufficient_evidence: 'chat.confidence.insufficient_evidence'
 };
+
+/**
+ * The answer mode, as the transcript header names it.
+ *
+ * A twin of the same four lines in `export.js`, for the same reason both exist
+ * rather than one shared helper: `i18n.js` cannot import `config.js`'s callers
+ * and `config.js` cannot import `i18n.js`, so the join between "the schema's
+ * vocabulary" and "the reader's language" has to be made by each renderer. The
+ * key prefix and the vocabulary it is built from are the same in both, and
+ * `tests/test_i18n.py` asserts the two vocabularies on both sides agree.
+ *
+ * `ANSWER_MODE_LABELS` is the floor: an answer mode this build does not name
+ * still shows what the schema called it rather than a dotted key on the reader's
+ * own question.
+ */
+function answerModeLabel(answerMode) {
+    const raw = String(answerMode || '');
+    const key = `mode.${raw}`;
+    const value = t(key);
+    if (value !== key) return value;
+    return ANSWER_MODE_LABELS[raw] || ANSWER_MODE_LABELS.evidence;
+}
 
 function describeRetrieval(retrieval) {
     const count = Number(retrieval?.evidence_count);
     const parts = [];
     if (Number.isFinite(count)) {
-        parts.push(`Retrieved ${count} passage${count === 1 ? '' : 's'} from this document for this question.`);
+        // Two shapes rather than one with a pluralising branch inside the copy:
+        // English needs the article and the plural, Chinese needs neither, and
+        // the interface cannot punctuate a sentence it did not write.
+        parts.push(t(count === 1 ? 'chat.retrieval.count_one' : 'chat.retrieval.count_other', { count }));
     }
     const degradations = Array.isArray(retrieval?.degradations) ? retrieval.degradations.filter(Boolean) : [];
     if (degradations.length) {
-        parts.push(`Retrieval was degraded: ${degradations.join('; ')}.`);
+        // The reasons are the server's own words, joined by the interface's
+        // punctuation; the sentence around them is the interface's.
+        parts.push(t('chat.retrieval.degraded', {
+            reasons: degradations.join(t('chat.retrieval.join'))
+        }));
     }
     return parts.join(' ');
 }
@@ -172,8 +228,8 @@ function renderAnswerVerdict(container, payload) {
     const summary = document.createElement('p');
     summary.className = 'answer-verdict-label';
     summary.textContent = known
-        ? CONFIDENCE_COPY[confidence]
-        : 'This answer did not report how well it is supported, so treat it as unverified.';
+        ? t(CONFIDENCE_COPY[confidence])
+        : t('chat.confidence.unknown');
     verdict.appendChild(summary);
 
     const retrievalText = describeRetrieval(payload?.retrieval);
@@ -213,7 +269,7 @@ function appendChatText(role, message, className) {
     body.className = className.includes('chat-answer') ? 'chat-text content' : 'chat-text';
     if (className.includes('chat-answer')) {
         body.dataset.rawContent = message || '';
-        replaceWithFormattedContent(body, message, 'No content available.');
+        replaceWithFormattedContent(body, message, t('content.none_available'));
     } else {
         body.textContent = message;
     }
@@ -240,12 +296,12 @@ function appendStreamingAnswerShell() {
     header.className = 'chat-header';
 
     const title = document.createElement('span');
-    title.textContent = 'Assistant';
+    title.textContent = t('chat.role.assistant');
 
     const button = document.createElement('button');
     button.className = 'action-btn';
     button.type = 'button';
-    button.textContent = 'Copy';
+    button.textContent = t('result.copy');
     // Delegated rather than bound per button. `restoreWorkspaceState` puts the
     // transcript back as `innerHTML`, which produces fresh nodes carrying no
     // listeners — a listener bound here would be silently gone after a failed
@@ -294,7 +350,7 @@ function appendStreamingAnswerShell() {
 function updateStreamingAnswer(shell, answer) {
     if (!shell || !shell.content) return;
     shell.content.dataset.rawContent = answer || '';
-    replaceWithFormattedContent(shell.content, answer, 'No answer available.');
+    replaceWithFormattedContent(shell.content, answer, t('chat.answer.empty'));
 }
 
 function finalizeStreamingAnswer(shell, answer) {
@@ -347,13 +403,16 @@ async function askQuestion() {
 
     if (!question) {
         questionInput.focus();
-        updateStatus('Question needed', 'idle');
+        updateStatus(t('chat.status.question_needed'), 'idle');
         return;
     }
     if (!state.currentSessionId) {
         questionInput.focus();
-        updateStatus('Analyze a document before asking', 'idle');
-        showError('Requires document analysis first.');
+        updateStatus(t('chat.status.analysis_required'), 'idle');
+        // The same sentence the paper-search and recommendation paths show for
+        // the same missing prerequisite, taken once from the catalogue rather
+        // than written out three times.
+        showError(t('papers.recommend.requires_analysis'));
         return;
     }
 
@@ -384,17 +443,17 @@ async function askQuestion() {
     const preserved = capturePreservedFields();
 
     hideError();
-    appendChatText(`User · ${ANSWER_MODE_LABELS[answerMode]}`, question, 'chat-question');
+    appendChatText(t('chat.role.user', { mode: answerModeLabel(answerMode) }), question, 'chat-question');
     questionInput.value = '';
-    setButtonLoading(askBtn, 'Processing...', 'Send', true);
+    setButtonLoading(askBtn, t('chat.action.sending'), t('result.ask_send'), true);
     setCancelVisible('cancelAskBtn', true);
-    updateStatus('Answering based on current document...', 'idle');
+    updateStatus(t('chat.status.answering'), 'idle');
     // Scoped to `ask` so the flight's own success can retire it in `endFlight`.
     // An unscoped pending notice is matched by operation only, and an operation
     // of `''` matches nothing — so "回答生成中" outlives the answer it
     // describes, leaving the reader with a status line claiming work in
     // progress that finished a second ago.
-    const pendingNoticeId = notifyPending('回答生成中', '正在基于当前文档生成回答。', { operation: ASK_OPERATION });
+    const pendingNoticeId = notifyPending(t('chat.pending.title'), t('chat.pending.body'), { operation: ASK_OPERATION });
     // Published so `cancelAskRequest` can retire it. A cancel bumps the request
     // token, so this turn's `finally` skips its settled branch, and a cancel is
     // not a success — so the by-operation retirement in `endFlight` never runs
@@ -438,7 +497,7 @@ async function askQuestion() {
 
         await readSseStream(response, {
             start: () => {
-                updateStatus('Streaming answer...', 'idle');
+                updateStatus(t('chat.status.streaming'), 'idle');
             },
             delta: payload => {
                 if (requestId !== state.askRequestId) return;
@@ -492,18 +551,18 @@ async function askQuestion() {
                 // transcript has been scrolled away. A refusal is not a success
                 // and must not wear its colour.
                 if (confidence === 'insufficient_evidence') {
-                    updateStatus('Answer ready — not backed by this document', 'error');
+                    updateStatus(t('chat.status.ready_unsupported'), 'error');
                 } else if (confidence === 'partially_supported') {
-                    updateStatus('Answer ready — partly unverified', 'idle');
+                    updateStatus(t('chat.status.ready_partial'), 'idle');
                 } else {
-                    updateStatus('Answer ready', 'success');
+                    updateStatus(t('chat.status.ready'), 'success');
                 }
             },
             error: payload => {
                 // Carries the `{ error, code }` envelope, so the failure below
                 // can tell "the model refused" from "the stream broke" and offer
                 // a retry for only one of them.
-                throw buildApiError(payload, 'Question request failed.');
+                throw buildApiError(payload, t('chat.error.request_failed'));
             }
         }, { operation: 'ask', signal: state.askController.signal });
 
@@ -536,8 +595,8 @@ async function askQuestion() {
             const incomplete = document.createElement('p');
             incomplete.className = 'answer-verdict-detail';
             incomplete.textContent = partial
-                ? 'The connection ended before this answer finished. What is shown above is the partial text, not a verified answer: it has not been checked against the document, and no citation for it was verified.'
-                : 'The connection ended before this answer began. Nothing was returned.';
+                ? t('chat.incomplete.partial')
+                : t('chat.incomplete.none');
             verdictHost.replaceChildren(incomplete);
 
             // The Copy control is taken away rather than left enabled. Copying
@@ -546,12 +605,12 @@ async function askQuestion() {
             // indistinguishable from a verified one once it has left. The
             // reader who wants the partial text can still select it.
             setControlDisabled(streamingShell.button, true);
-            streamingShell.button.title = 'This answer did not finish, so it cannot be copied as a verified answer.';
+            streamingShell.button.title = t('chat.action.copy_blocked_title');
 
-            appendChatText('System Error', 'The answer stream ended before it completed. Ask again to retry.', 'chat-answer chat-error');
+            appendChatText(t('chat.role.system_error'), t('chat.incomplete.retry_hint'), 'chat-answer chat-error');
             state.activeStreamingAnswerShell = null;
             state.pendingQuestion = '';
-            updateStatus('Answer interrupted before it completed', 'error');
+            updateStatus(t('chat.status.interrupted'), 'error');
         }
     } catch (error) {
         if (error.name === 'AbortError' || error.code === 'client_cancelled') {
@@ -576,9 +635,11 @@ async function askQuestion() {
         if (streamingShell && streamingShell.answerDiv && streamingShell.answerDiv.parentNode) {
             streamingShell.answerDiv.parentNode.removeChild(streamingShell.answerDiv);
         }
-        appendChatText('System Error', error.message || 'Question request failed.', 'chat-answer chat-error');
+        // The role header is the interface's; the message is the failure's own, and is
+        // shown as it arrived.
+        appendChatText(t('chat.role.system_error'), error.message || t('chat.error.request_failed'), 'chat-answer chat-error');
         notifyFailure(error, { operation: ASK_OPERATION, onRetry: () => askQuestion() });
-        updateStatus('Question request failed', 'error');
+        updateStatus(t('chat.status.failed'), 'error');
     } finally {
         // Every exit closes the flight — success, failure and cancellation. A
         // flight left open is a permanent "in flight" row in the runtime's
@@ -604,7 +665,7 @@ async function askQuestion() {
             if (settled) {
                 state.pendingQuestion = '';
             }
-            setButtonLoading(askBtn, 'Processing...', 'Send', false);
+            setButtonLoading(askBtn, t('chat.action.sending'), t('result.ask_send'), false);
             setCancelVisible('cancelAskBtn', false);
             state.askController = null;
             state.activeStreamingAnswerShell = null;
@@ -627,7 +688,7 @@ function cancelAskRequest() {
         dismissNotice(state.pendingNoticeIds.ask);
         state.pendingNoticeIds.ask = '';
     }
-    setButtonLoading(document.getElementById('askBtn'), 'Processing...', 'Send', false);
+    setButtonLoading(document.getElementById('askBtn'), t('chat.action.sending'), t('result.ask_send'), false);
     setCancelVisible('cancelAskBtn', false);
     state.askController = null;
     if (state.activeStreamingAnswerShell?.answerDiv?.parentNode) {
@@ -640,13 +701,13 @@ function cancelAskRequest() {
     // goes back in the box so asking again costs one press rather than a
     // retype. state.pendingQuestion is the record of what was in flight, which is
     // more reliable than reading it back out of the transcript’s markup.
-    appendChatText('System', 'Canceled before the answer completed. Ask again to retry.', 'chat-answer chat-error');
+    appendChatText(t('chat.role.system'), t('chat.canceled.hint'), 'chat-answer chat-error');
     const questionInput = document.getElementById('questionInput');
     if (questionInput && !questionInput.value.trim() && state.pendingQuestion) {
         questionInput.value = state.pendingQuestion;
     }
     state.pendingQuestion = '';
-    updateStatus('Question canceled', 'idle');
+    updateStatus(t('chat.status.canceled'), 'idle');
 }
 
 function handleKeyPress(event) {

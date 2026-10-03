@@ -537,15 +537,30 @@ def test_all_three_confidence_values_have_distinct_wording():
     stylesheet that fails to load, a high-contrast mode, or a screen reader —
     which is the same argument ``claims.js`` makes for carrying the
     quote/paraphrase distinction four ways over.
+
+    ``CONFIDENCE_COPY`` now holds a catalogue *key* per confidence rather than
+    the sentence itself, so the test follows the key through the catalogue in
+    both languages. Asserting only that the three keys differ would pass for a
+    catalogue in which all three resolved to the same sentence — which is the
+    exact defect this test exists to prevent, and the reason it follows the key
+    instead of stopping at the lookup table.
     """
     for value in ("supported", "partially_supported", "insufficient_evidence"):
         assert f"{value}:" in CHAT, f"no wording is defined for confidence {value}"
 
     match = re.search(r"CONFIDENCE_COPY\s*=\s*\{(.*?)\n\}", CHAT, re.DOTALL)
     assert match, "the confidence wording table is missing"
-    values = re.findall(r":\s*'([^']*)'", match.group(1))
-    assert len(values) == 3
-    assert len(set(values)) == 3, "two confidence states share the same wording"
+    keys = re.findall(r":\s*'([^']*)'", match.group(1))
+    assert len(keys) == 3
+    assert len(set(keys)) == 3, "two confidence states name the same catalogue key"
+    assert all(key.startswith("chat.confidence.") for key in keys), (
+        f"the verdict wording left the catalogue: {keys}"
+    )
+    for table in ("ZH_CN", "EN"):
+        sentences = [catalogue_value(key, table) for key in keys]
+        assert len(set(sentences)) == 3, (
+            f"two confidence states read identically in {table}: {sentences}"
+        )
 
 
 def test_the_answer_records_its_retrieval_and_its_notes():
@@ -1784,14 +1799,14 @@ def test_a_completed_run_retires_its_own_pending_notice():
     up.
 
     The third element of each tuple is a marker that the pending notice is still
-    being raised from the module: a catalogue key for ``analyze.js``, which has
-    been migrated, and the literal for ``chat.js``, which has not. The marker is
-    only a presence check — what is under test is the *scope*, and the wording
-    is deliberately not the thing being pinned.
+    being raised from the module, and it is a catalogue key for both now: the
+    ``chat.js`` literal was replaced when the answer panel was routed through the
+    catalogue. The marker is only a presence check — what is under test is the
+    *scope*, and the wording is deliberately not the thing being pinned.
     """
     for module, operation, pending_call in (
         ("analyze.js", "analyze", "analysis.pending.title"),
-        ("chat.js", "ask", "回答生成中"),
+        ("chat.js", "ask", "chat.pending.title"),
     ):
         source = ALL_JS[module]
         stripped = strip_js_comments(source)

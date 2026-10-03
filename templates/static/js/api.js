@@ -36,6 +36,44 @@
  * been migrated yet still gets the size cap, the timeout classification and
  * the code — a partial migration inherits the behaviour instead of either
  * working or being broken.
+ *
+ * ## What is decided here, and what is not
+ *
+ * Importing `t` is safe and is not a layering inversion: `i18n.js` imports only
+ * `config.js`, so it sits *below* this file, and `runtime.js` — this file's own
+ * sibling, and the layer that does decide presentation — already imports it. No
+ * cycle is introduced.
+ *
+ * What that import buys is narrow and worth stating plainly. `runtime.js` shows
+ * a failure by looking its `code` up in `ERROR_CATALOGUE`, so **the notice a
+ * reader sees for a classified failure was never this file's prose** — it is
+ * keyed, code-driven copy and always was. What *is* this file's prose is the
+ * `ApiError.message`, and that reaches the screen by a different route:
+ * `showError(error)` in `dom.js`, `appendChatText('System Error', error.message,
+ * …)` in the answer transcript, and `parseStatus.js`. So these sentences are
+ * keyed here, and each keeps the wording it had so the default locale renders
+ * byte for byte what it rendered before.
+ *
+ * **What is deliberately left alone.**
+ *
+ * 1. *The server's own prose.* `data.error`, `payload.error` and every other
+ *    server-authored string are carried through untouched — into
+ *    `ApiError.message`, into `parseJsonSafely`'s `{ error }` payload, and into
+ *    `errorPresentation`'s `serverDetail`. Rewriting a sentence the server wrote
+ *    is how a client starts reporting things the server never said, and the
+ *    code beside it is what presentation should branch on.
+ * 2. *The platform's prose.* `error?.message` from a thrown `fetch` failure is
+ *    the browser's own text. It is passed through, never translated, for the
+ *    same reason.
+ * 3. *Scope identifiers.* `operation` is compared to retire notices and is
+ *    never rendered, so `'ask'`, `'job'` and `'stream'` must not become
+ *    catalogue keys: a key would make the scope depend on the interface language,
+ *    and a success would stop retiring the failure that shares it.
+ * 4. *The `looksLikeHtml` diagnosis.* That regex branches on the **server's
+ *    response bytes**, not on any interface copy — it recognises `<!doctype
+ *    html>` in a body where JSON was expected. Both arms are now catalogue
+ *    entries, but the branch itself cannot be inverted by translation because its
+ *    input is not ours to translate.
  */
 
 import {
@@ -51,6 +89,7 @@ import {
     STREAM_STALL_TIMEOUT_MS,
     UNKNOWN_FAILURE_KIND
 } from './config.js';
+import { t } from './i18n.js';
 import { beginFlight, endFlight, isOnline } from './runtime.js';
 
 // --------------------------------------------------------------------------
@@ -97,9 +136,12 @@ function isAbortError(error) {
 function transportFailure(error, operation) {
     if (error instanceof ApiError) return error;
     if (isAbortError(error)) {
-        return new ApiError('请求已取消。', { code: 'client_cancelled', operation });
+        return new ApiError(t('api.cancelled'), { code: 'client_cancelled', operation });
     }
-    return new ApiError(error?.message || '网络请求失败。', {
+    // `error?.message` is the browser's own text for a failed fetch, not ours:
+    // it is carried through verbatim, and the catalogue entry below is the
+    // floor for the case where the platform supplied no message at all.
+    return new ApiError(error?.message || t('api.unreachable'), {
         code: 'client_unreachable',
         operation,
         cause: error
@@ -132,7 +174,7 @@ async function readBodyCapped(response, maxBytes) {
     // This is the cheap case, and it is the common one: a server that knows how
     // big its own response is tells us, and honouring that is free.
     if (Number.isFinite(declared) && declared > limit) {
-        throw new ApiError('响应超出大小上限。', { code: 'client_response_too_large' });
+        throw new ApiError(t('api.response_too_large'), { code: 'client_response_too_large' });
     }
 
     const body = response.body;
@@ -144,7 +186,7 @@ async function readBodyCapped(response, maxBytes) {
         // the cap.
         const bytes = new TextEncoder().encode(text).length;
         if (bytes > limit) {
-            throw new ApiError('响应超出大小上限。', { code: 'client_response_too_large' });
+            throw new ApiError(t('api.response_too_large'), { code: 'client_response_too_large' });
         }
         return text;
     }
@@ -158,7 +200,7 @@ async function readBodyCapped(response, maxBytes) {
             if (done) break;
             total += value?.byteLength || 0;
             if (total > limit) {
-                throw new ApiError('响应超出大小上限。', { code: 'client_response_too_large' });
+                throw new ApiError(t('api.response_too_large'), { code: 'client_response_too_large' });
             }
             chunks.push(value);
         }
@@ -189,7 +231,7 @@ function parseJsonBody(text, statusText = '') {
     try {
         const data = JSON.parse(text);
         if (!data || typeof data !== 'object') {
-            return { error: '响应不是 JSON 对象。', code: 'client_malformed_response' };
+            return { error: t('api.not_json_object'), code: 'client_malformed_response' };
         }
         return data;
     } catch {
@@ -200,8 +242,8 @@ function parseJsonBody(text, statusText = '') {
         const looksLikeHtml = /^\s*(<!doctype html|<html|<head|<body)/i.test(text);
         return {
             error: looksLikeHtml
-                ? '服务端返回了一个网页，而不是接口的响应。请检查服务地址是否指向了网页。'
-                : '响应不是合法 JSON。',
+                ? t('api.html_response')
+                : t('api.invalid_json'),
             code: 'client_malformed_response',
             status_hint: statusText
         };
@@ -244,7 +286,7 @@ async function apiRequest(path, options = {}) {
     const method = String(options.method || 'GET').toUpperCase();
 
     if (!isOnline()) {
-        throw new ApiError('当前处于离线状态。', { code: 'client_offline', operation });
+        throw new ApiError(t('api.offline'), { code: 'client_offline', operation });
     }
 
     const timeoutMs = Number(options.timeoutMs) > 0
@@ -278,7 +320,7 @@ async function apiRequest(path, options = {}) {
         // above: a timeout must not be reported as a user cancellation, or the
         // interface will claim a request was stopped when it was abandoned.
         if (timeoutController.signal.aborted && !isAbortError(options.signal?.reason)) {
-            throw new ApiError('在等待响应的时间上限内没有收到答复。', {
+            throw new ApiError(t('api.timeout'), {
                 code: 'client_timeout',
                 operation,
                 cause: error
@@ -295,7 +337,7 @@ async function apiRequest(path, options = {}) {
     const data = parseJsonBody(text, `${response.status} ${response.statusText || ''}`.trim());
 
     if (!response.ok) {
-        throw new ApiError(data.error || options.fallback || '请求失败。', {
+        throw new ApiError(data.error || options.fallback || t('api.request_failed'), {
             code: data.code,
             status: response.status,
             operation,
@@ -431,7 +473,7 @@ async function readSseStream(response, handlers = {}, options = {}) {
     if (!response.ok) {
         const text = await readBodyCapped(response, RESPONSE_SIZE_CAPS_BYTES.json);
         const data = parseJsonBody(text, `${response.status} ${response.statusText || ''}`.trim());
-        throw new ApiError(data.error || '连接失败。', {
+        throw new ApiError(data.error || t('api.stream_failed'), {
             code: data.code,
             status: response.status,
             operation,
@@ -443,7 +485,7 @@ async function readSseStream(response, handlers = {}, options = {}) {
     if (!contentType.includes('text/event-stream')) {
         const text = await readBodyCapped(response, RESPONSE_SIZE_CAPS_BYTES.json);
         const data = parseJsonBody(text, `${response.status} ${response.statusText || ''}`.trim());
-        throw new ApiError('服务端没有返回流式响应。', {
+        throw new ApiError(t('api.no_event_stream'), {
             code: 'client_malformed_response',
             status: response.status,
             operation,
@@ -453,7 +495,7 @@ async function readSseStream(response, handlers = {}, options = {}) {
 
     const reader = response.body?.getReader?.();
     if (!reader) {
-        throw new ApiError('这个浏览器不支持流式响应。', {
+        throw new ApiError(t('api.no_stream_support'), {
             code: 'client_malformed_response',
             operation
         });
@@ -481,7 +523,7 @@ async function readSseStream(response, handlers = {}, options = {}) {
             if (stallReject) {
                 const reject = stallReject;
                 stallReject = null;
-                reject(new ApiError('数据流长时间没有任何进展。', {
+                reject(new ApiError(t('api.stream_stalled'), {
                     code: 'client_stream_interrupted',
                     operation
                 }));
@@ -497,7 +539,7 @@ async function readSseStream(response, handlers = {}, options = {}) {
         if (stallReject) {
             const reject = stallReject;
             stallReject = null;
-            reject(new ApiError('请求已取消。', { code: 'client_cancelled', operation }));
+            reject(new ApiError(t('api.cancelled'), { code: 'client_cancelled', operation }));
         }
     };
     if (options.signal) {
@@ -552,7 +594,7 @@ async function readSseStream(response, handlers = {}, options = {}) {
             armStall();
             totalBytes += value?.byteLength || 0;
             if (totalBytes > RESPONSE_SIZE_CAPS_BYTES.streamTotal) {
-                throw new ApiError('流式响应超出大小上限。', {
+                throw new ApiError(t('api.stream_too_large'), {
                     code: 'client_response_too_large',
                     operation
                 });
@@ -574,14 +616,14 @@ async function readSseStream(response, handlers = {}, options = {}) {
         await Promise.race([readLoop, stallPromise]);
     } catch (error) {
         if (isAbortError(error)) {
-            throw new ApiError('请求已取消。', { code: 'client_cancelled', operation, cause: error });
+            throw new ApiError(t('api.cancelled'), { code: 'client_cancelled', operation, cause: error });
         }
         if (error instanceof ApiError) throw error;
         // A stream that dies mid-body is `client_stream_interrupted` and is
         // retryable, not terminal: the work may well have completed on the
         // server. The re-attach below is what turns that into a resumed
         // operation rather than a restart.
-        throw new ApiError('数据流在传输途中断开。', {
+        throw new ApiError(t('api.stream_interrupted'), {
             code: 'client_stream_interrupted',
             operation,
             cause: error
@@ -636,7 +678,7 @@ const JOB_PATH = '/v1/jobs/{jobId}';
 async function attachToJobStream(jobId, handlers = {}, options = {}) {
     const operation = options.operation || 'job';
     if (!jobId) {
-        throw new ApiError('没有可以重新连接的任务 id。', {
+        throw new ApiError(t('api.no_job_id'), {
             code: 'client_unknown_error',
             operation
         });
@@ -684,7 +726,7 @@ async function attachToJobStream(jobId, handlers = {}, options = {}) {
         }
     }
 
-    throw new ApiError('无法重新连接到正在运行的任务。', {
+    throw new ApiError(t('api.resync_failed'), {
         code: 'client_stream_interrupted',
         operation
     });
@@ -767,7 +809,7 @@ async function withGuardedRequest(options = {}) {
  */
 function buildApiError(data, fallbackMessage) {
     const payload = data || {};
-    return new ApiError(payload.error || fallbackMessage || '请求失败。', {
+    return new ApiError(payload.error || fallbackMessage || t('api.request_failed'), {
         code: payload.code,
         status: payload.status,
         cause: payload
@@ -784,7 +826,7 @@ function buildApiError(data, fallbackMessage) {
 async function parseJsonSafely(response) {
     try {
         const text = await readBodyCapped(response, RESPONSE_SIZE_CAPS_BYTES.json);
-        if (!text.trim()) return { error: '服务端返回了空响应。', code: 'client_malformed_response' };
+        if (!text.trim()) return { error: t('api.empty_response'), code: 'client_malformed_response' };
         return parseJsonBody(text, `${response.status} ${response.statusText || ''}`.trim());
     } catch (error) {
         // A cap breach while reading an *error* response must not turn into a
@@ -793,7 +835,7 @@ async function parseJsonSafely(response) {
         if (error instanceof ApiError) {
             return { error: error.message, code: error.code };
         }
-        return { error: '响应无法解析。', code: 'client_malformed_response' };
+        return { error: t('api.unreadable_response'), code: 'client_malformed_response' };
     }
 }
 
