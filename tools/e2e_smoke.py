@@ -166,6 +166,7 @@ def prepare_environment(tmp_root: Path, *, serialize_llm: bool) -> dict:
 
 def make_client(bundle, objects):
     from fastapi.testclient import TestClient
+
     from paperwhisperer.analysis import orchestrator
     from paperwhisperer.api import routes_evidence, routes_jobs, routes_qa, routes_v1
     from paperwhisperer.api.routes_jobs import build_job_store
@@ -266,7 +267,8 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
         model_up, model_detail = (False, "--no-llm")
         if use_llm:
             model_up, model_detail = chat_completion_available(config)
-            rep.note(f"endpoint {config.OPENAI_BASE_URL} model {config.OPENAI_MODEL}: {model_detail}")
+            rep.note(f"endpoint {config.OPENAI_BASE_URL} model {config.OPENAI_MODEL}: "
+                     f"{model_detail}")
             if not model_up:
                 rep.skipped("llm", f"endpoint cannot serve a completion ({model_detail}); "
                                    "model-backed steps will skip (environment, not product)")
@@ -275,7 +277,6 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
         session_id = ""
         session_token = ""
         answer_result = None
-        first_evidence_id = ""
 
         # -- Step 1: upload through the real HTTP route --------------------
         _header("STEP 1  upload a real PDF through POST /v1/documents")
@@ -286,7 +287,8 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
             )
         rep.note(f"POST /v1/documents -> HTTP {response.status_code}")
         if response.status_code != 201:
-            rep.defect("step1-upload", f"expected 201, got {response.status_code}: {response.text[:300]}")
+            rep.defect("step1-upload", f"expected 201, got {response.status_code}: "
+                                    f"{response.text[:300]}")
             return
         created = response.json()
         document_id = created["document"]["document_id"]
@@ -298,28 +300,34 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
         parse = resource.get("parse", {})
         rep.note(json.dumps(
             {k: parse.get(k) for k in
-             ("status", "parsed_by", "media_type", "used_cloud", "cloud_attempted", "fallback_used")},
+             ("status", "parsed_by", "media_type", "used_cloud", "cloud_attempted",
+              "fallback_used")},
             ensure_ascii=False,
         ))
         if not parse.get("parsed_by") or not parse.get("status"):
             rep.defect("step2-provenance", f"parse report incomplete: {parse}")
         else:
-            rep.passed("step2-provenance", f"parsed_by={parse.get('parsed_by')} status={parse.get('status')}")
+            rep.passed("step2-provenance", f"parsed_by={parse.get('parsed_by')} "
+                                     f"status={parse.get('status')}")
             if str(parse.get("parsed_by")) == "legacy" and str(config.PARSER_PRIMARY) == "docling":
-                rep.note("note: PARSER_PRIMARY=docling but the parse ran the legacy adapter "
-                         "(PARSER_BACKEND defaults to 'legacy') — see PARSER_BAKE_OFF routing note.")
+                rep.note("note: PARSER_PRIMARY=docling but the parse ran the legacy "
+                         "adapter (PARSER_BACKEND defaults to 'legacy') — see "
+                         "PARSER_BAKE_OFF routing note.")
 
         pages = client.get(f"/v1/documents/{document_id}/pages")
         if pages.status_code != 200:
             rep.defect("step2-pages", f"GET /pages -> {pages.status_code}")
         else:
             page_body = pages.json()
-            rep.note(f"locator_kind={page_body.get('locator_kind')} page_count={page_body.get('page_count')} "
+            rep.note(f"locator_kind={page_body.get('locator_kind')} "
+                     f"page_count={page_body.get('page_count')} "
                      f"listed={len(page_body.get('pages') or [])}")
             if not page_body.get("pages"):
-                rep.defect("step2-pages", "no page descriptors; provenance has no page/bbox coverage")
+                rep.defect("step2-pages", "no page descriptors; provenance has no "
+                                      "page/bbox coverage")
             else:
-                rep.passed("step2-pages", f"{len(page_body['pages'])} pages, kind={page_body.get('locator_kind')}")
+                rep.passed("step2-pages", f"{len(page_body['pages'])} pages, "
+                                         f"kind={page_body.get('locator_kind')}")
 
         # -- Step 3: did vectors actually land? -----------------------------
         _header("STEP 3  assert vectors landed in the real store (dimension + count)")
@@ -351,7 +359,8 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
         # -- Step 4: analysis through the real pipeline ---------------------
         _header("STEP 4  analyse through the real pipeline (POST /api/analyze)")
         if not use_llm or not model_up or not api_key:
-            rep.skipped("step4-analysis", "no usable model right now; section statuses not exercised")
+            rep.skipped("step4-analysis", "no usable model right now; "
+                                      "section statuses not exercised")
         else:
             with CORPUS_PDF.open("rb") as handle:
                 analysis_response = client.post(
@@ -368,17 +377,21 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
             body_text = analysis_response.text
             if analysis_response.status_code != 200:
                 if _is_model_unavailable(body_text):
-                    rep.skipped("step4-analysis", f"endpoint rate-limited mid-analysis: {body_text[:120]}")
+                    rep.skipped("step4-analysis", f"endpoint rate-limited mid-analysis: "
+                                         f"{body_text[:120]}")
                 else:
-                    rep.defect("step4-analysis", f"expected 200, got {analysis_response.status_code}: {body_text[:300]}")
+                    rep.defect("step4-analysis", f"expected 200, got "
+                                           f"{analysis_response.status_code}: {body_text[:300]}")
             else:
                 analysis = analysis_response.json()
                 session_id = str(analysis.get("session_id") or "")
                 session_token = str(analysis.get("session_token") or "")
                 statuses = {name: (sec or {}).get("status")
                             for name, sec in (analysis.get("sections") or {}).items()}
-                rep.note("section statuses: " + json.dumps(statuses, ensure_ascii=False, sort_keys=True))
-                rep.note(f"analysis_status.quality={(analysis.get('analysis_status') or {}).get('quality')}")
+                rep.note("section statuses: "
+                         + json.dumps(statuses, ensure_ascii=False, sort_keys=True))
+                rep.note("analysis_status.quality="
+                         f"{(analysis.get('analysis_status') or {}).get('quality')}")
                 required_ok = all(
                     (analysis.get("sections") or {}).get(name, {}).get("status") == "success"
                     for name in ("summary", "quotes", "mindmap")
@@ -393,7 +406,8 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
                 if quality == expected:
                     rep.passed("step4-partial", f"quality={quality} matches statuses")
                 else:
-                    rep.defect("step4-partial", f"quality={quality} but statuses imply {expected}: {statuses}")
+                    rep.defect("step4-partial", f"quality={quality} but statuses imply "
+                                          f"{expected}: {statuses}")
 
         # -- Step 5: the late-evidence question -----------------------------
         _header(f"STEP 5  the LATE passage ({LATE_EVIDENCE!r}, offset ~12132) is reachable")
@@ -407,35 +421,44 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
             rep.note(f"POST /v1/documents/{{id}}/qa -> HTTP {qa_response.status_code}")
             if qa_response.status_code != 200:
                 if _is_model_unavailable(qa_response.text):
-                    rep.skipped("step5-answer", "endpoint could not answer; retrieval reachability still checked")
+                    rep.skipped("step5-answer", "endpoint could not answer; "
+                                         "retrieval reachability still checked")
                 else:
-                    rep.defect("step5-answer", f"expected 200, got {qa_response.status_code}: {qa_response.text[:200]}")
+                    rep.defect("step5-answer", f"expected 200, got {qa_response.status_code}: "
+                                        f"{qa_response.text[:200]}")
             else:
                 events = read_sse(qa_response.text)
                 rep.note("SSE events: " + ", ".join(name for name, _ in events))
                 done = [payload for name, payload in events if name == "done"]
                 if not done:
                     err = [p for name, p in events if name == "error"]
-                    detail = json.dumps(err[0], ensure_ascii=False)[:200] if err else "[no done event]"
+                    detail = (json.dumps(err[0], ensure_ascii=False)[:200]
+                                 if err else "[no done event]")
                     if _is_model_unavailable(detail):
                         rep.skipped("step5-answer", f"stream carried an error: {detail}")
                     else:
-                        rep.defect("step5-answer", f"no 'done' event; stream was {[n for n,_ in events]}: {detail}")
+                        rep.defect("step5-answer",
+                                   f"no 'done' event; stream was "
+                                   f"{[n for n, _ in events]}: {detail}")
                 else:
                     answer_result = done[0]
                     answer = answer_result.get("answer", "")
                     rep.note(f"answer: {answer[:280]!r}")
                     rep.note(f"confidence={answer_result.get('confidence')} "
-                             f"evidence_count={(answer_result.get('retrieval') or {}).get('evidence_count')}")
+                             f"evidence_count="
+                             f"{(answer_result.get('retrieval') or {}).get('evidence_count')}")
                     if LATE_EVIDENCE in answer or "67" in answer:
-                        rep.passed("step5-answer", "the late fact (67 test errors) is in the answer")
+                        rep.passed("step5-answer",
+                                 "the late fact (67 test errors) is in the answer")
                     else:
                         rep.defect(
                             "step5-answer",
-                            f"the late evidence {LATE_EVIDENCE!r} did not reach the answer. answer=" + answer[:200],
+                            f"the late evidence {LATE_EVIDENCE!r} did not reach the answer. "
+                            f"answer={answer[:200]}",
                         )
         else:
-            rep.skipped("step5-answer", "no usable model right now; retrieval reachability still checked")
+            rep.skipped("step5-answer", "no usable model right now; "
+                                         "retrieval reachability still checked")
 
         # -- Step 6: answer structure ---------------------------------------
         _header("STEP 6  assert claims + evidence ids + citations + confidence")
@@ -444,7 +467,8 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
         else:
             claims = answer_result.get("claims") or []
             citations = answer_result.get("citations") or []
-            rep.note(f"claims={len(claims)} citations={len(citations)} confidence={answer_result.get('confidence')}")
+            rep.note(f"claims={len(claims)} citations={len(citations)} "
+                         f"confidence={answer_result.get('confidence')}")
             if not claims:
                 rep.defect("step6-structure", "answer carries no claims")
             elif not any(c.get("evidence_ids") for c in claims):
@@ -456,7 +480,8 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
                           if not c.get("evidence_ids")
                           or (c.get("quote") and c.get("presentation") != "direct_quote")]
             if confidence == "supported" and unverified:
-                rep.defect("step6-confidence", f"supported but {len(unverified)} claims are unbacked")
+                rep.defect("step6-confidence",
+                           f"supported but {len(unverified)} claims are unbacked")
             else:
                 rep.passed("step6-confidence", f"confidence={confidence} consistent with claims")
 
@@ -503,21 +528,27 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
                     locator = payload.get("locator") or {}
                     page = locator.get("page")
                     snippet = payload.get("snippet")
-                    rep.note(f"locator={locator} snippet_len={len(snippet) if isinstance(snippet, str) else 'n/a'}")
+                    rep.note(f"locator={locator} snippet_len="
+                                f"{len(snippet) if isinstance(snippet, str) else 'n/a'}")
                     if page:
                         image = client.get(f"/v1/documents/{document_id}/pages/{page}/image")
                         rep.note(f"GET page image -> HTTP {image.status_code} "
-                                 f"type={image.headers.get('content-type')} bytes={len(image.content)}")
+                                 f"type={image.headers.get('content-type')} "
+                                 f"bytes={len(image.content)}")
                         if image.status_code == 200 and image.content[:4] == b"\x89PNG":
-                            rep.passed("step8-page-image", f"page {page} rendered a real PNG ({len(image.content)} bytes)")
+                            rep.passed("step8-page-image", f"page {page} rendered a real PNG "
+                                                     f"({len(image.content)} bytes)")
                         else:
                             rep.defect("step8-page-image", f"page image did not render: HTTP "
                                                           f"{image.status_code} {image.text[:200]}")
                     else:
-                        rep.skipped("step8-page-image", f"locator has no page (kind={locator.get('kind')})")
+                        rep.skipped("step8-page-image", f"locator has no page "
+                                                      f"(kind={locator.get('kind')})")
                 else:
-                    rep.defect("step8-evidence", f"evidence did not resolve even by chunk id: "
-                                                  f"HTTP {by_chunk.status_code} {by_chunk.text[:200]}")
+                    rep.defect("step8-evidence", "evidence did not resolve even by "
+                                                  "chunk id: "
+                                                  f"HTTP {by_chunk.status_code} "
+                                                  f"{by_chunk.text[:200]}")
 
         # -- Step 9: export ---------------------------------------------------
         _header("STEP 9  export carries provenance and never quotes a paraphrase")
@@ -535,15 +566,18 @@ def run_journey(rep: Reporter, *, use_llm: bool) -> None:
                 body = export.text
                 has_provenance = "生成条件与溯源" in body
                 has_citations = "引用与证据链接" in body
-                rep.note(f"export bytes={len(body)} provenance_section={has_provenance} citation_section={has_citations}")
+                rep.note(f"export bytes={len(body)} provenance_section={has_provenance} "
+                         f"citation_section={has_citations}")
                 if has_provenance:
                     rep.passed("step9-export", "export carries a provenance section")
                 else:
                     rep.defect(
                         "step9-export",
-                        "the exported markdown has no provenance section. finalize_analysis_result "
-                        "attaches paper_facts/analysis_run to the API result, but sessions.store does "
-                        "not persist them, so /api/export (which reads the session) loses them",
+                        "the exported markdown has no provenance section. "
+                        "finalize_analysis_result attaches paper_facts/"
+                        "analysis_run to the API result, but sessions.store does "
+                        "not persist them, so /api/export (which reads the "
+                        "session) loses them",
                     )
         client.close()
 
@@ -568,14 +602,18 @@ def retrieve_for_late_question(bundle, document_id, rep) -> list[str]:
         LATE_QUESTION, plan=plan_for(TASK_QA), document_ids=[document_id]
     )
     joined = " ".join(item.text for item in result.evidence)
-    rep.note(f"retrieved {len(result.evidence)} evidence item(s); insufficient={result.insufficient_evidence}")
+    rep.note(f"retrieved {len(result.evidence)} evidence item(s); "
+             f"insufficient={result.insufficient_evidence}")
     if result.insufficient_evidence:
-        rep.defect("step5-reach", "retrieval found nothing, but the late evidence is in the document")
+        rep.defect("step5-reach", "retrieval found nothing, but the late "
+                                 "evidence is in the document")
         return []
     if LATE_EVIDENCE not in joined:
         rep.defect(
             "step5-reach",
-            f"retrieval returned {len(result.evidence)} passage(s) but none contains {LATE_EVIDENCE!r}. "
+            f"retrieval returned {len(result.evidence)} passage(s) "
+            "but none contains "
+            f"{LATE_EVIDENCE!r}. "
             "The head-excerpt window is gone, so the passage at offset ~12132 must be findable.",
         )
         return []
@@ -614,17 +652,23 @@ def verify_quote_gate(rep, bundle, document_id, answer_result):
     if aligned.presentation.value == "direct_quote" and aligned.verified_text:
         rep.passed("step7-verify", "a real span is presented as a verified direct_quote")
     else:
-        rep.defect("step7-verify", f"a real span did not verify: outcome={aligned.outcome!r} message={aligned.message!r}")
+        rep.defect("step7-verify",
+                      f"a real span did not verify: outcome={aligned.outcome!r} "
+                      f"message={aligned.message!r}")
 
     fabricated = _verify_claim(
         AnswerClaim(text="t", quote="the student made 999999 errors, a number not in the paper"),
         [evidence], document,
     )
     if fabricated.presentation.value == "paraphrase" and not fabricated.verified_text:
-        rep.passed("step7-degrade", "a fabricated quote is degraded to a paraphrase with no verified text")
+        rep.passed("step7-degrade",
+                    "a fabricated quote is degraded to a paraphrase with no "
+                    "verified text")
     else:
-        rep.defect("step7-degrade", f"a fabricated quote was NOT degraded: {fabricated.presentation!r} "
-                                    f"verified_text={fabricated.verified_text!r}")
+        rep.defect("step7-degrade",
+                  f"a fabricated quote was NOT degraded: "
+                  f"{fabricated.presentation!r} "
+                  f"verified_text={fabricated.verified_text!r}")
     if answer_result:
         for claim in answer_result.get("claims") or []:
             if claim.get("presentation") == "paraphrase" and claim.get("uses_quotation_marks"):

@@ -2222,14 +2222,15 @@ def test_the_workspace_dialog_is_one_sentence_in_the_readers_language(i18n_modul
     frame around it would be the visible defect, and under `en` a Chinese frame
     around it is the same defect.
     """
+    sample = repr(SERVER_MESSAGE)
     body = (
-        "const sample = %r;\n"
+        f"const sample = {sample};\n"
         "const read = (locale) => {\n"
         "    m.setLocale(locale);\n"
         "    return m.t('analysis.workspace_restored', { message: sample });\n"
         "};\n"
         "result = { zh: read('zh-CN'), en: read('en') };\n"
-    ) % SERVER_MESSAGE
+    )
     result = run_i18n(i18n_module, body)
     assert "__threw" not in result, result
     assert SERVER_MESSAGE in result["zh"] and SERVER_MESSAGE in result["en"], (

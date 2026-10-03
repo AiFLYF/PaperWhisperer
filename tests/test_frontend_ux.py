@@ -910,31 +910,29 @@ def run_cloud_harness(body: str, tmp_path: Path) -> dict:
     alone would test a function with no config table and no catalogue, which is
     the version of this test that passes trivially.
     """
+    parse_status_js = str(JS_DIR / "parseStatus.js")
+    i18n_js = str(JS_DIR / "i18n.js")
+    config_js = str(JS_DIR / "config.js")
     script = (
-        "import { describeCloudOutcome } from %r;\n"
-        "import { setLocale, t, errorPresentation } from %r;\n"
-        "import { ERROR_PRESENTATIONS, FAILURE_KINDS, NOTICE_POLICY } from %r;\n"
-        "const result = {};\n%s\n"
+        f"import {{ describeCloudOutcome }} from {parse_status_js!r};\n"
+        f"import {{ setLocale, t, errorPresentation }} from {i18n_js!r};\n"
+        f"import {{ ERROR_PRESENTATIONS, FAILURE_KINDS, NOTICE_POLICY }} from {config_js!r};\n"
+        f"const result = {{}};\n{body}\n"
         "console.log(JSON.stringify(result));\n"
-        % (
-            str(JS_DIR / "parseStatus.js"),
-            str(JS_DIR / "i18n.js"),
-            str(JS_DIR / "config.js"),
-            body,
-        )
     )
     return run_node(script, tmp_path)
 
 
 def cloud_outcome_record(locale: str, payload: dict, tmp_path: Path) -> dict:
     """Everything the interface derives from one ``parse`` payload, in one locale."""
+    payload_json = json.dumps(payload)
     body = textwrap.dedent(
-        """
-        setLocale(%r);
-        const d = describeCloudOutcome(%s);
-        const kind = d.code ? (ERROR_PRESENTATIONS[d.code] || {}).kind : null;
+        f"""
+        setLocale({locale!r});
+        const d = describeCloudOutcome({payload_json});
+        const kind = d.code ? (ERROR_PRESENTATIONS[d.code] || {{}}).kind : null;
         const policy = kind ? NOTICE_POLICY[kind] : null;
-        result.record = {
+        result.record = {{
             raw: d.raw,
             known: d.known,
             code: d.code,
@@ -947,9 +945,8 @@ def cloud_outcome_record(locale: str, payload: dict, tmp_path: Path) -> dict:
             message: d.reports ? errorPresentation(d.code).message : '',
             hint: d.reports ? errorPresentation(d.code).hint : '',
             title: d.reports ? errorPresentation(d.code).title : ''
-        };
+        }};
         """
-        % (locale, json.dumps(payload))
     )
     return run_cloud_harness(body, tmp_path)["record"]
 
@@ -1838,7 +1835,7 @@ def test_a_cancelled_run_retires_its_pending_notice_by_hand():
     assert "pendingNoticeIds" in STATE, (
         "state has no record of the pending notice each long operation raised"
     )
-    for module, key, operation in (
+    for module, key, _operation in (
         ("analyze.js", "analyze", "ANALYZE_OPERATION"),
         ("chat.js", "ask", "ASK_OPERATION"),
     ):
@@ -2237,20 +2234,16 @@ def run_parse_card(body: str, tmp_path: Path) -> dict:
         "  dispatchEvent: event => { (listeners[event.type] || []).forEach(fn => fn(event)); return true; }\n"
         "};\n"
     )
+    parse_status_js = str(JS_DIR / "parseStatus.js")
+    i18n_js = str(JS_DIR / "i18n.js")
+    state_js = str(JS_DIR / "state.js")
     script = (
-        "%s"
-        "const parseStatus = await import(%r);\n"
-        "const i18n = await import(%r);\n"
-        "const stateModule = await import(%r);\n"
-        "const result = {};\n%s\n"
+        f"{stub}"
+        f"const parseStatus = await import({parse_status_js!r});\n"
+        f"const i18n = await import({i18n_js!r});\n"
+        f"const stateModule = await import({state_js!r});\n"
+        f"const result = {{}};\n{body}\n"
         "console.log(JSON.stringify(result));\n"
-        % (
-            stub,
-            str(JS_DIR / "parseStatus.js"),
-            str(JS_DIR / "i18n.js"),
-            str(JS_DIR / "state.js"),
-            body,
-        )
     )
     return run_node(script, tmp_path)
 
@@ -2271,18 +2264,21 @@ def registration_card(
     """
     record = REGISTRATION_RECORDS[outcome] if registration is None else registration
     payload = PARSE_FOR_FAILED_REGISTRATION if parse is None else parse
+    record_json = json.dumps(record)
+    payload_json = json.dumps(payload)
+    other_locale = "en" if locale != "en" else "zh-CN"
     body = textwrap.dedent(
-        """
-        i18n.setLocale(%r);
+        f"""
+        i18n.setLocale({locale!r});
         parseStatus.initializeParseStatus();
         const card = document.getElementById('parseStatus');
-        const paint = () => parseStatus.renderParseStatus(%s, %s);
-        stateModule.state.currentParseProvenance = %s;
-        stateModule.state.currentDocumentRegistration = %s;
+        const paint = () => parseStatus.renderParseStatus({payload_json}, {record_json});
+        stateModule.state.currentParseProvenance = {payload_json};
+        stateModule.state.currentDocumentRegistration = {record_json};
         paint();
         const notices = () => card.children
             .filter(node => node.dataset && node.dataset.tone)
-            .map(node => ({ tone: node.dataset.tone, text: node.textContent }));
+            .map(node => ({{ tone: node.dataset.tone, text: node.textContent }}));
         const rows = () => card.children
             .flatMap(node => node.children || [])
             .filter(node => node.className === 'parse-fact')
@@ -2291,22 +2287,14 @@ def registration_card(
             .filter(node => node.className === 'parse-warning-list')
             .flatMap(node => node.children.map(item => item.textContent));
 
-        result.initial = { notices: notices(), rows: rows(), warnings: listItems(),
-                           registration: card.dataset.registrationStatus };
+        result.initial = {{ notices: notices(), rows: rows(), warnings: listItems(),
+                           registration: card.dataset.registrationStatus }};
         // A language switch goes through the module's own subscription rather
         // than a second hand-made render call.
-        i18n.setLocale(%r);
-        result.afterLocaleChange = { notices: notices(), rows: rows(),
-                                    warnings: listItems(), registration: card.dataset.registrationStatus };
+        i18n.setLocale({other_locale!r});
+        result.afterLocaleChange = {{ notices: notices(), rows: rows(),
+                                    warnings: listItems(), registration: card.dataset.registrationStatus }};
         """
-        % (
-            locale,
-            json.dumps(payload),
-            json.dumps(record),
-            json.dumps(payload),
-            json.dumps(record),
-            "en" if locale != "en" else "zh-CN",
-        )
     )
     card = run_parse_card(body, tmp_path)
     # The post-switch view lives beside the first one rather than under a second

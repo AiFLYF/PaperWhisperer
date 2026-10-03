@@ -809,7 +809,7 @@ def test_dense_leg_contribution_versus_lexical_only(indexed: Indexed):
         if changed:
             reordered += 1
         else:
-            assert False, (
+            raise AssertionError(
                 f"dense 腿在 {question.text[:40]!r} 上投票了，却没有改变融合排序——"
                 "它现在是装饰。如果刚换了模型，先看上面的 abstentions 断言。"
             )
