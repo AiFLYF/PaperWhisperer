@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import logging
 import mimetypes
 import urllib.error
@@ -21,8 +23,12 @@ from paperwhisperer.core.errors import (
 )
 from paperwhisperer.core.text import compact_text, redact_secrets
 from paperwhisperer.remote.download import iter_remote_file_chunks, stream_remote_paper
-from paperwhisperer.search.identity import identity_from_record
-from paperwhisperer.search.normalize import normalize_paper_collection
+from paperwhisperer.search.enrich import default_metadata_sources, enrich_identity
+from paperwhisperer.search.identity import PaperIdentity, identity_from_record
+from paperwhisperer.search.normalize import (
+    IDENTIFIER_FIELDS,
+    normalize_paper_collection,
+)
 from paperwhisperer.search.papers import search_papers
 from paperwhisperer.search.recommend import (
     RecommendationQuery,
@@ -41,6 +47,17 @@ from paperwhisperer.sessions.store import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+#: How many DOI-less papers a single reading-queue save may send to Crossref /
+#: OpenAlex. The queue itself holds
+#: :data:`config.READING_QUEUE_LIMIT` (30) items, so an uncapped pass would let
+#: one client click fire thirty bibliographic lookups at two shared, publicly
+#: rate-limited APIs — which is how a polite integration gets itself blocked
+#: and how every *other* user's search starts failing. Five is not a tuning
+#: knob: it is the point past which the marginal recovery stops being worth
+#: the calls, and the items beyond it are simply stored as the user sent them,
+#: silently, because an unfinished enrichment is not an error the user did.
+READING_QUEUE_ENRICHMENT_LIMIT = 5
 
 
 @router.get("/api/download-paper")
@@ -158,6 +175,118 @@ async def search_papers_api(request: Request):
         )
 
 
+def _recovered_identifiers(record: dict, result) -> dict[str, str]:
+    """The identifier fields this enrichment actually filled, and nothing else.
+
+    Only the four :data:`IDENTIFIER_FIELDS` are eligible. ``filled_fields`` also
+    carries ``year`` and ``first_author``, and merging those would desynchronise
+    the record from itself: ``year`` is a normalized four-digit string here
+    while the record's ``authors`` is the list the reader actually shows, and a
+    recovered ``first_author`` would be a name that does not appear anywhere in
+    it.
+
+    A non-empty field already on the record is never replaced. ``_apply_candidate``
+    already refuses to overwrite one, so that guard is redundant — it is kept so
+    the invariant that "enrichment can only add, never remove" is local to this
+    merge and survives a change to the enrichment layer.
+    """
+    filled: dict[str, str] = {}
+    for field in IDENTIFIER_FIELDS:
+        if field not in result.filled_fields or record.get(field):
+            continue
+        value = str(getattr(result.identity, field, "") or "").strip()
+        if value:
+            filled[field] = value
+    return filled
+
+
+def _enrich_reading_queue(reading_queue: list[dict]) -> list[dict]:
+    """Recover the DOIs the imported papers arrived without, in place.
+
+    This runs at import time and nowhere else on purpose. Enriching every search
+    result would put two rate-limited HTTP round trips on the critical path of
+    every search for the benefit of papers the user may never open; enriching
+    the save means the request that commits the user to a paper is the one that
+    pays for it, and it pays for at most
+    :data:`READING_QUEUE_ENRICHMENT_LIMIT` of them.
+
+    **It is synchronous and it does I/O**, which is why the route wraps it in
+    ``asyncio.to_thread`` rather than calling it from the coroutine.
+
+    Nothing here raises. A record whose provider is down, times out, or simply
+    has never heard of the paper keeps the exact bytes the client sent, and the
+    route's try/except guards even the failure of the module itself.
+    """
+    if not reading_queue:
+        return reading_queue
+
+    # Bounded *before* any provider is touched, and bounded on the candidates
+    # rather than on the queue length: a queue of thirty records that all carry
+    # a DOI costs nothing, and one record past the cap costs nothing either.
+    pending: list[tuple[int, PaperIdentity]] = []
+    for index, record in enumerate(reading_queue):
+        if len(pending) >= READING_QUEUE_ENRICHMENT_LIMIT:
+            break
+        # The identity is rebuilt through the one parser the codebase owns,
+        # rather than from the raw request fields: a normalized record's `doi`
+        # is already normalized, and reading it directly would be the second
+        # place that decides what a DOI looks like.
+        identity = identity_from_record(record)
+        # No DOI is the whole trigger — a record that already has one has
+        # nothing to recover, and asking a provider about it would be two calls
+        # to improve metadata the user never asked about. No title is not an
+        # error either: enrichment verifies a candidate against the title, so a
+        # record with none can never match and the lookup is guaranteed waste.
+        if not identity.needs_enrichment or not identity.title.strip():
+            continue
+        pending.append((index, identity))
+
+    if not pending:
+        return reading_queue
+
+    # Building the sources does no I/O — each one only closes over its fetch
+    # callable — but it is deferred anyway so that a save with nothing to
+    # enrich never constructs a client at all.
+    sources = default_metadata_sources()
+
+    def _recover(pair):
+        index, identity = pair
+        record = reading_queue[index]
+        try:
+            result = enrich_identity(identity, sources)
+        except Exception as exc:  # noqa: BLE001 - a lookup must never fail a save
+            logger.warning("Reading queue DOI recovery failed: %s", exc)
+            return index, identity, {}
+        if result.errors:
+            logger.info("Reading queue DOI recovery did not complete: %s", "; ".join(result.errors))
+        return index, identity, _recovered_identifiers(record, result)
+
+    # The candidates are independent lookups, so they run concurrently: the save's
+    # wall time is the slowest single lookup rather than their sum, which keeps a
+    # provider outage from turning a save into minutes of waiting (worst case is one
+    # lookup's worth of timeouts across both sources, not five times that). The
+    # candidate list is already capped, so this is a bounded burst. Merging stays on
+    # this thread and in order, so the stored queue is deterministic.
+    recovered: list[tuple[int, PaperIdentity, dict[str, str]]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(pending)) as pool:
+        recovered = list(pool.map(_recover, pending))
+
+    for index, identity, filled in recovered:
+        if not filled:
+            continue
+        enriched = PaperIdentity(**{**identity.to_dict(), **filled})
+        updated = dict(reading_queue[index])
+        updated.update(filled)
+        # Recomputed rather than copied: the tier order puts a DOI above an
+        # arXiv id, so a record that gains one is re-keyed to match, and a stale
+        # key would keep the paper un-deduplicatable — the exact thing the DOI
+        # was fetched to fix.
+        updated["identity_key"] = enriched.key
+        reading_queue[index] = updated
+
+    return reading_queue
+
+
 @router.post("/api/reading-queue")
 async def save_reading_queue(request: Request):
     data, error_response = await parse_json_object_request(request)
@@ -172,6 +301,18 @@ async def save_reading_queue(request: Request):
         reading_queue = normalize_paper_collection(
             data.get("items"), max_items=config.READING_QUEUE_LIMIT
         )
+        # "DOI 丢失可回查" at the moment the user imports: this is the last
+        # point at which the record is still known to be missing its DOI and
+        # the cheapest place to go and get it. Enrichment is an improvement,
+        # never a precondition — a save whose providers are all down is exactly
+        # as valid as one whose providers answered, so a failure here is logged
+        # and the queue is stored exactly as the client sent it.
+        try:
+            reading_queue = await asyncio.to_thread(
+                _enrich_reading_queue, reading_queue
+            )
+        except Exception as exc:  # noqa: BLE001 - never fail a save on a lookup
+            logger.warning("Reading queue enrichment skipped: %s", exc)
         session_payload.setdefault("paper_search", {})
         session_payload["paper_search"]["reading_queue"] = reading_queue
         write_session_payload(safe_session_id, session_payload)
