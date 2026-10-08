@@ -8,17 +8,20 @@ every hostname is resolved and each resulting IP is checked before we connect.
 hostname resolves to be public refuses a name that mixes a public record with a
 private one — multi-record rebinding, where a single lookup returns both.
 
-It does not, on its own, close time-gap rebinding, where two successive lookups
-disagree. :mod:`paperwhisperer.remote.download` keeps the time between its check
-and its connection as short as the protocol allows, but a client that resolves
-the name again when it dials still gets a second, unchecked answer.
+A caller that only asks "is this hostname safe?" still cannot close time-gap
+rebinding, where two successive lookups disagree. :func:`resolve_public_ips` is
+the function that does: it resolves once and hands back *the addresses*, so the
+caller dials an address somebody looked at instead of resolving the name again
+when it connects. :mod:`paperwhisperer.remote.download` pins every hop that way.
 
 **Why failures are cached and successes are not.** A memoized ``True`` is the
 wrong thing to keep: it tells a later caller that an address it has not looked
 at is one that was checked, which is precisely the assumption that fails under
 rebinding, and a TTL of minutes makes that window large. Caching a *failure* has
 the opposite shape — it can only refuse a request, never admit one — so that is
-what survives here.
+what survives here. The pinned resolver below is unaffected by that rule either
+way: it never reuses a verdict, it publishes an address the caller dials
+directly.
 """
 
 from __future__ import annotations
@@ -101,6 +104,92 @@ def clear_hostname_cache() -> None:
         _PUBLIC_HOSTNAME_CACHE.clear()
 
 
+def normalize_hostname(hostname: str) -> str:
+    """Strip the decorations a hostname picks up in a URL, or ``""`` if unusable."""
+    return (hostname or "").strip().strip(".").lower()
+
+
+def _is_refused_by_name(normalized: str) -> bool:
+    """Names that must be refused without consulting DNS at all.
+
+    ``localhost`` and its relatives are refused up front because they are
+    resolved by every machine's own resolver, not by a record an attacker
+    controls — a DNS answer here carries no authority to vouch for anything.
+    """
+    return normalized in {"localhost", "localhost.localdomain"} or normalized.endswith(
+        ".localhost"
+    )
+
+
+def _resolve_addresses(normalized: str) -> list:
+    """Every address ``normalized`` resolves to, in the order the resolver gave."""
+    infos = socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM)
+    addresses = []
+    for info in infos:
+        address = info[4][0] if info and info[4] else None
+        if address and address not in addresses:
+            addresses.append(address)
+    return addresses
+
+
+def _public_addresses(normalized: str) -> list:
+    """The addresses for ``normalized``, or ``[]`` when any of them is not public.
+
+    This is the one place the "every resolved address must be public" rule
+    lives, so the yes/no predicate and the pinned resolver cannot drift apart.
+    An empty list covers every refusal at once — unusable name, loopback name,
+    non-public literal, unresolvable name, mixed public/private answer — because
+    a caller has no correct way to act on a partial answer.
+    """
+    if not normalized or _is_refused_by_name(normalized):
+        return []
+    if is_public_ip_address(normalized):
+        return [normalized]
+    if is_ip_literal(normalized):
+        # A literal that is not public (private range, loopback, reserved).
+        return []
+
+    try:
+        addresses = _resolve_addresses(normalized)
+    except socket.gaierror:
+        return []
+    if not addresses or not all(is_public_ip_address(ip) for ip in addresses):
+        return []
+    return addresses
+
+
+def resolve_public_ips(hostname: str) -> list:
+    """Resolve ``hostname`` once and return the addresses that are safe to dial.
+
+    This is the function that closes time-gap rebinding. ``resolve_public_hostname``
+    answers yes/no and leaves the caller free to resolve the name a second time
+    when it dials — and a name with a one-second TTL can answer "public" the
+    first time and ``169.254.169.254`` the second. Here there is no second lookup
+    to disagree: the caller dials one of the addresses returned below, and every
+    one of them was part of the single resolution that was just vetted.
+
+    Returns an empty list whenever any resolved address is not public, so a
+    caller reads emptiness as "do not connect" and never has to decide what a
+    partial answer means. An IP literal is returned as-is when public and
+    refused when not; a literal has no second lookup to rebind, so pinning it
+    is a formality rather than a defence.
+
+    Deliberately does *not* consult the verdict cache. The cache exists to
+    avoid repeating refusals, and this function's whole job is to produce a
+    fresh, address-bearing answer rather than a remembered yes.
+    """
+    normalized = normalize_hostname(hostname)
+    if not normalized or _is_refused_by_name(normalized) or is_ip_literal(normalized):
+        # Refused on the name alone, so there is no lookup worth remembering.
+        return _public_addresses(normalized)
+
+    addresses = _public_addresses(normalized)
+    if not addresses:
+        # A failure is safe to memoize: it can only ever turn a request away.
+        _set_cached_hostname_result(normalized, False)
+    return addresses
+
+
 def resolve_public_hostname(hostname: str) -> bool:
     """Resolve ``hostname`` and require *every* resolved IP to be public.
 
@@ -109,34 +198,25 @@ def resolve_public_hostname(hostname: str) -> bool:
 
     Requiring all addresses (rather than any) blocks a DNS setup that mixes a
     public record with a private one. The one thing this does not do is bind the
-    caller to these answers: see the module docstring.
+    caller to these answers: a caller that resolves the name again at connect
+    time gets a second, unchecked answer. Use :func:`resolve_public_ips` and dial
+    what it returns when that binding is required.
     """
-    normalized = (hostname or "").strip().strip(".").lower()
+    normalized = normalize_hostname(hostname)
     if not normalized:
         return False
-    if normalized in {"localhost", "localhost.localdomain"} or normalized.endswith(".localhost"):
-        return False
-
-    if is_public_ip_address(normalized):
-        return True
-    if is_ip_literal(normalized):
-        # A literal that is not public (private range, loopback, reserved).
-        return False
+    if _is_refused_by_name(normalized) or is_ip_literal(normalized):
+        # Refused on the name alone; no lookup happened, so nothing to memoize.
+        return bool(_public_addresses(normalized))
 
     cached_result = _get_cached_hostname_result(normalized)
     if cached_result is not None:
         return cached_result
 
-    try:
-        infos = socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM)
-    except socket.gaierror:
+    addresses = _public_addresses(normalized)
+    if not addresses:
         _set_cached_hostname_result(normalized, False)
-        return False
-
-    resolved_ips = {info[4][0] for info in infos if info and info[4]}
-    result = bool(resolved_ips) and all(is_public_ip_address(ip) for ip in resolved_ips)
-    _set_cached_hostname_result(normalized, result)
-    return result
+    return bool(addresses)
 
 
 def is_public_http_url(raw_url) -> bool:

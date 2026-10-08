@@ -307,10 +307,19 @@ def public_example_urls(monkeypatch):
 
 @pytest.fixture
 def patch_remote_response(monkeypatch):
-    """Return a callable that swaps ``urllib.request.urlopen`` for a fake."""
+    """Return a callable that swaps the remote-download transport for a fake.
+
+    The seam is ``download._urlopen_pinned``, the one place a hop leaves the
+    process. It moved off ``urllib.request.urlopen`` so the connection can dial
+    a vetted address rather than resolving the hostname again at connect time;
+    ``_urlopen_pinned`` is that connection's only entry point.
+    """
+    from paperwhisperer.remote import download
 
     def _patch(response):
-        monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: response)
+        monkeypatch.setattr(
+            download, "_urlopen_pinned", lambda *args, **kwargs: response
+        )
         return response
 
     return _patch

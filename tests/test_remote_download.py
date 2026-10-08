@@ -8,6 +8,7 @@ magic bytes) that run after a connection succeeds.
 
 from __future__ import annotations
 
+import datetime
 import http.server
 import os
 import socket
@@ -88,6 +89,71 @@ class TestIsIpLiteral:
     def test_hostnames_are_not_literals(self):
         assert ssrf.is_ip_literal("example.com") is False
         assert ssrf.is_ip_literal("") is False
+
+
+class TestResolvePublicIps:
+    """The address-returning resolver the dial path depends on."""
+
+    def test_returns_every_address_when_all_are_public(self, monkeypatch):
+        monkeypatch.setattr(
+            socket,
+            "getaddrinfo",
+            lambda *a, **k: _addrinfo("93.184.216.34", "8.8.8.8"),
+        )
+        assert ssrf.resolve_public_ips("example.com") == ["93.184.216.34", "8.8.8.8"]
+
+    def test_returns_a_public_literal_unchanged(self):
+        assert ssrf.resolve_public_ips("93.184.216.34") == ["93.184.216.34"]
+
+    @pytest.mark.parametrize(
+        "host", ["", "   ", "localhost", "svc.localhost", "127.0.0.1", "169.254.169.254"]
+    )
+    def test_returns_nothing_for_an_unusable_or_private_host(self, host, monkeypatch):
+        def fail(*_args, **_kwargs):
+            raise AssertionError("must not reach DNS")
+
+        monkeypatch.setattr(socket, "getaddrinfo", fail)
+        assert ssrf.resolve_public_ips(host) == []
+
+    def test_returns_nothing_when_any_address_is_private(self, monkeypatch):
+        monkeypatch.setattr(
+            socket, "getaddrinfo", lambda *a, **k: _addrinfo("93.184.216.34", "10.0.0.5")
+        )
+        assert ssrf.resolve_public_ips("rebind.example") == []
+
+    def test_returns_nothing_when_dns_fails(self, monkeypatch):
+        def boom(*_args, **_kwargs):
+            raise socket.gaierror("nope")
+
+        monkeypatch.setattr(socket, "getaddrinfo", boom)
+        assert ssrf.resolve_public_ips("bad.example") == []
+
+    def test_resolves_freshly_rather_than_reusing_a_cached_verdict(self, monkeypatch):
+        """A repeat caller gets a fresh answer, not a remembered one.
+
+        This is the difference from ``resolve_public_hostname`` that matters for
+        the pin. A cached ``True`` here would be reused by a caller about to
+        dial an address nobody checked, which is the rebinding assumption; a
+        cached ``False`` only ever refuses. So the resolver must not be a
+        memoized predicate at all.
+        """
+        calls = []
+
+        def record(hostname, *args, **kwargs):
+            calls.append(hostname)
+            return _addrinfo("93.184.216.34")
+
+        monkeypatch.setattr(socket, "getaddrinfo", record)
+
+        assert ssrf.resolve_public_ips("pinned.example") == ["93.184.216.34"]
+        assert ssrf.resolve_public_ips("pinned.example") == ["93.184.216.34"]
+        assert calls == ["pinned.example", "pinned.example"]
+
+    def test_deduplicates_addresses(self, monkeypatch):
+        monkeypatch.setattr(
+            socket, "getaddrinfo", lambda *a, **k: _addrinfo("93.184.216.34", "93.184.216.34")
+        )
+        assert ssrf.resolve_public_ips("example.com") == ["93.184.216.34"]
 
 
 class TestResolvePublicHostname:
@@ -456,7 +522,7 @@ class TestStreamRemotePaper:
             captured["user_agent"] = request.get_header("User-agent")
             return FakeResponse(b"%PDF-1.7\nbody")
 
-        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        monkeypatch.setattr(download, "_urlopen_pinned", fake_urlopen)
 
         download.stream_remote_paper(
             title="Valid PDF", pdf_url="https://example.com/paper.pdf", url=""
@@ -486,7 +552,7 @@ class TestStreamRemotePaper:
             seen.append("requested")
             raise redirect_error("http://169.254.169.254/latest/meta-data")
 
-        monkeypatch.setattr("urllib.request.urlopen", redirect_to_metadata)
+        monkeypatch.setattr(download, "_urlopen_pinned", redirect_to_metadata)
 
         with pytest.raises(ValueError, match="redirected to a non-public URL"):
             download.stream_remote_paper(
@@ -505,7 +571,7 @@ class TestStreamRemotePaper:
                 return FakeResponse(b"<html>not a file</html>", content_type="text/html")
             return FakeResponse(b"%PDF-1.7\nsecond try")
 
-        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        monkeypatch.setattr(download, "_urlopen_pinned", fake_urlopen)
 
         _response, file_name, _content_type, _chunk = download.stream_remote_paper(
             title="T", pdf_url="https://example.com/a.pdf", url="https://example.com/b.pdf"
@@ -518,7 +584,7 @@ class TestStreamRemotePaper:
         def fail(*_args, **_kwargs):
             raise AssertionError("must not open a non-document landing page")
 
-        monkeypatch.setattr("urllib.request.urlopen", fail)
+        monkeypatch.setattr(download, "_urlopen_pinned", fail)
 
         with pytest.raises(ValueError, match="direct downloadable file"):
             download.stream_remote_paper(
@@ -533,7 +599,7 @@ class TestStreamRemotePaper:
         def raise_http(*_args, **_kwargs):
             raise urllib.error.HTTPError("https://example.com/a.pdf", 404, "Not Found", None, None)
 
-        monkeypatch.setattr("urllib.request.urlopen", raise_http)
+        monkeypatch.setattr(download, "_urlopen_pinned", raise_http)
 
         with pytest.raises(urllib.error.HTTPError):
             download.stream_remote_paper(
@@ -685,6 +751,379 @@ class TestRedirectsAreValidatedPerHop:
                 download._open_following_redirects(
                     base + "/loop", ssl.create_default_context(), 5
                 )
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
+class TestPinningClosesTheResolveDialGap:
+    """The address dialled is the address that was checked.
+
+    Every other test here mocks the transport, which means it can only assert
+    that the module *asked* for something safe. These tests open real sockets,
+    because the property under test lives below the seam the mocks replace: in
+    what ``socket.create_connection`` is handed.
+
+    The threat is time-gap rebinding. A name with a one-second TTL answers the
+    SSRF check with a public address and the client's own lookup, microseconds
+    later, with ``169.254.169.254``. Validating and then letting the connection
+    resolve again leaves both lookups in play; pinning removes the second one.
+    """
+
+    @staticmethod
+    def _serve(handler_cls, tls=None):
+        """Run ``handler_cls`` on localhost; ``tls`` wraps the listening socket."""
+        server = http.server.HTTPServer(("127.0.0.1", 0), handler_cls)
+        if tls is not None:
+            server.socket = tls.wrap_socket(server.socket, server_side=True)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+    def test_the_dial_uses_the_validated_address_not_a_second_lookup(self, monkeypatch):
+        """The pin, stated as a socket fact.
+
+        The resolver is stubbed to hand back exactly one address, and a real
+        server answers there. If the connection re-resolved the name instead of
+        dialing what the resolver returned, the stub would never be consulted
+        and the test would fail to reach the server at all — so passing is the
+        evidence that the checked address is the one that was dialled.
+        """
+        body = b"%PDF-1.7\npinned body"
+        seen = {}
+
+        class Origin(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen["host"] = self.headers.get("Host")
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        server, base = self._serve(Origin)
+        try:
+            # The name resolves to the loopback server, and to nothing else.
+            monkeypatch.setattr(
+                download, "resolve_public_ips", lambda _host: ["127.0.0.1"]
+            )
+
+            response, final_url = download._open_following_redirects(
+                base + "/paper.pdf", ssl.create_default_context(), 5
+            )
+            try:
+                assert response.read() == body
+            finally:
+                response.close()
+
+            # The Host header names the origin even though the socket went to a
+            # literal address, which is what a virtual-hosted origin expects.
+            assert seen["host"] == f"127.0.0.1:{server.server_address[1]}"
+            # And the caller still names the document after a URL, not an IP.
+            assert final_url == base + "/paper.pdf"
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_a_name_that_rebinds_to_a_private_address_is_never_dialled(
+        self, monkeypatch
+    ):
+        """A public answer at check time and a private one at dial time.
+
+        ``resolve_public_ips`` is stubbed the way a rebinding attacker would
+        arrange it: the check sees a public address, ``203.0.113.7``. Nothing
+        there is listening, so the download fails — but the load-bearing
+        assertion is not the failure, it is the absence of any lookup of the
+        *hostname*. A client that resolved the name a second time to dial it
+        would appear here as ``"rebind.example"``, and could have been handed
+        ``169.254.169.254`` on that second answer.
+
+        The literal does reach ``getaddrinfo`` — a socket is always created for
+        an address — so the assertion is about the name, not about lookups in
+        general.
+        """
+        lookups = []
+        real_getaddrinfo = socket.getaddrinfo
+
+        def spy_getaddrinfo(host, *args, **kwargs):
+            lookups.append(host)
+            return real_getaddrinfo(host, *args, **kwargs)
+
+        monkeypatch.setattr(socket, "getaddrinfo", spy_getaddrinfo)
+        monkeypatch.setattr(
+            download, "resolve_public_ips", lambda _host: ["203.0.113.7"]
+        )
+
+        with pytest.raises(urllib.error.URLError):
+            download._open_following_redirects(
+                "https://rebind.example/paper.pdf", ssl.create_default_context(), 1
+            )
+
+        # No second resolution of the name: the socket was built for the address
+        # the check approved, and for nothing else.
+        assert "rebind.example" not in lookups
+        assert "169.254.169.254" not in lookups
+        assert lookups == ["203.0.113.7"]
+
+    def test_a_hostname_with_no_vetted_address_is_refused_before_dialling(
+        self, monkeypatch
+    ):
+        """An unusable resolution stops the download rather than falling back.
+
+        ``resolve_public_ips`` returning nothing means the name is unusable.
+        The connection must refuse rather than hand an empty list to the socket
+        layer and fall back to resolving the name itself, which is the exact
+        behaviour being removed.
+        """
+        dialled = []
+        monkeypatch.setattr(download, "resolve_public_ips", lambda _host: [])
+        monkeypatch.setattr(
+            download.socket.socket,
+            "connect",
+            lambda self, address: dialled.append(address),
+        )
+
+        with pytest.raises(urllib.error.URLError):
+            download._open_following_redirects(
+                "https://rebind.example/paper.pdf", ssl.create_default_context(), 1
+            )
+
+        assert dialled == []
+
+    def test_a_redirect_target_is_pinned_too(self, monkeypatch):
+        """The pin follows the chain, not just the first hop.
+
+        The target names a host that does not resolve in DNS, so the only way
+        the second hop reaches its server is through the same pin the first hop
+        used. That makes the assertion about coverage rather than about
+        plumbing: a pin applied only to the initial URL would fail here.
+        """
+        body = b"%PDF-1.7\nredirect target"
+        seen = []
+
+        class Final(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append("final")
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        final_server, _final_base = self._serve(Final)
+        final_port = final_server.server_address[1]
+        # Unresolvable by construction, so the dial can only happen via the pin.
+        target = f"http://redirected.example:{final_port}/final.pdf"
+
+        class Redirector(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append("start")
+                self.send_response(302)
+                self.send_header("Location", target)
+                self.end_headers()
+
+            def log_message(self, *_args):
+                pass
+
+        start_server, start_base = self._serve(Redirector)
+
+        try:
+            monkeypatch.setattr(
+                download,
+                "is_public_http_url",
+                lambda url: str(url) in (start_base + "/start", target),
+            )
+            monkeypatch.setattr(download, "resolve_public_ips", lambda _host: ["127.0.0.1"])
+
+            response, final_url = download._open_following_redirects(
+                start_base + "/start", ssl.create_default_context(), 5
+            )
+            try:
+                assert response.read() == body
+            finally:
+                response.close()
+
+            assert seen == ["start", "final"]
+            # The caller names the document after the hostname it was sent to.
+            assert final_url == target
+        finally:
+            start_server.shutdown()
+            start_server.server_close()
+            final_server.shutdown()
+            final_server.server_close()
+
+
+class TestHttpsPinningKeepsSniAndCertificateChecks:
+    """TLS must name the hostname even though the socket does not.
+
+    Pinning an HTTPS request is easy to get wrong in a way that only shows up
+    against a real server: dial the validated IP but pass that IP to
+    ``wrap_socket`` and SNI carries an address, no certificate can match, and
+    every real download fails — or a permissive context quietly accepts one
+    that should not be trusted. The tests below drive a real TLS handshake
+    against a certificate issued for a name that does not resolve, so the only
+    way through is to dial the pinned address while presenting the hostname.
+    """
+
+    @staticmethod
+    def _self_signed_certificate(tmp_path):
+        """A certificate for ``papers.example``, written to ``tmp_path``.
+
+        Built with ``cryptography`` rather than openssl so the test needs no
+        external binary. The name deliberately does not resolve in DNS: the
+        dial address and the identity are supplied separately, which is exactly
+        the situation pinning creates.
+        """
+        cryptography_x509 = pytest.importorskip("cryptography.x509")
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
+
+        host = "papers.example"
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        now = datetime.datetime.now(datetime.timezone.utc)
+        certificate = (
+            cryptography_x509.CertificateBuilder()
+            .subject_name(
+                cryptography_x509.Name(
+                    [cryptography_x509.NameAttribute(NameOID.COMMON_NAME, host)]
+                )
+            )
+            .issuer_name(
+                cryptography_x509.Name(
+                    [cryptography_x509.NameAttribute(NameOID.COMMON_NAME, host)]
+                )
+            )
+            .public_key(key.public_key())
+            .serial_number(cryptography_x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(days=1))
+            .not_valid_after(now + datetime.timedelta(days=1))
+            .add_extension(
+                cryptography_x509.SubjectAlternativeName(
+                    [cryptography_x509.DNSName(host)]
+                ),
+                critical=False,
+            )
+            .sign(key, hashes.SHA256())
+        )
+
+        cert_path = os.path.join(tmp_path, "cert.pem")
+        key_path = os.path.join(tmp_path, "key.pem")
+        with open(cert_path, "wb") as handle:
+            handle.write(certificate.public_bytes(serialization.Encoding.PEM))
+        with open(key_path, "wb") as handle:
+            handle.write(
+                key.private_bytes(
+                    serialization.Encoding.PEM,
+                    serialization.PrivateFormat.TraditionalOpenSSL,
+                    serialization.NoEncryption(),
+                )
+            )
+        return host, cert_path, key_path
+
+    def _tls_origin(self, tmp_path, seen):
+        """Serve ``papers.example`` over TLS on loopback, recording SNI."""
+        host, cert_path, key_path = self._self_signed_certificate(tmp_path)
+
+        body = b"%PDF-1.7\ntls body"
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen["host"] = self.headers.get("Host")
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        server_context.load_cert_chain(cert_path, key_path)
+        server_context.sni_callback = (
+            lambda _sock, name, _ctx: seen.__setitem__("sni", name)
+        )
+        server.socket = server_context.wrap_socket(server.socket, server_side=True)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, host, cert_path
+
+    def test_https_dials_the_pinned_address_while_speaking_the_hostname(
+        self, monkeypatch, tmp_path
+    ):
+        """The full path, against a certificate that only fits the hostname.
+
+        Nothing here resolves: ``papers.example`` has no DNS record, so the
+        socket can only reach the server because the pinned address replaced the
+        name. And the handshake can only complete if SNI and certificate
+        validation both saw the hostname — a certificate for an IP address does
+        not exist, so an IP-based ``server_hostname`` would fail here.
+        """
+        seen = {}
+        server, host, cert_path = self._tls_origin(tmp_path, seen)
+        port = server.server_address[1]
+        try:
+            monkeypatch.setattr(
+                download, "resolve_public_ips", lambda _host: ["127.0.0.1"]
+            )
+            client_context = ssl.create_default_context(cafile=cert_path)
+
+            response, final_url = download._open_following_redirects(
+                f"https://{host}:{port}/paper.pdf", client_context, 5
+            )
+            try:
+                assert response.read() == b"%PDF-1.7\ntls body"
+            finally:
+                response.close()
+
+            # SNI carried the name, so the server chose the right certificate.
+            assert seen["sni"] == host
+            # And the request line named it, not the loopback address.
+            assert seen["host"] == f"{host}:{port}"
+            assert final_url == f"https://{host}:{port}/paper.pdf"
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_validating_against_the_address_instead_of_the_hostname_fails(
+        self, monkeypatch, tmp_path
+    ):
+        """The negative control, so the test above cannot pass vacuously.
+
+        Pinning could plausibly be implemented by dialing the pinned IP *and*
+        handing that IP to ``wrap_socket``. This forces exactly that mistake and
+        asserts the handshake is refused — which is what proves the real
+        implementation's ``server_hostname`` is doing the load-bearing work
+        rather than the connection merely being lenient.
+        """
+        seen = {}
+        server, host, cert_path = self._tls_origin(tmp_path, seen)
+        try:
+            monkeypatch.setattr(
+                download, "resolve_public_ips", lambda _host: ["127.0.0.1"]
+            )
+            client_context = ssl.create_default_context(cafile=cert_path)
+
+            def connect_against_the_address(self):
+                self._dial_checked()
+                self.sock = self._context.wrap_socket(
+                    self.sock, server_hostname="127.0.0.1"
+                )
+
+            monkeypatch.setattr(
+                download._PinnedHTTPSConnection, "connect", connect_against_the_address
+            )
+
+            with pytest.raises(urllib.error.URLError) as excinfo:
+                download._open_following_redirects(
+                    f"https://{host}:{server.server_address[1]}/paper.pdf",
+                    client_context,
+                    5,
+                )
+            assert "CERTIFICATE_VERIFY_FAILED" in str(excinfo.value)
         finally:
             server.shutdown()
             server.server_close()

@@ -12,13 +12,25 @@ and all it prevents is reading the body back. :class:`_ManualRedirectRequest`
 makes the 30x surface as an ``HTTPError`` instead, and :func:`_open_following_redirects`
 re-validates the target *before* choosing to go there, so a redirect to
 ``169.254.169.254`` is refused rather than requested.
+
+**And every hop dials the address that was checked.** Validating a hostname and
+then handing the hostname to a client that resolves it again is two lookups, and
+they need not agree: a record on a one-second TTL can answer with a public
+address for the check and ``169.254.169.254`` for the dial. So the address is
+resolved here, vetted, and pinned — :class:`_PinnedHTTPSConnection` below opens
+its socket to the vetted IP while still presenting the hostname for SNI and
+certificate validation. The connection is what dials, so that is where the pin
+has to live.
 """
 
 from __future__ import annotations
 
+import errno
+import http.client
 import logging
 import os
 import re
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -38,7 +50,11 @@ from paperwhisperer.documents.validation import (
     validate_remote_content_length,
     validate_remote_content_type,
 )
-from paperwhisperer.remote.ssrf import is_public_http_url
+from paperwhisperer.remote.ssrf import (
+    is_ip_literal,
+    is_public_http_url,
+    resolve_public_ips,
+)
 from paperwhisperer.search.http import build_ssl_context
 
 logger = logging.getLogger(__name__)
@@ -76,6 +92,141 @@ class _ManualRedirectRequest(urllib.request.Request):
         }
 
 
+def _dial_addresses(hostname: str) -> list:
+    """The addresses to dial for ``hostname``, resolved once, right here.
+
+    An IP literal is returned as itself: there is no second lookup for a literal
+    to disagree with, so re-resolving it would add nothing. The per-hop
+    :func:`is_public_http_url` gate is what refuses a private literal, and it
+    runs before any connection is built.
+
+    A hostname is resolved here rather than by the connection, so the address
+    that gets vetted is the exact address that gets dialled.
+    """
+    if is_ip_literal(hostname):
+        return [hostname]
+    return resolve_public_ips(hostname)
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """An HTTP connection that dials a checked address, not a fresh lookup.
+
+    ``host`` keeps naming the origin — that is what the ``Host`` header is built
+    from, and what a virtual-hosted origin expects to see. Only the socket is
+    pointed elsewhere, at an address resolved and vetted microseconds earlier by
+    :func:`_dial_addresses`. The two are separated here rather than by rewriting
+    the URL, so the effective URL the caller reports stays in hostname form.
+    """
+
+    def _dial_checked(self):
+        """Open the socket to a vetted address, or raise the last failure.
+
+        Resolution happens inside ``connect`` so that the address vetted and the
+        address dialled cannot come apart: there is no code between them, and no
+        second lookup to rebind in between. A hostname can resolve to several
+        public addresses and the first can be down while the second answers, so
+        each is tried in the order the resolver gave — which is what
+        ``socket.create_connection`` does with the addresses of a name, except
+        these ones were checked.
+        """
+        addresses = _dial_addresses(self.host)
+        if not addresses:
+            raise OSError(errno.ENETUNREACH, "refusing to dial a non-public address")
+
+        last_error = None
+        for address in addresses:
+            try:
+                self.sock = self._create_connection(
+                    (address, self.port), self.timeout, self.source_address
+                )
+            except OSError as exc:
+                # A vetted address can still be unreachable; only give up once
+                # every vetted address has failed.
+                last_error = exc
+                continue
+            try:
+                self.sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            except OSError as exc:
+                if exc.errno != errno.ENOPROTOOPT:
+                    raise
+            return
+        raise last_error
+
+    def connect(self):
+        self._dial_checked()
+        if self._tunnel_host:
+            self._tunnel()
+
+
+class _PinnedHTTPSConnection(_PinnedHTTPConnection, http.client.HTTPSConnection):
+    """HTTPS on the same dial, with SNI and certificate checks left intact.
+
+    This is the part that is easy to get subtly wrong. TLS has to name the
+    *hostname*: the SNI extension tells the server which certificate to present,
+    and that certificate is then validated against the name presented. Handing
+    the dialled IP to ``wrap_socket`` instead would negotiate fine against a
+    server that ignores SNI and then fail certificate validation against an
+    address no certificate can carry — or, far worse, succeed against one that
+    did. So the socket is dialled at the vetted address while
+    ``server_hostname`` is the hostname, which is the whole point of pinning.
+
+    The MRO puts :class:`_PinnedHTTPConnection` first, so ``connect`` below runs
+    the dial itself and then the TLS half explicitly — the same two steps as
+    ``HTTPSConnection.connect``, minus the assumption that the name it dials is
+    the name it validates.
+    """
+
+    def connect(self):
+        self._dial_checked()
+        self.sock = self._context.wrap_socket(
+            self.sock, server_hostname=self._tunnel_host or self.host
+        )
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    """An ``HTTPHandler`` whose connections dial a vetted address."""
+
+    def http_open(self, req):
+        return self.do_open(_PinnedHTTPConnection, req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    """An ``HTTPSHandler`` whose connections dial a vetted address."""
+
+    def https_open(self, req):
+        return self.do_open(_PinnedHTTPSConnection, req, context=self._context)
+
+
+def _build_pinned_opener(ssl_context) -> urllib.request.OpenerDirector:
+    """An opener whose HTTP and HTTPS connections dial vetted addresses.
+
+    Built per download rather than installed globally: ``install_opener`` would
+    mutate process-wide state, and every other module in the process shares it.
+
+    ``ProxyHandler({})`` disables proxy support for this opener on purpose. A
+    proxy resolves the hostname itself, on its own clock, so a request routed
+    through one is not pinned by anything here — keeping proxies would make the
+    pin a silent no-op in any proxied deployment rather than an honest absence
+    of it.
+    """
+    return urllib.request.build_opener(
+        _PinnedHTTPHandler(),
+        _PinnedHTTPSHandler(context=ssl_context),
+        urllib.request.ProxyHandler({}),
+    )
+
+
+def _urlopen_pinned(request, opener, timeout):
+    """The one place a hop leaves the process, through the pinning opener.
+
+    Every hop goes through here so there is a single seam where the connection
+    is established. Two things follow: the addresses the connection dials are the
+    ones :func:`_dial_addresses` vetted, and a test can replace the whole
+    transport at one address.
+    """
+    return opener.open(request, timeout=timeout)
+
+
 def _redirect_location(exc):
     """Read the ``Location`` off a refused redirect, or ``None``."""
     headers = getattr(exc, "headers", None)
@@ -90,16 +241,22 @@ def _open_following_redirects(source_url, ssl_context, timeout):
 
     Returns ``(response, final_url)``, where ``final_url`` is the effective URL
     the response came from, so the caller can name the document after it.
+
+    Each hop is guarded twice over, by two mechanisms that fail independently:
+    the target is vetted here *before* it becomes a request, and the connection
+    that eventually opens it dials an address it vetted itself. The first stops
+    a redirect to ``169.254.169.254`` from being requested at all; the second
+    stops a name that answers one way for the check and another way for the dial
+    from being connected to unchecked.
     """
+    opener = _build_pinned_opener(ssl_context)
     current_url = source_url
     for _hop in range(MAX_REMOTE_REDIRECTS + 1):
         request = _ManualRedirectRequest(
             current_url, headers={"User-Agent": config.APP_USER_AGENT}
         )
         try:
-            response = urllib.request.urlopen(
-                request, timeout=timeout, context=ssl_context
-            )
+            response = _urlopen_pinned(request, opener, timeout)
         except urllib.error.HTTPError as exc:
             location = _redirect_location(exc)
             if exc.code not in _REDIRECT_STATUS_CODES or not location:
@@ -119,7 +276,10 @@ def _open_following_redirects(source_url, ssl_context, timeout):
 
         # urllib only hands back a response for the URL it was given now, so
         # `geturl()` is this hop's own URL and no post-hoc redirect re-check is
-        # needed: the loop above validated the target before requesting it.
+        # needed: the loop above validated the target before requesting it. It
+        # stays in hostname form because the pin lives in the connection rather
+        # than in the URL, so the caller names the file after the origin and not
+        # after an address.
         return response, (response.geturl() or current_url)
 
     raise ValueError("The paper link redirected too many times.")
