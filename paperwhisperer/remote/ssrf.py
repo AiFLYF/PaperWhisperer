@@ -3,6 +3,22 @@
 The import flow lets a user point the server at an arbitrary URL. Without
 guards that becomes a request-forgery primitive against internal services, so
 every hostname is resolved and each resulting IP is checked before we connect.
+
+**What this defends against, and what it does not.** Requiring *every* address a
+hostname resolves to be public refuses a name that mixes a public record with a
+private one — multi-record rebinding, where a single lookup returns both.
+
+It does not, on its own, close time-gap rebinding, where two successive lookups
+disagree. :mod:`paperwhisperer.remote.download` keeps the time between its check
+and its connection as short as the protocol allows, but a client that resolves
+the name again when it dials still gets a second, unchecked answer.
+
+**Why failures are cached and successes are not.** A memoized ``True`` is the
+wrong thing to keep: it tells a later caller that an address it has not looked
+at is one that was checked, which is precisely the assumption that fails under
+rebinding, and a TTL of minutes makes that window large. Caching a *failure* has
+the opposite shape — it can only refuse a request, never admit one — so that is
+what survives here.
 """
 
 from __future__ import annotations
@@ -15,6 +31,8 @@ import urllib.parse
 
 from paperwhisperer.core import config
 
+#: hostname -> ``(expires_at, verdict)``. Only ``False`` verdicts are stored;
+#: see the module docstring for why a ``True`` is not worth keeping.
 _PUBLIC_HOSTNAME_CACHE: dict[str, tuple[float, bool]] = {}
 _PUBLIC_HOSTNAME_CACHE_LOCK = threading.Lock()
 
@@ -55,6 +73,16 @@ def _get_cached_hostname_result(normalized: str):
 
 
 def _set_cached_hostname_result(normalized: str, result: bool) -> None:
+    """Memoize a hostname verdict — but only a *negative* one.
+
+    Dropping the positive case is deliberate, not an oversight. A cached ``True``
+    would be reused by a caller that then resolves the name again and connects to
+    whatever that second lookup returns, so the cache would be asserting the
+    safety of an address nobody checked. A cached ``False`` has no such reach: it
+    only ever turns a request away.
+    """
+    if result:
+        return
     with _PUBLIC_HOSTNAME_CACHE_LOCK:
         if len(_PUBLIC_HOSTNAME_CACHE) >= config.PUBLIC_HOSTNAME_CACHE_MAX_SIZE:
             oldest_key = min(
@@ -63,7 +91,7 @@ def _set_cached_hostname_result(normalized: str, result: bool) -> None:
             _PUBLIC_HOSTNAME_CACHE.pop(oldest_key, None)
         _PUBLIC_HOSTNAME_CACHE[normalized] = (
             time.time() + config.PUBLIC_HOSTNAME_CACHE_TTL_SECONDS,
-            bool(result),
+            False,
         )
 
 
@@ -76,8 +104,12 @@ def clear_hostname_cache() -> None:
 def resolve_public_hostname(hostname: str) -> bool:
     """Resolve ``hostname`` and require *every* resolved IP to be public.
 
-    Requiring all addresses (rather than any) blocks DNS rebinding setups
-    that mix a public record with a private one.
+    Refuses a name that resolves to a private, loopback, link-local or otherwise
+    non-public address, and refuses one that resolves to nothing at all.
+
+    Requiring all addresses (rather than any) blocks a DNS setup that mixes a
+    public record with a private one. The one thing this does not do is bind the
+    caller to these answers: see the module docstring.
     """
     normalized = (hostname or "").strip().strip(".").lower()
     if not normalized:

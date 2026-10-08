@@ -3,6 +3,15 @@
 Downloaded bytes are validated at three levels — URL reachability, declared
 content type, and magic bytes — because any single one can be spoofed by a
 misconfigured or hostile origin.
+
+Redirects are validated **per hop, before the request is sent**. urllib follows
+a 30x by building the next request itself and opening it immediately, so a plain
+"validate, fetch, then re-check ``geturl()``" loop is not an SSRF gate — by the
+time the re-check runs, the request to the redirect target has already gone out,
+and all it prevents is reading the body back. :class:`_ManualRedirectRequest`
+makes the 30x surface as an ``HTTPError`` instead, and :func:`_open_following_redirects`
+re-validates the target *before* choosing to go there, so a redirect to
+``169.254.169.254`` is refused rather than requested.
 """
 
 from __future__ import annotations
@@ -33,6 +42,87 @@ from paperwhisperer.remote.ssrf import is_public_http_url
 from paperwhisperer.search.http import build_ssl_context
 
 logger = logging.getLogger(__name__)
+
+#: How many redirects one download may walk. urllib's own default is 10; this
+#: bounds how many hops get re-validated rather than how far apart two documents
+#: can be, and stops a redirect cycle from spinning.
+MAX_REMOTE_REDIRECTS = 5
+
+#: The 3xx codes urllib treats as redirects. Anything else (a 404, a 500) is a
+#: real response and propagates to the caller untouched.
+_REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+
+
+class _ManualRedirectRequest(urllib.request.Request):
+    """A request urllib will not follow by itself.
+
+    ``urllib`` decides whether to follow a redirect inside
+    ``HTTPRedirectHandler.http_error_302``, which loops over ``redirect_dict``
+    and raises ``HTTPError`` once that mapping is as long as ``max_redirections``
+    allows. Seeding ``redirect_dict`` to that limit therefore converts every 30x
+    into an ``HTTPError`` that still carries the original response headers —
+    ``Location`` included — without any of the request being re-sent.
+
+    That is exactly the seam this module needs: the redirect arrives as inert
+    data the caller can vet, rather than as a request urllib has already made on
+    its behalf.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.redirect_dict = {
+            str(index): 0
+            for index in range(urllib.request.HTTPRedirectHandler.max_redirections)
+        }
+
+
+def _redirect_location(exc):
+    """Read the ``Location`` off a refused redirect, or ``None``."""
+    headers = getattr(exc, "headers", None)
+    if not headers:
+        return None
+    location = headers.get("Location") or headers.get("Uri")
+    return str(location).strip() if location else None
+
+
+def _open_following_redirects(source_url, ssl_context, timeout):
+    """Open ``source_url``, validating each redirect target before requesting it.
+
+    Returns ``(response, final_url)``, where ``final_url`` is the effective URL
+    the response came from, so the caller can name the document after it.
+    """
+    current_url = source_url
+    for _hop in range(MAX_REMOTE_REDIRECTS + 1):
+        request = _ManualRedirectRequest(
+            current_url, headers={"User-Agent": config.APP_USER_AGENT}
+        )
+        try:
+            response = urllib.request.urlopen(
+                request, timeout=timeout, context=ssl_context
+            )
+        except urllib.error.HTTPError as exc:
+            location = _redirect_location(exc)
+            if exc.code not in _REDIRECT_STATUS_CODES or not location:
+                raise
+
+            # The check happens here, before the next request exists. Refusing
+            # here is what keeps a redirect to a private address from ever being
+            # requested; raising after the fact would only stop the body read.
+            next_url = urllib.parse.urljoin(current_url, location)
+            if not is_public_http_url(next_url):
+                close_response_safely(exc, "rejected remote redirect")
+                raise ValueError("The paper link redirected to a non-public URL.") from None
+
+            close_response_safely(exc, "remote redirect response")
+            current_url = next_url
+            continue
+
+        # urllib only hands back a response for the URL it was given now, so
+        # `geturl()` is this hop's own URL and no post-hoc redirect re-check is
+        # needed: the loop above validated the target before requesting it.
+        return response, (response.geturl() or current_url)
+
+    raise ValueError("The paper link redirected too many times.")
 
 
 def guess_extension_from_content_type(content_type) -> str:
@@ -115,17 +205,12 @@ def stream_remote_paper(title, pdf_url, url):
             continue
 
         response = None
-        request = urllib.request.Request(
-            source_url, headers={"User-Agent": config.APP_USER_AGENT}
-        )
         try:
-            response = urllib.request.urlopen(
-                request, timeout=config.REMOTE_IMPORT_TIMEOUT_SECONDS, context=ssl_context
+            # Each redirect target is re-validated inside this call, before it is
+            # requested — not after, when the damage would already be done.
+            response, final_url = _open_following_redirects(
+                source_url, ssl_context, config.REMOTE_IMPORT_TIMEOUT_SECONDS
             )
-            # Re-validate after redirects: the final hop is what we read from.
-            final_url = response.geturl() or source_url
-            if not is_public_http_url(final_url):
-                raise ValueError("The paper link redirected to a non-public URL.")
 
             content_type = normalize_content_type(response.headers.get("Content-Type"))
             # Same reasoning as the upload routes: the byte cap is read live

@@ -8,9 +8,14 @@ magic bytes) that run after a connection succeeds.
 
 from __future__ import annotations
 
+import http.server
 import os
 import socket
+import ssl
+import threading
 import urllib.error
+import urllib.request
+from email.message import Message
 
 import pytest
 
@@ -30,6 +35,20 @@ from .helpers import FakeResponse
 
 def _addrinfo(*ips):
     return [(None, None, None, None, (ip, 443)) for ip in ips]
+
+
+def redirect_error(location: str) -> urllib.error.HTTPError:
+    """Build the 30x urllib surfaces once redirect following is switched off.
+
+    ``urllib`` turns a redirect it refuses to follow into an ``HTTPError`` that
+    still carries the original response headers, so ``Location`` is readable —
+    which is what lets the download loop vet the target before going there.
+    """
+    headers = Message()
+    headers["Location"] = location
+    return urllib.error.HTTPError(
+        "https://example.com/paper.pdf", 302, "Found", headers, None
+    )
 
 
 class TestIsPublicIpAddress:
@@ -118,7 +137,17 @@ class TestResolvePublicHostname:
 
 
 class TestHostnameCache:
-    def test_second_lookup_is_served_from_cache(self, monkeypatch):
+    def test_a_positive_verdict_is_not_cached(self, monkeypatch):
+        """A ``True`` must not be reused; a ``False`` is fine to remember.
+
+        This inverts an older test that asserted the opposite — that a public
+        hostname resolved once and was served from cache afterwards. That
+        behaviour is the widening: a memoized ``True`` tells a later caller that
+        an address it has not looked at is one that was already checked, when the
+        caller is about to resolve the name *again* to dial it. Under rebinding
+        those are two different answers, and only the first was vetted. So the
+        second lookup has to actually happen.
+        """
         calls = []
 
         def record(hostname, *args, **kwargs):
@@ -129,7 +158,8 @@ class TestHostnameCache:
 
         assert ssrf.resolve_public_hostname("cached.example") is True
         assert ssrf.resolve_public_hostname("cached.example") is True
-        assert calls == ["cached.example"]
+        assert calls == ["cached.example", "cached.example"]
+        assert ssrf._PUBLIC_HOSTNAME_CACHE == {}
 
     def test_private_ip_literals_are_never_cached(self):
         assert ssrf.resolve_public_hostname("127.0.0.1") is False
@@ -434,15 +464,37 @@ class TestStreamRemotePaper:
 
         assert captured["user_agent"] == config.APP_USER_AGENT
 
-    def test_revalidates_after_a_redirect_to_a_private_host(self, monkeypatch):
-        monkeypatch.setattr(download, "is_public_http_url", lambda url: url.startswith("https://example.com"))
-        redirected = FakeResponse(b"%PDF-1.7\nbody", url="http://169.254.169.254/latest/meta-data")
-        monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: redirected)
+    def test_refuses_a_redirect_to_a_private_host_before_requesting_it(self, monkeypatch):
+        """A 30x to a private address must die at the redirect check itself.
+
+        The previous version of this test let urllib follow the redirect and then
+        asserted the post-hoc ``geturl()`` re-check caught it. That is the
+        vulnerable shape: by the time anything in the module looked, the request
+        to ``169.254.169.254`` had already been sent, so the re-check stopped the
+        body from being read but not the internal GET from happening.
+
+        So the fake here raises the 30x the way urllib surfaces it once redirect
+        following is switched off, and the assertion is on the *number of
+        requests*: exactly one means the target was never contacted.
+        """
+        monkeypatch.setattr(
+            download, "is_public_http_url", lambda url: url.startswith("https://example.com")
+        )
+        seen = []
+
+        def redirect_to_metadata(*_args, **_kwargs):
+            seen.append("requested")
+            raise redirect_error("http://169.254.169.254/latest/meta-data")
+
+        monkeypatch.setattr("urllib.request.urlopen", redirect_to_metadata)
 
         with pytest.raises(ValueError, match="redirected to a non-public URL"):
             download.stream_remote_paper(
                 title="T", pdf_url="https://example.com/paper.pdf", url=""
             )
+
+        # The load-bearing assertion: the internal endpoint was never dialed.
+        assert seen == ["requested"]
 
     def test_falls_through_to_the_landing_page_url(self, monkeypatch, public_example_urls, patch_remote_response):
         seen = []
@@ -487,6 +539,155 @@ class TestStreamRemotePaper:
             download.stream_remote_paper(
                 title="T", pdf_url="https://example.com/a.pdf", url=""
             )
+
+
+class TestRedirectsAreValidatedPerHop:
+    """The redirect gate, driven against the *real* urllib machinery.
+
+    The mocked tests elsewhere in this file can only prove that the code calls
+    ``urlopen`` and inspects what comes back. These two prove the property that
+    actually matters: a 30x is inert data the module can vet, rather than a
+    request urllib has already sent on its own. If ``redirect_dict`` ever stops
+    suppressing urllib's automatic following, the test below fails — and without
+    it, the private-redirect guard would pass its unit tests while the SSRF it
+    exists to stop went out over the wire anyway.
+    """
+
+    @staticmethod
+    def _serve(handler_cls):
+        server = http.server.HTTPServer(("127.0.0.1", 0), handler_cls)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+    def test_urllib_does_not_follow_a_redirect_on_its_own(self):
+        """The seam the whole guard rests on, asserted directly.
+
+        Without this, the private-redirect test could keep passing against a
+        mock while the real client quietly followed the redirect anyway.
+        """
+
+        class Redirector(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", "/target")
+                self.end_headers()
+
+            def log_message(self, *_args):
+                pass
+
+        server, base = self._serve(Redirector)
+        try:
+            with pytest.raises(urllib.error.HTTPError) as excinfo:
+                urllib.request.urlopen(
+                    download._ManualRedirectRequest(base + "/start"), timeout=5
+                )
+            # Surfaced as an error carrying Location — not silently followed.
+            assert excinfo.value.code == 302
+            assert excinfo.value.headers.get("Location") == "/target"
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_a_redirect_to_a_private_address_is_never_requested(self, monkeypatch):
+        class Redirector(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", "http://169.254.169.254/latest/meta-data")
+                self.end_headers()
+
+            def log_message(self, *_args):
+                pass
+
+        server, base = self._serve(Redirector)
+        try:
+            monkeypatch.setattr(
+                download, "is_public_http_url", lambda url: str(url) == base + "/start"
+            )
+            with pytest.raises(ValueError, match="redirected to a non-public URL"):
+                download._open_following_redirects(
+                    base + "/start", ssl.create_default_context(), 5
+                )
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_a_permitted_redirect_is_still_followed(self, monkeypatch):
+        """The guard must not have become a redirect blocker.
+
+        A module that simply refused every 30x would pass the test above. This
+        one asserts a public target is actually followed and read.
+        """
+        body = b"%PDF-1.7\nredirected body"
+        seen = []
+
+        class Final(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append("final")
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args):
+                pass
+
+        final_server, final_base = self._serve(Final)
+        target = final_base + "/final.pdf"
+
+        class Redirector(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append("start")
+                self.send_response(302)
+                self.send_header("Location", target)
+                self.end_headers()
+
+            def log_message(self, *_args):
+                pass
+
+        start_server, start_base = self._serve(Redirector)
+        try:
+            monkeypatch.setattr(
+                download,
+                "is_public_http_url",
+                lambda url: str(url) in (start_base + "/start", target),
+            )
+            response, final_url = download._open_following_redirects(
+                start_base + "/start", ssl.create_default_context(), 5
+            )
+            try:
+                assert response.read() == body
+            finally:
+                response.close()
+            assert final_url == target
+            assert seen == ["start", "final"]
+        finally:
+            start_server.shutdown()
+            start_server.server_close()
+            final_server.shutdown()
+            final_server.server_close()
+
+    def test_a_redirect_cycle_terminates(self, monkeypatch):
+        class Looper(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(302)
+                self.send_header("Location", "/loop")
+                self.end_headers()
+
+            def log_message(self, *_args):
+                pass
+
+        server, base = self._serve(Looper)
+        try:
+            monkeypatch.setattr(
+                download, "is_public_http_url", lambda url: str(url).startswith(base)
+            )
+            with pytest.raises(ValueError, match="redirected too many times"):
+                download._open_following_redirects(
+                    base + "/loop", ssl.create_default_context(), 5
+                )
+        finally:
+            server.shutdown()
+            server.server_close()
 
 
 class TestIterRemoteFileChunks:
