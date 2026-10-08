@@ -107,6 +107,39 @@ def parse_int_env(name: str, default: int, *, min_value: int = 1, max_value: int
     return clamped
 
 
+def parse_float_env(name: str, default: float, *, min_value: float, max_value: float) -> float:
+    """Read a float setting, rejecting anything outside ``[min, max]``.
+
+    The same clamp-and-log policy as :func:`parse_int_env`, for seconds and
+    other fractional limits that an int setting could not express (a 0.05 s
+    inter-request gap is not roundable). A malformed value falls back to the
+    default and logs, so a typo in a ``.env`` degrades to a working value
+    rather than taking the process down at import.
+    """
+    if max_value < min_value:
+        raise ValueError(
+            f"{name}: max_value={max_value} is below min_value={min_value}; "
+            "this range can never be satisfied."
+        )
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        logger.warning(
+            "%s=%r is not a number; falling back to the default %r.", name, raw, default
+        )
+        return default
+    clamped = max(min_value, min(max_value, value))
+    if clamped != value:
+        logger.warning(
+            "%s=%r is outside the accepted range [%s, %s]; using %r.",
+            name, value, min_value, max_value, clamped,
+        )
+    return clamped
+
+
 def parse_bool_env(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
     if raw is None:
@@ -403,6 +436,40 @@ SEARCH_REWRITE_CONTEXT_LIMIT = 4000
 
 ARXIV_API_URL = "http://export.arxiv.org/api/query"
 SEMANTIC_SCHOLAR_SEARCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+
+# Minimum seconds between consecutive outbound requests to each provider. These
+# are *proactive* — they space requests out before a limit is hit, rather than
+# backing off after a 429 — because some providers (arXiv) specify the rule as a
+# hard rate and refuse bursts outright. The defaults follow each provider's
+# published guidance; they are configuration, not constants, because the exact
+# numbers change and an operator on a different plan must be able to tune them
+# without a code change.
+#
+#   * arXiv — "no more than one request every three seconds, single connection",
+#     summed across all machines. A single-process app is a subset of "all
+#     machines", so the interval is the whole rule and requests are serialized.
+#   * Semantic Scholar — a key starts at 1 request/second; the anonymous shared
+#     pool is more generous but never to be relied on.
+#   * Crossref — the polite pool allows 10 req/s; the public pool 5 req/s. The
+#     default assumes the polite pool and is deliberately above both per-request
+#     cost when a contact email is configured.
+#   * OpenAlex — budget-priced per request; the interval keeps a burst loop from
+#     exhausting the daily dollar allowance faster than the caller can react.
+#
+# Setting a value to 0 disables the proactive spacing for that provider (429
+# backoff still applies).
+ARXIV_MIN_INTERVAL_SECONDS = parse_float_env(
+    "ARXIV_MIN_INTERVAL_SECONDS", default=3.0, min_value=0.0, max_value=30.0
+)
+SEMANTIC_SCHOLAR_MIN_INTERVAL_SECONDS = parse_float_env(
+    "SEMANTIC_SCHOLAR_MIN_INTERVAL_SECONDS", default=1.0, min_value=0.0, max_value=30.0
+)
+CROSSREF_MIN_INTERVAL_SECONDS = parse_float_env(
+    "CROSSREF_MIN_INTERVAL_SECONDS", default=0.1, min_value=0.0, max_value=30.0
+)
+OPENALEX_MIN_INTERVAL_SECONDS = parse_float_env(
+    "OPENALEX_MIN_INTERVAL_SECONDS", default=0.05, min_value=0.0, max_value=30.0
+)
 
 PAPER_SEARCH_PARALLEL = parse_bool_env("PAPER_SEARCH_PARALLEL", default=True)
 PAPER_SEARCH_RESULT_LIMIT = parse_int_env("PAPER_SEARCH_RESULT_LIMIT", default=8, min_value=1,
@@ -1068,6 +1135,10 @@ def describe_parser_settings() -> dict:
         "storage_pg_ann": STORAGE_PG_ANN,
         "crossref_api_url": CROSSREF_API_URL,
         "openalex_api_url": OPENALEX_API_URL,
+        "arxiv_min_interval_seconds": ARXIV_MIN_INTERVAL_SECONDS,
+        "semantic_scholar_min_interval_seconds": SEMANTIC_SCHOLAR_MIN_INTERVAL_SECONDS,
+        "crossref_min_interval_seconds": CROSSREF_MIN_INTERVAL_SECONDS,
+        "openalex_min_interval_seconds": OPENALEX_MIN_INTERVAL_SECONDS,
         "enrichment_contact_email": ENRICHMENT_CONTACT_EMAIL,
         "rerank_enabled": RERANK_ENABLED,
         "rerank_model": RERANK_MODEL,
