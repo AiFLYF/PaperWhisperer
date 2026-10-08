@@ -21,6 +21,8 @@ from __future__ import annotations
 import io
 import json
 import logging
+import os
+import pickle
 import resource
 import socket
 import sys
@@ -323,6 +325,23 @@ class TestCooperativeObservation:
         assert guard.samples == 0
 
 
+#: Module-level because :mod:`pickle` resolves the callable in ``__reduce__``
+#: by qualified name, and a closure has no importable name to resolve.
+_PICKLE_TRIPWIRE: list[str] = []
+
+
+def _trip_pickle_payload() -> str:
+    _PICKLE_TRIPWIRE.append("executed")
+    return "executed"
+
+
+class _ExecutableFrame:
+    """A pickle payload that calls :func:`_trip_pickle_payload` when loaded."""
+
+    def __reduce__(self):
+        return (_trip_pickle_payload, ())
+
+
 @pytest.mark.skipif(not L.sandbox_available(), reason="平台不支持 rlimit / fork")
 class TestHardIsolation:
     """Layer 2: the only mechanism here that can actually stop something."""
@@ -415,6 +434,69 @@ class TestHardIsolation:
         with pytest.raises(L.ParserLimitExceeded) as excinfo:
             L._apply_child_rlimits(L.ParserLimits())
         assert excinfo.value.code == "rlimit_in_serving_process"
+
+    def test_the_parent_refuses_a_pickled_frame_from_the_child(self):
+        """The trust boundary, asserted directly against the decoder.
+
+        The child is the untrusted side of this channel: it parses an
+        attacker-supplied PDF, so a compromised child owns every byte on the
+        pipe. And the reader is the serving process — the one the rlimits were
+        supposed to be protecting. A pickle payload arriving here is therefore
+        not a crash in a disposable child, it is code executing in the parent,
+        and no rlimit down there can prevent it.
+
+        So the frame codec is JSON, and the decoder must reject pickle bytes
+        outright. Sending a payload whose ``__reduce__`` sets a local flag
+        proves both halves of that at once: if the frame had been loaded, the
+        flag would be set. The close(fd) is what ends the read loop, and the
+        result is the same ``(None, False)`` a truncated frame gives — a failed
+        sandbox, which the parent already knows how to report.
+        """
+        tripped: list[str] = _PICKLE_TRIPWIRE
+        tripped.clear()
+
+        read_fd, write_fd = os.pipe()
+        try:
+            os.write(write_fd, pickle.dumps(("ok", _ExecutableFrame())))
+        finally:
+            os.close(write_fd)
+        try:
+            frame, timed_out = L._read_frame(read_fd, 5.0)
+        finally:
+            os.close(read_fd)
+
+        assert tripped == [], "the parent unpickled the child's frame"
+        assert frame is None
+        assert timed_out is False
+
+    def test_a_tag_outside_the_fixed_table_builds_nothing(self):
+        """The one thing a hostile child still gets to choose is the tag.
+
+        The tagged path exists so a ``ParseResult`` can cross, and it is the
+        only place this decoder builds an object — so it is also the only place
+        worth attacking. The child can *name* a type; it cannot make the parent
+        resolve that name to anything. A tag that is not one of the two in the
+        table builds nothing and yields a failed sandbox, exactly like the
+        pickle frame above — which is the difference between the two codecs,
+        stated as an assertion.
+        """
+        for tag in ("os.system", "subprocess.Popen", "ParserLimitExceeded", "__builtins__"):
+            read_fd, write_fd = os.pipe()
+            hostile = json.dumps({"kind": "ok", "tag": tag,
+                                  "value": {"cmd": "echo pwned"}}).encode("utf-8")
+            try:
+                os.write(write_fd, hostile)
+            finally:
+                os.close(write_fd)
+            try:
+                frame, timed_out = L._read_frame(read_fd, 5.0)
+            finally:
+                os.close(read_fd)
+            assert (frame, timed_out) == (None, False), f"accepted tag {tag!r}"
+
+        # A registered tag still works — the allowlist is closed, not empty.
+        registered = set(L._frame_types())
+        assert registered == {"ParseResult", "ParsedDocument"}
 
     def test_a_sandbox_run_is_opt_in(self):
         assert L.limits_from_config().isolation_enabled is False

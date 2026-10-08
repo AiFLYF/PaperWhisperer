@@ -418,6 +418,82 @@ class ParseResult:
             diagnostics=list(diagnostics or []),
         )
 
+    def to_dict(self) -> dict[str, Any]:
+        """The wire form: plain JSON-native data, no live objects.
+
+        Written by hand, like every ``to_dict`` in
+        :mod:`~paperwhisperer.ingestion.schema` and
+        :mod:`~paperwhisperer.ingestion.quality`, and for the same reason.
+        The result of a parse crosses a process boundary when
+        :func:`~paperwhisperer.ingestion.limits.run_guarded` is enabled, and
+        that channel is JSON. A generic ``dataclasses.asdict`` would work for
+        the scalars but would recurse into ``document`` and ``quality`` as
+        objects, so the nested types are asked for their own form — which is
+        also what keeps this a description of *this* schema rather than a
+        reflection of whatever the fields happen to be this week.
+        """
+        return {
+            "status": self.status,
+            "document": self.document.to_dict() if self.document is not None else None,
+            "quality": self.quality.to_dict() if self.quality is not None else None,
+            "raw_artifact_uri": self.raw_artifact_uri,
+            "warnings": list(self.warnings),
+            "duration_ms": self.duration_ms,
+            "parser_name": self.parser_name,
+            "cloud_outcome": self.cloud_outcome,
+            "parser_version": self.parser_version,
+            "options_hash": self.options_hash,
+            "error_message": self.error_message,
+            "diagnostics": [dict(item) for item in self.diagnostics],
+            "contract_repairs": [dict(item) for item in self.contract_repairs],
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, Any]) -> ParseResult:
+        """Rebuild from :meth:`to_dict`.
+
+        Every field takes a default when the key is absent or null, because the
+        counterpart of this function may be an older build: a field added since
+        the payload was written has to be optional, or a stored result becomes
+        unreadable the next time this dataclass grows. The nested payloads are
+        handed to their own ``from_dict`` rather than reconstructed inline, so
+        the schema-version gate in
+        :meth:`~paperwhisperer.ingestion.schema.ParsedDocument.from_dict` still
+        decides what counts as a readable document.
+
+        :class:`~paperwhisperer.ingestion.quality.ParseQualityReport` is
+        imported here rather than at module scope for the same reason the module
+        does it in :func:`_attach_quality` — importing it eagerly would make
+        ``quality`` a hard dependency of everything that imports the gateway.
+        """
+        from .quality import ParseQualityReport  # noqa: PLC0415 - see docstring
+
+        document_payload = payload.get("document")
+        quality_payload = payload.get("quality")
+        return cls(
+            status=str(payload.get("status") or PARSE_FAILED),
+            document=(
+                ParsedDocument.from_dict(document_payload)
+                if isinstance(document_payload, dict)
+                else None
+            ),
+            quality=(
+                ParseQualityReport.from_dict(quality_payload)
+                if isinstance(quality_payload, dict)
+                else None
+            ),
+            raw_artifact_uri=str(payload.get("raw_artifact_uri") or ""),
+            warnings=[str(item) for item in payload.get("warnings") or []],
+            duration_ms=int(payload.get("duration_ms") or 0),
+            parser_name=str(payload.get("parser_name") or ""),
+            cloud_outcome=str(payload.get("cloud_outcome") or ""),
+            parser_version=str(payload.get("parser_version") or ""),
+            options_hash=str(payload.get("options_hash") or ""),
+            error_message=str(payload.get("error_message") or ""),
+            diagnostics=[dict(item) for item in payload.get("diagnostics") or []],
+            contract_repairs=[dict(item) for item in payload.get("contract_repairs") or []],
+        )
+
 
 # --------------------------------------------------------------------------
 # Error mapping

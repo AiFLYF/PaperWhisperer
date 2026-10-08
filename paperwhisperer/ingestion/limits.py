@@ -67,10 +67,19 @@ reasons, and the decision to turn it on belongs to the deployment:
    is possible in principle. The *parse* is still bounded, and a hung child is
    ``SIGKILL``-able, so the failure mode is "this parse failed", not "the
    server is stuck" — but it is not free.
-2. The result crosses a pipe by pickle. :class:`~paperwhisperer.ingestion.schema.ParsedDocument`
-   and :class:`~paperwhisperer.ingestion.gateway.ParseResult` both survive that;
-   an adapter holding a live library handle does not, and would have to return
-   only its schema.
+2. The result crosses a pipe by JSON, never by pickle. The child parses an
+   attacker-supplied PDF, so a compromised child controls every byte on that
+   pipe, and a parent that ``pickle.loads`` them is arbitrary code execution in
+   the *parent* — a channel where rlimits cannot help, because they bind only
+   the child. JSON is data and cannot execute. What crosses is deliberately
+   narrow: a JSON-native value (dict / list / str / int / float / bool /
+   ``None``), or one of two named types — :class:`~paperwhisperer.ingestion.gateway.ParseResult`
+   and :class:`~paperwhisperer.ingestion.schema.ParsedDocument` — as their own
+   hand-written ``to_dict``, under a tag from a table fixed in
+   :mod:`paperwhisperer.ingestion.limits`. An adapter holding a live library
+   handle cannot be sandboxed and would have to return only its schema. Both
+   halves of that narrowing are deliberate: a sandbox that could return
+   anything would be a sandbox that could execute anything.
 3. A forked child inherits the parent's copy-on-write pages, so ``RLIMIT_AS``
    measures *virtual* address space, which torch inflates well beyond its
    resident footprint. The default ceiling is therefore generous enough for a
@@ -147,9 +156,9 @@ call sites, which are in modules this task does not own.
 from __future__ import annotations
 
 import io
+import json
 import logging
 import os
-import pickle
 import re
 import select
 import signal
@@ -1545,10 +1554,11 @@ def run_guarded(
       the process, ``setrlimit`` is called on the copy, and the parent's limits
       are untouched. This is the entire reason a hard memory ceiling is
       survivable in a single-process deployment.
-    * **The result crosses a pipe, not shared memory.** Pickle is the only
-      channel, so a child that wedges holding a lock cannot corrupt the
-      parent, and the only thing that can hang the parent is a pipe the child
-      never fills — which the wall clock handles.
+    * **The result crosses a pipe, not shared memory.** A single JSON frame is
+      the only channel — not pickle, which the untrusted child could weaponise
+      against the parent — so a child that wedges holding a lock cannot corrupt
+      the parent, and the only thing that can hang the parent is a pipe the
+      child never fills, which the wall clock handles.
     * **The wall clock is enforced by the parent**, with ``SIGKILL`` rather than
       ``SIGTERM``, because a parser blocked in an uninterruptible C call ignores
       ``SIGTERM`` and a half-dead child holding a torch model is worse than a
@@ -1631,33 +1641,158 @@ def _run_child_body(  # pragma: no cover - runs in the forked child
     else:
         try:
             _write_frame(write_fd, ("ok", result))
-        except BaseException:  # noqa: BLE001 - an unpicklable result is a failure
+        except BaseException:  # noqa: BLE001 - a non-serialisable result is a failure
             _write_frame(write_fd, ("error", ParserLimitExceeded(
                 "解析结果无法跨进程传递，该解析器不适合在隔离模式下运行。",
-                code="sandbox_unpicklable", limit="sandbox",
+                code="sandbox_not_serializable", limit="sandbox",
             )))
     finally:
         os.close(write_fd)
 
 
+#: The complete set of classes a success frame is allowed to reconstruct, as
+#: ``tag -> class``. Populated on first use by :func:`_frame_types` and never
+#: afterwards, so its *contents* are fixed by this source file even though the
+#: classes are resolved at runtime.
+_FRAME_TYPES: dict[str, type[Any]] = {}
+
+
+def _frame_types() -> dict[str, type[Any]]:
+    """The static allowlist of classes a frame may name, as ``tag -> class``.
+
+    This is the part of the codec that a hostile child *can* influence, so it
+    is worth being precise about what it does and does not allow. The child
+    chooses a tag from this table or it gets nothing; the parent then builds
+    that class from a plain dict using that class's own ``from_dict``. Pickle
+    let the child name *any* class in the parent and any argument list, and the
+    ability to say ``"call this function with these arguments"`` is the whole
+    of the vulnerability. Here there is nothing to call and nothing to choose:
+    a tag outside the table is a rejected frame, and ``from_dict`` is an
+    attribute lookup on a class this file named, not on a name this file read.
+
+    The imports are function-local because the gateway is the larger module and
+    :mod:`~paperwhisperer.ingestion.schema` is the one that must stay free of
+    a dependency on the sandbox. Nothing in the ingestion package imports this
+    module today, so a top-level import would also be non-cyclic — but a
+    first-use import means that if a cycle ever appears, this one cannot be the
+    cause of it.
+    """
+    global _FRAME_TYPES  # noqa: PLW0603 - a process-wide cache of a constant table
+    if not _FRAME_TYPES:
+        from .gateway import ParseResult  # noqa: PLC0415 - see docstring
+        from .schema import ParsedDocument  # noqa: PLC0415 - see docstring
+
+        _FRAME_TYPES = {"ParseResult": ParseResult, "ParsedDocument": ParsedDocument}
+    return _FRAME_TYPES
+
+
+def _encode_result(value: Any) -> tuple[str, Any]:
+    """``(tag, payload)`` for a success value; an empty tag means untagged.
+
+    Exact ``type() is`` rather than ``isinstance``: a subclass must not inherit
+    a tag whose ``from_dict`` would rebuild it as its base class, which would
+    silently drop the subclass's fields. Such a value is simply not
+    serialisable, and is refused.
+    """
+    for tag, cls in _frame_types().items():
+        if type(value) is cls:
+            return tag, value.to_dict()
+    return "", value
+
+
+def _error_frame_text(message: str, code: str, limit: str = "sandbox") -> str:
+    """The JSON body for a frame describing the child's *own* failure."""
+    return json.dumps(
+        {
+            "kind": "error",
+            "type": "ParserLimitExceeded",
+            "message": message,
+            "code": code,
+            "limit": limit,
+        },
+        ensure_ascii=False,
+    )
+
+
 def _write_frame(fd: int, frame: tuple[str, Any]) -> None:  # pragma: no cover - child side
+    """Encode one frame as JSON and write it to the pipe.
+
+    JSON rather than pickle because the child is the *untrusted* side of this
+    channel: it runs a parser over an attacker-supplied PDF, so if it is
+    compromised it owns every byte it sends. A parent that decoded those bytes
+    with ``pickle.loads`` would execute them, which is arbitrary code execution
+    in the parent — precisely the process the rlimits were protecting. JSON
+    carries no code, only data.
+
+    The cost is real and is paid on purpose: a result that is not JSON-
+    serialisable — an open file, a torch tensor, a live library handle — no
+    longer crosses at all. It becomes a refusal instead of a result. Narrowing
+    the channel is the fix, not a side effect of it.
+
+    The one concession to capability is the tagged path in :func:`_encode_result`:
+    a :class:`~paperwhisperer.ingestion.gateway.ParseResult` or
+    :class:`~paperwhisperer.ingestion.schema.ParsedDocument` crosses as its own
+    hand-written ``to_dict``, under a tag from a fixed table, because a sandbox
+    that cannot return a parse result is not worth enabling. Two data types,
+    chosen in this file, built by code in this file.
+    """
+    kind, body = frame
     try:
-        payload = pickle.dumps(frame, protocol=pickle.HIGHEST_PROTOCOL)
-    except BaseException:  # noqa: BLE001
-        payload = pickle.dumps(
-            ("error", ParserLimitExceeded(
-                "解析结果无法序列化。", code="sandbox_unpicklable", limit="sandbox"
-            )),
-            protocol=pickle.HIGHEST_PROTOCOL,
+        if kind == "ok":
+            tag, payload = _encode_result(body)
+            text = json.dumps(
+                {"kind": "ok", "tag": tag, "value": payload} if tag
+                else {"kind": "ok", "value": payload},
+                ensure_ascii=False,
+            )
+        else:
+            text = json.dumps(
+                {
+                    "kind": "error",
+                    "type": type(body).__name__,
+                    "message": str(body),
+                    "code": getattr(body, "code", ""),
+                    "limit": getattr(body, "limit", ""),
+                },
+                ensure_ascii=False,
+            )
+    except (TypeError, ValueError):
+        text = _error_frame_text(
+            "解析结果无法序列化。", code="sandbox_not_serializable"
         )
+    data = text.encode("utf-8")
     # One write, so two frames can never interleave. A short write is retried
     # because a pipe write of a few hundred KB is routinely partial.
     written = 0
-    while written < len(payload):
+    while written < len(data):
         try:
-            written += os.write(fd, payload[written:])
+            written += os.write(fd, data[written:])
         except BrokenPipeError:
             return
+
+
+def _reconstruct_error(frame: dict[str, Any]) -> BaseException:
+    """Rebuild the exception the child reported, from a closed set of cases.
+
+    The child sends the exception's *type name and message*, never a way to
+    re-create the object: resolving an arbitrary name here would reintroduce
+    exactly the injection the JSON codec removed. So the mapping is a fixed
+    table — :class:`MemoryError`, because :meth:`SandboxOutcome.unwrap` gives it
+    its own translation, :class:`ParserLimitExceeded`, because it carries a
+    ``code`` the orchestrator branches on — and everything else becomes a plain
+    :class:`RuntimeError` that keeps the original type and text in its message.
+    """
+    name = str(frame.get("type", ""))
+    message = str(frame.get("message", ""))
+    code = frame.get("code", "")
+    limit = frame.get("limit", "")
+    if name == "MemoryError":
+        return MemoryError(message)
+    if name == "ParserLimitExceeded":
+        return ParserLimitExceeded(
+            message, code or "parser_limit_exceeded", limit=str(limit)
+        )
+    return RuntimeError(f"{name}: {message}" if name else message)
 
 
 def _read_frame(fd: int, budget: float) -> tuple[tuple[str, Any] | None, bool]:
@@ -1698,10 +1833,48 @@ def _read_frame(fd: int, budget: float) -> tuple[tuple[str, Any] | None, bool]:
         chunks.append(chunk)
     if not chunks:
         return None, False
+    # Decode as JSON, never as pickle. This is the trust boundary: the child is
+    # running a parser over an attacker-supplied file, so the bytes on this pipe
+    # are attacker-influenced, and `pickle.loads` on them would execute code in
+    # the parent. Anything that is not a well-formed JSON object naming a known
+    # `kind` is therefore treated exactly like a truncated frame — a failed
+    # sandbox — rather than being decoded, and the tagged success path may only
+    # name a class from the fixed table in _frame_types. Rejecting is always
+    # safe; decoding is not.
     try:
-        return pickle.loads(b"".join(chunks)), False  # noqa: S301 - our own child's frame
-    except Exception:  # noqa: BLE001 - a truncated frame is a failed sandbox
+        raw = b"".join(chunks)
+        frame = json.loads(raw.decode("utf-8"))
+        if not isinstance(frame, dict) or "kind" not in frame:
+            return None, False
+        if frame["kind"] == "ok":
+            return ("ok", _decode_result(frame)), False
+        if frame["kind"] == "error":
+            return ("error", _reconstruct_error(frame)), False
         return None, False
+    except Exception:  # noqa: BLE001 - a truncated or hostile frame is a failed sandbox
+        return None, False
+
+
+def _decode_result(frame: dict[str, Any]) -> Any:
+    """The success value, rebuilt if it carries a tag from the fixed table.
+
+    An unknown tag, a non-dict payload, or a ``from_dict`` that refuses the
+    payload all raise, and the caller turns any of those into a rejected frame.
+    That is deliberate: the tagged path is the only place this decoder builds an
+    object, so it is also the only place where a hostile child could try to
+    influence *what* gets built. It cannot — the tag selects a class from
+    :func:`_frame_types`, and a tag not in that table builds nothing at all.
+    """
+    tag = frame.get("tag")
+    value = frame.get("value")
+    if tag is None:
+        return value
+    if not isinstance(tag, str) or not isinstance(value, dict):
+        raise ValueError("malformed tagged frame")
+    cls = _frame_types().get(tag)
+    if cls is None:
+        raise ValueError(f"unknown frame tag: {tag!r}")
+    return cls.from_dict(value)
 
 
 def _kill(pid: int) -> None:

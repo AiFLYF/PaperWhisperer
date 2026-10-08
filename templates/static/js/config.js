@@ -714,7 +714,7 @@ export const ERROR_PRESENTATIONS = {
     output_too_large: { kind: FAILURE_KINDS.TERMINAL },
     memory_limit_exceeded: { kind: FAILURE_KINDS.TERMINAL },
     cpu_limit_exceeded: { kind: FAILURE_KINDS.TERMINAL },
-    sandbox_unpicklable: { kind: FAILURE_KINDS.TERMINAL },
+    sandbox_not_serializable: { kind: FAILURE_KINDS.TERMINAL },
     mineru_quota_exhausted: { kind: FAILURE_KINDS.TERMINAL },
     mineru_no_attempt: { kind: FAILURE_KINDS.TERMINAL },
     mineru_ssrf_blocked: { kind: FAILURE_KINDS.TERMINAL },
