@@ -779,21 +779,25 @@ def _catalogue() -> dict:
 
 
 def test_a_reparse_option_that_cannot_run_in_this_deployment_is_labelled_with_its_requirement():
-    """WALK-DEFECT-4: the menu must not offer a parser it cannot use, silently.
+    """WALK-DEFECT-4: no reparse option is offered without disclosing its cost.
 
-    With the shipped default (`PARSER_BACKEND=legacy`) the gateway is rolled back
-    to the legacy adapter, so every *named* parser answers `409
-    parser_unavailable`. The walkthrough's finding was not the 409 — it is that
-    the control offered the choice without saying what the choice requires, and
-    under a different deployment the same menu offers a parser that works fine.
+    With the shipped default now following the bake-off decision
+    (`PARSER_BACKEND=gateway`), Docling is what the router already uses, so
+    `docling` and `docling_ocr` run as selected and legitimately need no
+    requirement. `mineru_cloud` still needs cloud credentials and leaves the
+    machine, so it must carry a requirement that names what it needs.
 
-    So the contract asserted here is: every option is either absent from the
-    menu, or carries a `requirementKey` whose sentence exists in **both** locales
-    and names the requirement. Filtering by availability is deliberately *not*
-    the mechanism, because the browser is not told what this deployment has
-    installed (no endpoint publishes the parser catalogue), so a filter would be
-    wrong in the other direction on a gateway deployment. Labelling is the one
-    statement that is true in every deployment.
+    The contract asserted here is therefore: every option is named in the
+    reader's language, and every option that cannot actually run out of the box
+    carries a `requirementKey` whose sentence exists in **both** locales and
+    names the requirement — while no option that *does* run carries a stale
+    "set PARSER_BACKEND=gateway" label, because under the shipped default that
+    condition is false and saying so would be a lie. Filtering by availability is
+    deliberately *not* the mechanism, because the browser is not told what this
+    deployment has installed (no endpoint publishes the parser catalogue), so a
+    filter would be wrong in the other direction on a deployment that rolled
+    back to legacy. Labelling what is still required is the one statement that is
+    true in every deployment.
     """
     from paperwhisperer.core import config
 
@@ -807,31 +811,40 @@ def test_a_reparse_option_that_cannot_run_in_this_deployment_is_labelled_with_it
         assert en is not None, f"{key} has no en catalogue entry"
         return zh, en
 
-    legacy_default = config.PARSER_BACKEND != "gateway"
+    # The options that run out of the box under the shipped gateway default:
+    # the default entry and the Docling variants the router already uses. An
+    # option outside this set needs a requirement.
+    RUNNABLE_BY_DEFAULT = {"", "docling", "docling_ocr"}
 
     for option in options:
+        value = option.get("value", "")
         # Every option is named in the reader's language.
         bilingual(option["labelKey"])
-        # And every option states what it requires, in both languages.
         requirement_key = option.get("requirementKey")
-        assert requirement_key, (
-            f"the {option.get('value')!r} option carries no requirementKey, so a "
-            "reader cannot tell whether it can run in this deployment"
-        )
-        zh, en = bilingual(requirement_key)
-        assert zh.strip(), f"the requirement for {option.get('value')!r} is blank in zh-CN"
-        assert en.strip(), f"the requirement for {option.get('value')!r} is blank in en"
-        if legacy_default and option.get("value", "") in {"docling", "docling_ocr"}:
-            # Under the shipped default these cannot run; the requirement must
-            # say exactly that, in words, in the reader's language.
-            for text in (zh, en):
-                assert "PARSER_BACKEND" in text, (
-                    "the docling options' requirement does not name the setting "
-                    f"that decides whether they can run: {text!r}"
-                )
-                assert "gateway" in text, (
-                    f"the requirement does not say what has to be set: {text!r}"
-                )
+        if value in RUNNABLE_BY_DEFAULT:
+            # Runs as selected, so it must NOT claim it needs a backend switch.
+            if requirement_key:
+                zh, en = bilingual(requirement_key)
+                for text in (zh, en):
+                    assert "PARSER_BACKEND" not in text, (
+                        f"the {value!r} option runs under the shipped default but its "
+                        f"requirement still names a backend switch that is already set: {text!r}"
+                    )
+        else:
+            # Cannot run out of the box: it must say what it requires, in both
+            # languages, in words.
+            assert requirement_key, (
+                f"the {value!r} option cannot run under the shipped default but "
+                "carries no requirementKey, so a reader cannot tell what it needs"
+            )
+            zh, en = bilingual(requirement_key)
+            assert zh.strip(), f"the requirement for {value!r} is blank in zh-CN"
+            assert en.strip(), f"the requirement for {value!r} is blank in en"
+
+    assert config.PARSER_BACKEND == "gateway", (
+        "the shipped default is no longer gateway; the runnable-by-default set above "
+        "and the labels in config.js must be re-checked against the real default"
+    )
 
     # The cloud option keeps its egress warning (a separate, stronger rule).
     cloud = next(option for option in options if option["value"] == "mineru_cloud")
@@ -853,23 +866,29 @@ def test_a_reparse_option_that_cannot_run_in_this_deployment_is_labelled_with_it
         )
 
 
-def test_no_reparse_option_is_offered_without_saying_it_needs_something():
-    """Every option a reader can pick names its requirement — no exceptions.
+def test_no_reparse_option_is_offered_without_saying_whether_it_can_run():
+    """Every option either runs under the shipped default, or names its need.
 
     Stated separately from the test above because it is the invariant that keeps
-    a *newly added* option honest: a fifth parser added to `config.js` without a
-    `requirementKey` fails here, at review, rather than shipping as a control
-    that offers a choice whose consequence is undisclosed.
+    a *newly added* option honest. An option that the shipped gateway default
+    already runs needs no label; one it cannot run (a cloud backend, a parser
+    behind a flag) must carry a `requirementKey` present in both locales, or it
+    ships as a control that offers a choice whose consequence is undisclosed. A
+    fifth parser dropped into `config.js` therefore fails here, at review.
     """
     tables = _catalogue()
+    RUNNABLE_BY_DEFAULT = {"", "docling", "docling_ocr"}
     for option in _parser_options():
+        assert option["labelKey"] in tables["ZH_CN"]
+        assert option["labelKey"] in tables["EN"]
+        if option.get("value", "") in RUNNABLE_BY_DEFAULT:
+            continue  # runs as selected; a requirement would be a stale claim
         assert option.get("requirementKey"), (
-            f"{option.get('value')!r} has no requirementKey"
+            f"{option.get('value')!r} cannot run under the shipped default and has "
+            "no requirementKey"
         )
         assert option["requirementKey"] in tables["ZH_CN"]
         assert option["requirementKey"] in tables["EN"]
-        assert option["labelKey"] in tables["ZH_CN"]
-        assert option["labelKey"] in tables["EN"]
 
 
 # --------------------------------------------------------------------------

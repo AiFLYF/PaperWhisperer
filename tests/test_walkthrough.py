@@ -684,39 +684,38 @@ def test_the_evidence_and_parse_status_surfaces_re_render_on_a_language_switch()
 # in every deployment. The 409 is still surfaced honestly in the card.
 
 
-def test_default_parser_backend_is_legacy_not_docling():
-    """``PARSER_BACKEND`` defaults to ``legacy``, not the docling-first decision.
+def test_default_parser_backend_follows_the_bake_off_decision():
+    """``PARSER_BACKEND`` defaults to the router, so Docling is actually used.
 
     ``docs/PARSER_BAKE_OFF.md`` §6 selected docling-first with a DOCX exception.
-    The shipped default bypasses that and runs the legacy adapter, which
-    produces no bbox.
-
-    This is unchanged by the fix for the advertising half of Defect 4, which
-    was about the *control* lying about what it can run, not about the default.
-    It is kept, and it is the pin that fails first if a deployment adopts the
-    routing decision — which is the moment the label the next test asserts
-    stops describing anything a reader needs to be told.
+    The shipped default now follows that decision (``gateway``), which is what
+    makes parsed elements carry a resolvable bbox — the reason the default used
+    to bypass it. This is the pin that fires if the default is rolled back to
+    ``legacy`` again, which is the moment citations silently stop resolving to
+    a location while everything still looks healthy.
     """
     from paperwhisperer.core import config
 
-    assert config.PARSER_BACKEND == "legacy", (
-        "PARSER_BACKEND is no longer 'legacy' — the default now uses the router; "
-        "re-check whether citations get bboxes, and whether the reparse options still "
-        "need the requirement label they carry today"
+    assert config.PARSER_BACKEND == "gateway", (
+        "PARSER_BACKEND is no longer 'gateway' — the default no longer follows the "
+        "bake-off routing decision; re-check whether citations get bboxes, and whether "
+        "the reparse options' requirement labels still describe what this deployment needs"
     )
+    # The router resolves through the measured order, which starts at Docling.
+    assert config.PARSER_PRIMARY == "docling"
 
 
-def test_the_reparse_catalog_labels_the_parsers_it_cannot_run():
-    """Every reparse option that needs a gateway says so, in both languages.
+def test_the_reparse_catalog_labels_only_the_parsers_it_cannot_run():
+    """Only a reparse option with a real requirement carries one, in both languages.
 
-    This replaced ``test_the_reparse_catalog_offers_docling_even_though_the_default_refuses_it``,
-    which asserted only that the control still *offers* docling and that the
-    default still refuses it — true before the fix and true after it, so it
-    pinned nothing about the fix. It now asserts the thing the fix did: the
-    option is kept (it cannot be filtered — the same catalogue is right on a
-    gateway deployment and wrong only here), and it carries a ``requirementKey``
-    that names ``PARSER_BACKEND=gateway`` and the ``409 parser_unavailable`` a
-    reader will otherwise meet unexplained, in both catalogues.
+    With the shipped default now following the bake-off decision (``gateway``),
+    Docling is what the router already uses, so ``docling`` and ``docling_ocr``
+    run as selected and must *not* carry the "set PARSER_BACKEND=gateway" label
+    — that condition no longer holds here, and showing it would be a lie.
+    ``mineru_cloud`` still genuinely needs cloud credentials, so it keeps its
+    requirement and its ``leavesMachine`` marker. Docling stays in the catalogue
+    (it must not be filtered out — the same catalogue is correct on a deployment
+    that rolls back to legacy), and it stays bilingual.
     """
     from paperwhisperer.core import config
 
@@ -729,34 +728,37 @@ def test_the_reparse_catalog_labels_the_parsers_it_cannot_run():
     by_value = {value: rest for value, rest in options}
     assert "docling" in by_value, (
         "the reparse catalogue no longer offers docling; it must not be filtered out, "
-        "only labelled — the same catalogue is correct on a gateway deployment"
+        "only labelled where a requirement still applies"
     )
 
+    # Docling runs under the shipped default, so a stale gateway label is a lie.
     for value in ("docling", "docling_ocr"):
         requirement_key = re.search(r"requirementKey:\s*'([^']+)'", by_value[value])
-        assert requirement_key, (
-            f"the {value!r} reparse option carries no requirementKey; an option that "
-            "cannot run under the shipped default must say what it needs"
-        )
-        key = requirement_key.group(1)
-        for locale in ("zh-CN", "en"):
-            entry = _catalogue_entry(locale, key)
-            assert entry, f"i18n.js has no {locale} entry for the {value!r} requirement"
-            assert "PARSER_BACKEND" in entry, (
-                f"the {locale} requirement for {value!r} does not name the setting the "
-                f"reader needs changed: {entry}"
-            )
-            assert "parser_unavailable" in entry, (
-                f"the {locale} requirement for {value!r} does not name the 409 the "
-                f"reader will meet if the setting is not changed: {entry}"
-            )
-        assert not re.search(r"[一-鿿]", _catalogue_entry("en", key)), (
-            f"the English requirement for {value!r} is not English"
+        assert not requirement_key, (
+            f"the {value!r} reparse option carries a requirement label ({requirement_key.group(1)}) "
+            "but the shipped default already uses the gateway, so docling runs as selected; "
+            "the label describes a condition this deployment does not have"
         )
 
-    # The label is a statement about a *requirement*, not a claim about this
-    # deployment; the default is what makes it fire here.
-    assert config.PARSER_BACKEND == "legacy", (
-        "with a non-legacy default the docling reparse would now succeed and the "
-        "requirement label would be describing a condition this deployment does not have"
+    # The default entry still explains that there is no single "best" parser.
+    default_key = re.search(r"requirementKey:\s*'([^']+)'", by_value[""])
+    assert default_key, "the default reparse entry lost its explanatory note"
+    for locale in ("zh-CN", "en"):
+        assert _catalogue_entry(locale, default_key.group(1)), (
+            f"i18n.js has no {locale} entry for the default reparse note"
+        )
+
+    # mineru_cloud still needs cloud credentials and leaves the machine.
+    cloud_key = re.search(r"requirementKey:\s*'([^']+)'", by_value["mineru_cloud"])
+    assert cloud_key, "the mineru_cloud reparse option lost its cloud-requirement label"
+    for locale in ("zh-CN", "en"):
+        entry = _catalogue_entry(locale, cloud_key.group(1))
+        assert entry, f"i18n.js has no {locale} entry for the mineru_cloud requirement"
+    assert "leavesMachine: true" in by_value["mineru_cloud"]
+
+    # A requirement label is a statement about a *requirement*, not a claim about
+    # this deployment; the default is what makes the Docling labels unnecessary.
+    assert config.PARSER_BACKEND == "gateway", (
+        "with a non-gateway default docling would need a requirement label again, "
+        "and the catalogue above must not claim it needs none"
     )

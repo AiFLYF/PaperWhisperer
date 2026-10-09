@@ -372,21 +372,22 @@ export const REPARSE_API_PATH = '/v1/documents/{documentId}/reparse';
  *
  * **`labelKey` and `requirementKey`, and why the requirement is part of the
  * label.** The labels are catalogue keys rather than strings so that the menu
- * follows the reader's language like everything else, and every entry carries
- * the *requirement* for that choice to work at all. That is not decoration: with
- * the shipped default (`PARSER_BACKEND=legacy`, `core/config.py`) the gateway
- * is rolled back to the legacy adapter, so `resolve_reparse_parser`
- * (`api/routes_v1.py`) refuses every named parser with `409
- * parser_unavailable` — a deployment-dependent fact the browser is not told,
- * because no endpoint publishes the parser catalogue.
+ * follows the reader's language like everything else, and an entry carries a
+ * *requirement* only when the choice genuinely does not work out of the box.
+ * With the shipped default (`PARSER_BACKEND=gateway`, `core/config.py`) Docling
+ * is what the router already uses, so `docling` and `docling_ocr` run as
+ * selected and carry no requirement. `mineru_cloud` still does: it needs cloud
+ * credentials and leaves the machine, so it keeps a requirement label and the
+ * `leavesMachine` marker.
  *
- * So the option cannot honestly be *filtered* either: the client cannot know
- * what this deployment can run, and guessing would make the menu wrong in the
- * opposite direction (offering only the legacy route on a deployment that had
- * the gateway, or hiding Docling from an operator who had just enabled it).
- * Labelling with the requirement is the one option that is true in every
- * deployment, and it puts the reason next to the choice instead of leaving the
- * reader to discover it from a 409.
+ * A requirement is still shown next to the option rather than left for the
+ * reader to discover from a 409, but only where it is true. An option cannot
+ * honestly be *filtered* either: the client cannot know what this deployment
+ * can run, and guessing would make the menu wrong in the opposite direction
+ * (offering only the legacy route on a deployment that had the gateway, or
+ * hiding Docling from an operator who had just enabled it). Labelling the one
+ * option that still has a requirement is what is true in every deployment, and
+ * it puts the reason next to the choice.
  *
  * **The default entry is not "the default parser".** `PARSER_PRIMARY_BY_MEDIA_TYPE`
  * routes per media type and pins DOCX to the legacy adapter by design, so there
@@ -396,8 +397,8 @@ export const REPARSE_API_PATH = '/v1/documents/{documentId}/reparse';
  */
 export const REPARSE_PARSER_OPTIONS = [
     { value: '', labelKey: 'reparse.parser.default', requirementKey: 'reparse.parser.default_note', leavesMachine: false },
-    { value: 'docling', labelKey: 'reparse.parser.docling', requirementKey: 'reparse.parser.requires_gateway', leavesMachine: false },
-    { value: 'docling_ocr', labelKey: 'reparse.parser.docling_ocr', requirementKey: 'reparse.parser.requires_gateway_ocr', leavesMachine: false },
+    { value: 'docling', labelKey: 'reparse.parser.docling', leavesMachine: false },
+    { value: 'docling_ocr', labelKey: 'reparse.parser.docling_ocr', leavesMachine: false },
     { value: 'mineru_cloud', labelKey: 'reparse.parser.mineru_cloud', requirementKey: 'reparse.parser.requires_cloud', leavesMachine: true }
 ];
 

@@ -639,7 +639,7 @@ STORAGE_PG_ANN = parse_bool_env("STORAGE_PG_ANN", default=False)
 # --------------------------------------------------------------------------
 
 #: feature flag：legacy 走旧解析链路，gateway 走统一解析网关。非法值回落 legacy。
-PARSER_BACKEND = normalize_parser_backend(os.getenv("PARSER_BACKEND", "legacy"))
+PARSER_BACKEND = normalize_parser_backend(os.getenv("PARSER_BACKEND", "gateway"))
 
 #: 主路由 parser 名，bake-off 决策落档后调整。未知名字不替换，只告警。
 PARSER_PRIMARY = normalize_parser_name(os.getenv("PARSER_PRIMARY", "docling"), "docling")
