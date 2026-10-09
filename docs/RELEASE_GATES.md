@@ -1,7 +1,8 @@
 # Release Gates / 发布门禁（T4.3）
 
 计划第 7 节的七行表格，全部落成机器可以判定的阈值。本文说明每一门**测什么**、
-**怎么判**、**今天能不能跑**，以及两个被标注集阻塞的门禁需要多小的标注工作才能解锁。
+**怎么判**、**今天能不能跑**，以及两个被阻塞的门禁需要多小的标注工作才能解锁——
+以及**除了标注之外还有哪一行代码挡在路上**（§3）。
 
 | 实现 | CLI | 测试 | CI |
 |---|---|---|---|
@@ -26,8 +27,8 @@
 | `task_recovery` | **PASS** |
 | `citation_locator_resolvable` | **FAIL——两条路由都失败，原因不同**（见 §2.2） |
 | `silent_truncation` | **FAIL——1 处静默截断**（见 §2.4） |
-| `citation_precision` | **BLOCKED**（缺标注集） |
-| `retrieval_recall_at_k` | **BLOCKED**（缺标注集） |
+| `citation_precision` | **BLOCKED**（见 §3：既缺人工确认的标注，也被 `eval/gates.py` 里硬编码的 `blocked=True` 挡住） |
+| `retrieval_recall_at_k` | **BLOCKED**（见 §3：除标注外还缺一次真实检索运行的 top-K 结果） |
 
 **三 PASS / 两 FAIL / 两 BLOCKED / 零 SKIP。**
 两条 FAIL 都是**真实产品缺陷**，不是门禁写错：定位门禁抓到的是
@@ -48,7 +49,7 @@
 | `PASS` | 跑了，实测达到阈值 | 否 | 否 |
 | `FAIL` | 跑了，实测没达到阈值 | **是** | **是** |
 | `SKIP` | 跑不了，环境缺 fixture（无 `eval/corpus/`、无 `PAPERWHISPERER_TEST_PG_DSN`） | 否 | **是** |
-| `BLOCKED` | 实现了，但没有真值可测（缺标注集） | 否 | **是** |
+| `BLOCKED` | 实现了，但没有真值可测（缺标注集）——**今天这两门还额外被 `eval/gates.py` 里一个硬编码的 `blocked=True` 强制走这条路，见 §3** | 否 | **是** |
 
 `SKIP` 与 `BLOCKED` 分开，是因为两者的修法不同：`SKIP` 补一个 fixture 就能跑，
 `BLOCKED` 只能靠一次标注工作。两者都不是绿的。
@@ -80,8 +81,8 @@
 | `citation_locator_resolvable` | 100%；或明确标记无视觉定位能力 | `>= 100%` | `ParsedDocument.locator_coverage` + bbox 声明 | **可跑** |
 | `local_only_cloud_egress` | 0 次（集成测试验证） | `== 0` | 跑既有零出网测试 | **可跑** |
 | `silent_truncation` | 0；截断/低质量必须是可见警告或失败态 | `== 0` | 质量门禁 FAIL × 文档 warning | **可跑** |
-| `citation_precision` | ≥95%（beta 目标，按标注集校准） | `>= 95%` | 人工标注的 claims | **阻塞** |
-| `retrieval_recall_at_k` | ≥90% 起步，中英、表格/公式/正文分开统计 | `>= 90%` | 标注 query × 检索 top-K | **阻塞** |
+| `citation_precision` | ≥95%（beta 目标，按标注集校准） | `>= 95%` | 人工标注的 claims | **阻塞**（见 §3：`blocked=True` 硬编码 + 标注未经人工确认） |
+| `retrieval_recall_at_k` | ≥90% 起步，中英、表格/公式/正文分开统计 | `>= 90%` | 标注 query × 检索 top-K | **阻塞**（见 §3：`blocked=True` 硬编码 + 缺标注与检索运行） |
 | `task_recovery` | worker/API 重启后任务可恢复或明确进入可重试终态 | `>= 100%` | 跑既有恢复测试 | **可跑** |
 
 ### 2.1 直接引语对齐（`direct_quote_alignment`）
@@ -270,8 +271,8 @@ node 粒度上证明过了：每个用例都装了 socket 探针
 | `local_only_cloud_egress` | **是（代理测量）** | 跑真实测试，判定权在那些测试的 tripwire 上 |
 | `silent_truncation` | **是** | 真实语料 + 真实质量门禁，可见性取自另一处表面 |
 | `task_recovery` | **是（代理测量）** | 跑 `os._exit(9)` 的真实恢复测试 |
-| `citation_precision` | **否——但被正确地记为 BLOCKED** | 没有标注就没有真值 |
-| `retrieval_recall_at_k` | **否——但被正确地记为 BLOCKED** | 同上 |
+| `citation_precision` | **否——且这个 BLOCKED 是被强制出来的，见 §3** | 没有人工确认的标注就没有真值；今天还被一个硬编码布尔挡住了真实读数 |
+| `retrieval_recall_at_k` | **否——同上，且另缺检索运行产物** | 同上，另需 `retrieval_run.json`（§3.2） |
 
 三条需要点名的：
 
@@ -300,17 +301,48 @@ node 粒度上证明过了：每个用例都装了 socket 探针
 
 ## 3. 两个被阻塞的门禁
 
-`eval/manifest.yaml` 没有逐文档的 ground-truth 映射，也不存在标注答案集。
+`eval/manifest.yaml` 没有逐文档的 ground-truth 映射。
 按任务要求：**不发明标签，不用系统自身输出充当真值。**
 **一个拿系统自己给自己打分的门禁，比没有门禁更糟。**
 
-所以两门是 `BLOCKED`：**不产出任何数字**。没有真值就没有测量，
-没有测量就没有除 `BLOCKED` 以外的状态。模块里**刻意没有**任何回退路径
-去拿系统输出当真值，也**没有**一个"临时数字"——那种数字会在真标签到位后
-被误当成真的。
-
 harness 已全部实现并有单测：标注格式、加载校验、打分、分类别分解。
-标签一到，门禁无需再改代码即可运行。
+模块里**刻意没有**任何回退路径去拿系统输出当真值，也**没有**一个"临时数字"——
+那种数字会在真标签到位后被误当成真的。
+
+> ### ⚠️ 修正：解锁这两门**需要改一行代码**，"标签一到即可运行"是不成立的
+>
+> 本节此前写着"标签一到，门禁无需再改代码即可运行"。**那是错的**，而且错在代码里：
+>
+> `eval/gates.py:1900`（`citation_precision`）与 `:1910`（`retrieval_recall_at_k`）
+> 的 `GateSpec` 把 **`blocked=True` 硬编码**。`run_gate`（`eval/gates.py:2060`）的第一句就是
+> `if spec.blocked:` —— 它**短路**，直接构造一个 `STATUS_BLOCKED` 结果，
+> 根本不会调用 `measure_precision` / `measure_recall`。
+>
+> 于是报告里那行"缺标注集 / `retrieval_labels.yaml` 不存在"来自
+> `_blocked_measurement`（`:1656`）里对 `measure_precision` 的**试探性调用**，
+> **而不是门禁真的缺输入**。换一个不存在的路径，它照样会打印同一句话。
+>
+> **实测**（本机直接调 spec 自己的测量函数，绕开短路）：
+> ```
+> >>> gates.measure_precision(ctx)
+> Measurement(numerator=2.0, denominator=34.0, ...)   # 2/34 ≈ 5.9%
+> ```
+> 阈值是 **95%**。也就是说：**这个 BLOCKED 掩着一个真实且很红的读数。**
+> （`measure_recall` 则如 §3.2 所述另缺 `retrieval_run.json`，仍会 `MeasurementSkip`——
+> 那一门即使改掉布尔也还跑不起来，缺的是第二样东西。）
+>
+> **所以：把那个布尔翻过来，不会得到一个通过的门禁，会得到一条可见的红。**
+> 这正是应该发生的事——`eval/labels/retrieval_labels.yaml` 里现在有 53 行，
+> 但它们**全部**是 `assistant_draft` / `human_confirmed: false`，文件头自带
+> `!! NOT GATE-GRADE` 横幅（见 §3.4）。5.9% 这个数字量的是"未经人工确认的草稿
+> 与系统自身输出的吻合度"，**不是引用精度**，因此它也不构成一个可用的门禁读数。
+>
+> **本文档只记录这个事实，不改门禁代码。** 该不该翻这个布尔、什么时候翻，
+> 是负责人对"我们要不要一道今天必红的门禁"的判断，不是文档能替你做的决定。
+
+所以两门是 `BLOCKED`。**真正的缺失**不是 harness（那部分已就位），而是两样人工产物：
+一份**经人工确认**的标注集，以及（仅 Recall@K 需要）一次真实检索运行的 top-K 结果。
+下面 §3.1–§3.4 仍然是解锁它们需要做的事。
 
 ### 3.1 标注格式
 
@@ -346,7 +378,7 @@ claims:
 
 | 情况 | 行为 |
 |---|---|
-| 文件不存在 | `FileNotFoundError`（这就是今天两门 `BLOCKED` 的原因） |
+| 文件不存在 | `FileNotFoundError`（这是 `run_gate` 那句 BLOCKED 理由的**来源**，见本节开头的修正——它由 `blocked=True` 的短路打印，不是门禁真的跑了才缺） |
 | `schema` 前缀不对 | `ValueError` |
 | query 没有 `relevant_element_ids` | `ValueError`——没有真值的查询只会虚高分母 |
 | query 的 `language` 不在 `en/zh/mixed` | `ValueError`——无法归类的标签会让该类别悄悄消失 |
@@ -392,7 +424,26 @@ K 默认 5（`DEFAULT_RECALL_K`）。**K 是计划的参数（"≥90% 起步"）
    100 条 claim 时 5 个不支持样本就正好压线，**至少要 200 条**
    （约 60–70 条 query × 3 条 claim）。
 
-两步都不需要写代码：harness、格式校验、打分、分类别分解都已就位并有单测。
+两步都**不需要改门禁代码**：harness、格式校验、打分、分类别分解都已就位并有单测。
+但它们也**都还不足以解锁**——除了做出标注，还必须处理本节开头那个硬编码的
+`blocked=True`（否则门禁仍然短路），而那一步的结果是一道**会红的**门禁，不是绿的。
+
+### 3.4 现有标注产物的状态 `[代码实测]`
+
+`eval/labels/retrieval_labels.yaml` 已经存在，53 行 query / claim，
+由 `tools/label_retrieval.py`（`cce61e6`）产出。但：
+
+- 文件头写着 `!! NOT GATE-GRADE`，`human_confirmed: false`，
+  全部 `provenance: assistant_draft`；
+- `eval/labels/pending_labels.yaml` 仍为空
+  （`{'queries': [], 'claims': []}`），注释写着
+  "工具产出但没有人确认的记录……并进去就是让系统给自己打分"；
+- 双人一致性：exact-set 0.70，mean window Jaccard 0.821。
+  按该 commit 自己的说法，这测的是**标注说明是否无歧义**，不是人工一致性，
+  因此是一个乐观上界；
+- 规模仍然远远不够：±5% 需要 +78 条，±2% 需要 +589 条。
+
+**所以"标注集缺失"这句话今天仍然成立**——缺的是**人工确认**，不是文件。
 
 ---
 
@@ -544,7 +595,11 @@ Make 目标：`make gates`、`make gates-release`、`make gates-list`。
 > 静默截断读 0 违规是因为"有 warning"这个判据被 37 份 PDF 共用的
 > bbox 能力声明满足了。两处都是**因为错误的理由变绿**。
 
-**阻塞**：引用精度、Recall@K——缺标注集，第 3.3 节给出了最小解锁工作。
+**阻塞**：引用精度、Recall@K——§3.3 给出最小解锁工作（标注），
+但**解锁不止是标注**：`eval/gates.py` 把这两门的 `blocked=True` 硬编码，
+`run_gate` 会短路并打印一句实际上来自短路探测的"缺标注集"。
+直接调 `measure_precision` 实测是 **2/34 ≈ 5.9%** 对 95% 阈值——
+翻掉那个布尔会得到一道**真实且红**的门禁，不是一道通过的。详见 §3。
 
 **已上报但未修复**（不在本任务可写范围 `paperwhisperer/**`）：
 
