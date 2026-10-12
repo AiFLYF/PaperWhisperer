@@ -281,6 +281,22 @@ class BackupPlan:
         return "sha256:" + digest.hexdigest()
 
 
+def relative_member(path: Path, root: Path) -> str:
+    """``path`` relative to ``root``, spelled with forward slashes.
+
+    The container is a tar, so its member names are POSIX paths by definition,
+    and the manifest has to name the same string the tar does. On Windows
+    ``str(path.relative_to(root))`` yields ``uploads\\paper.pdf`` while tarfile
+    writes the member as ``uploads/paper.pdf`` — the manifest then records a
+    name no member answers to, and the restore refuses a perfectly good backup
+    with "备份中缺少清单记录的文件", pointing at a file that is sitting right
+    there in the archive. Spelling both sides the same way is the whole fix,
+    and it also makes the manifest byte-identical across platforms, which the
+    plan digest is compared for.
+    """
+    return path.relative_to(root).as_posix()
+
+
 def is_excluded(relative: str, patterns: tuple[str, ...]) -> bool:
     """Whether a source-relative path matches any exclude pattern.
 
@@ -365,7 +381,7 @@ def build_plan(
         plan.directories.append(str(folder))
         for current, dirnames, filenames in os.walk(folder_path):
             current_path = Path(current)
-            parent_relative = current_path.relative_to(resolved_root)
+            parent_relative = relative_member(current_path, resolved_root)
             # Pruned in place, which is how os.walk is meant to be filtered:
             # deleting from ``dirnames`` skips the subtree, and a skip list that
             # only hid the directory would still walk everything beneath it.
@@ -386,7 +402,7 @@ def build_plan(
                 # takes deliberately.
                 if absolute in databases or name.endswith(("-wal", "-shm")):
                     continue
-                relative = str(absolute.relative_to(resolved_root))
+                relative = relative_member(absolute, resolved_root)
                 if is_excluded(relative, excludes):
                     continue
                 plan.entries.append(
@@ -752,13 +768,13 @@ def create_backup(
             database_stage.mkdir(parents=True, exist_ok=True)
             snapshot = snapshot_sqlite(database, database_stage)
             try:
-                relative = str(database.relative_to(plan.source_root.resolve()))
+                relative = relative_member(database, plan.source_root.resolve())
             except ValueError:
                 # Configured outside the data directory. The origin stays
                 # absolute so the restore can put it back where it was, and the
                 # member drops to the file name because an absolute path is not
                 # something to hand to tar as a member name.
-                relative = str(database)
+                relative = database.as_posix()
             for staged in snapshot.files:
                 kind = "sqlite" if staged == snapshot.main else "wal"
                 suffix = "" if kind == "sqlite" else "-wal"
