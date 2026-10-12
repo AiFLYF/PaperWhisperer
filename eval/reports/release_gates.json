@@ -1,7 +1,7 @@
 {
   "schema": "paperwhisperer-release-gates-report/1",
   "gates_version": "1.0",
-  "generated_at": "2026-10-12T10:50:01+00:00",
+  "generated_at": "2026-10-12T17:00:15+00:00",
   "corpus": {
     "available": true,
     "reason": "",
@@ -16,34 +16,132 @@
     "at_target": false
   },
   "counts": {
-    "pass": 0,
+    "pass": 3,
     "fail": 1,
-    "skip": 0,
-    "blocked": 0
+    "skip": 1,
+    "blocked": 2
   },
   "exit_code": 1,
   "results": [
     {
+      "gate": "direct_quote_alignment",
+      "title": "Direct quote exact/normalized alignment / 直接引语逐字或规范化对齐",
+      "status": "pass",
+      "requirement": "100%；对不齐降级 paraphrase，不带引号",
+      "threshold": ">= 100%",
+      "observed": "1.0000 (3654/3654)",
+      "reason": "",
+      "detail": "",
+      "evidence": [
+        "逐字引语 1827/1827 对齐",
+        "伪造引语 1827/1827 被拒且降级为 paraphrase",
+        "重排引语 124/137 对齐（13 条因换行连字符降级，属预期）"
+      ],
+      "notes": [
+        "digital_two_col/batchnorm.pdf p.4: 重排引语无解释地对不齐 'transform applied to these normalized activations '"
+      ],
+      "duration_ms": 87765
+    },
+    {
+      "gate": "citation_locator_resolvable",
+      "title": "Citation locator resolvable / 引用定位可解析",
+      "status": "fail",
+      "requirement": "100%；或明确标记无视觉定位能力",
+      "threshold": ">= 100%",
+      "observed": "0.9231 (48/52)",
+      "reason": "实测 0.9231，低于阈值 100%（48/52）",
+      "detail": "零正文元素：paper_en_basic.pdf；零正文元素：paper_en_formulas.pdf；零正文元素：paper_en_twocol.pdf",
+      "evidence": [
+        "文档级 locator 覆盖 44/52 份（每份需全部正文元素可解析）",
+        "元素级 locator 覆盖 1237/1237（1.0000，仅供对照，不参与判定）",
+        "应有 bbox 的 1158 个元素中，未声明缺口 0 处",
+        "零正文元素文档 8 份，按未解析计入分母（paper_en_basic.pdf、paper_en_formulas.pdf、paper_en_twocol.pdf、paper_zh_cn.pdf、report_en_tables.pdf）：产不出可引用内容即视为不可解析",
+        "解析文档 52 份，解析器 legacy"
+      ],
+      "notes": [
+        "零正文元素：paper_en_basic.pdf",
+        "零正文元素：paper_en_formulas.pdf",
+        "零正文元素：paper_en_twocol.pdf"
+      ],
+      "duration_ms": 206453
+    },
+    {
+      "gate": "local_only_cloud_egress",
+      "title": "Local-only cloud egress / 本地模式下云端出网",
+      "status": "skip",
+      "requirement": "0 次（集成测试验证）",
+      "threshold": "== 0",
+      "observed": "未测量",
+      "reason": "零出网测试未执行",
+      "detail": "指定的 node id 没有收集到任何用例；未能收集的模块：tests/test_ingestion_security.py（该平台无法导入，非产品行为）。输出尾部：>\n    import resource\nE   ModuleNotFoundError: No module named 'resource'\n=========================== short test summary info ===========================\nERROR tests/test_ingestion_security.py\n1 error in 3.86s\nERROR: found no collectors for C:\\Users\\FLYF\\Desktop\\PaperWhisperer_project\\PaperWhisperer_project\\tests\\test_ingestion_security.py::TestHarnessAssertions::test_a_compromised_model_is_caught",
+      "evidence": [],
+      "notes": [],
+      "duration_ms": 23782
+    },
+    {
       "gate": "silent_truncation",
       "title": "Silent truncation on eval corpus / 评测语料上的静默截断",
-      "status": "fail",
+      "status": "pass",
       "requirement": "0；截断/低质量必须是可见警告或失败态",
       "threshold": "== 0",
-      "observed": "1 violations / 52 checked",
-      "reason": "发现 1 处违规（阈值 0）：hybrid_zh_paper.pdf: 质量门禁报 FAIL（text_density），但解析结果没有针对本文档的 warning——仅有解析器能力声明（bbox），那与本次截断无关。属于静默截断。；bilingual_zh_en_deck.pptx: page_coverage、text_density 为已登记缺陷的误报；deck_with_notes_and_charts.pptx: page_coverage、text_density 为已登记缺陷的误报",
-      "detail": "hybrid_zh_paper.pdf: 质量门禁报 FAIL（text_density），但解析结果没有针对本文档的 warning——仅有解析器能力声明（bbox），那与本次截断无关。属于静默截断。；bilingual_zh_en_deck.pptx: page_coverage、text_density 为已登记缺陷的误报；deck_with_notes_and_charts.pptx: page_coverage、text_density 为已登记缺陷的误报；project_review_deck.pptx: page_coverage、text_density 为已登记缺陷的误报",
+      "observed": "0 violations / 52 checked",
+      "reason": "",
+      "detail": "",
       "evidence": [
         "解析 52 份文档（解析器 legacy），9 份存在未被解释的静默截断",
-        "其中 8 份有可见 warning，静默截断 1 份",
+        "其中 9 份有可见 warning，静默截断 0 份",
         "已按已登记缺陷忽略的误报规则：page_coverage、text_density（3 份文档；修复 paperwhisperer/ingestion/quality.py:TextDensityRule.evaluate、paperwhisperer/ingestion/quality.py:_page_of 后本门禁会重新变红，届时请删除 eval/gates.py:KNOWN_DEFECTS 中的对应条目）"
       ],
       "notes": [
-        "hybrid_zh_paper.pdf: 质量门禁报 FAIL（text_density），但解析结果没有针对本文档的 warning——仅有解析器能力声明（bbox），那与本次截断无关。属于静默截断。",
         "bilingual_zh_en_deck.pptx: page_coverage、text_density 为已登记缺陷的误报",
         "deck_with_notes_and_charts.pptx: page_coverage、text_density 为已登记缺陷的误报",
         "project_review_deck.pptx: page_coverage、text_density 为已登记缺陷的误报"
       ],
-      "duration_ms": 180375
+      "duration_ms": 2703
+    },
+    {
+      "gate": "citation_precision",
+      "title": "Citation precision / 引用精度",
+      "status": "blocked",
+      "requirement": "≥95%（beta 目标，按标注集校准）",
+      "threshold": ">= 95%",
+      "observed": "未测量",
+      "reason": "阻塞：缺标注集",
+      "detail": "C:\\Users\\FLYF\\Desktop\\PaperWhisperer_project\\PaperWhisperer_project\\eval\\labels\\retrieval_labels.yaml 不存在。门禁已实现（标注格式、加载校验、打分与分类别分解均在本模块内并有单测），但没有标注集就没有可计算的真值，因此不产生任何数字。绝不用系统自身输出充当真值——那样测的是系统在自己眼中的正确率，不是正确率。",
+      "evidence": [],
+      "notes": [],
+      "duration_ms": 0
+    },
+    {
+      "gate": "retrieval_recall_at_k",
+      "title": "Retrieval Recall@K / 检索召回率",
+      "status": "blocked",
+      "requirement": "≥90% 起步，中英、表格/公式/正文分开统计",
+      "threshold": ">= 90%",
+      "observed": "未测量",
+      "reason": "阻塞：缺标注集",
+      "detail": "C:\\Users\\FLYF\\Desktop\\PaperWhisperer_project\\PaperWhisperer_project\\eval\\labels\\retrieval_labels.yaml 不存在。门禁已实现（标注格式、加载校验、打分与分类别分解均在本模块内并有单测），但没有标注集就没有可计算的真值，因此不产生任何数字。绝不用系统自身输出充当真值——那样测的是系统在自己眼中的正确率，不是正确率。",
+      "evidence": [],
+      "notes": [],
+      "duration_ms": 0
+    },
+    {
+      "gate": "task_recovery",
+      "title": "Task recovery / 任务恢复",
+      "status": "pass",
+      "requirement": "worker/API 重启后任务可恢复或明确进入可重试终态",
+      "threshold": ">= 100%",
+      "observed": "1.0000 (5/5)",
+      "reason": "",
+      "detail": "",
+      "evidence": [
+        "5/5 个任务恢复测试通过",
+        "已跑档位：personal(SQLite)"
+      ],
+      "notes": [
+        "Hosted 档未执行：未设置 PAPERWHISPERER_TEST_PG_DSN。docker compose up -d db 后设置该变量即可在 PostgreSQL 上跑同一套契约。"
+      ],
+      "duration_ms": 50188
     }
   ]
 }

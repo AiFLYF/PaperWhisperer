@@ -31,6 +31,7 @@ and running this file cannot recurse into pytest.
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -79,6 +80,9 @@ from eval.gates import (  # noqa: E402  # noqa: E402
     MeasurementSkip,
     QueryLabel,
     ReleaseNotReady,
+    _parse_documents,  # noqa: E402
+    _parse_pytest_counts,  # noqa: E402
+    _uncollectable_modules,  # noqa: E402
     assert_release_ready,
     corpus_present,
     decide_status,
@@ -1100,3 +1104,175 @@ class TestCorpusAccounting:
         context = GateContext(corpus_root=tmp_path / "absent", run_tests=False)
         run = run_gates(context)
         assert run.failed == ()
+
+
+class TestACollectionErrorIsNotAViolation:
+    """pytest's ``error`` count is not a product failure, and counting it was.
+
+    ``local_only_cloud_egress`` runs six pinned node ids as a subprocess. On
+    Windows one of them lives in ``tests/test_ingestion_security.py``, which
+    imports ``resource`` -- there is no Windows equivalent -- and pytest gave up
+    before running anything: ``1 error in 3.7s`` with no outcomes at all. The
+    old parser counted that error as a *failure*, so a zero-egress gate reported
+    a security violation against a tree that had made zero network calls, and
+    the five tests that could have measured it were never run.
+
+    The ``::`` in an ``ERROR`` line is the discriminator: ``ERROR tests/x.py``
+    names a module that never imported, ``ERROR tests/x.py::Test::test`` names a
+    test that was collected and then failed. The first is "we did not measure",
+    the second is "we measured, and it failed" -- and only the second may fail
+    a gate.
+    """
+
+    SECURITY_MODULE_ERROR = (
+        "ImportError while importing test module "
+        "'tests/test_ingestion_security.py'.\n"
+        "tests/test_ingestion_security.py:26: in <module>\n"
+        "    import resource\n"
+        "E   ModuleNotFoundError: No module named 'resource'\n"
+        "=========================== short test summary info ====\n"
+        "ERROR tests/test_ingestion_security.py\n"
+        "1 error in 3.73s\n"
+    )
+
+    def test_a_module_that_never_imported_is_not_a_failure(self):
+        assert _parse_pytest_counts(self.SECURITY_MODULE_ERROR) == (0, 0)
+
+    def test_the_tests_that_did_run_are_still_counted(self):
+        output = self.SECURITY_MODULE_ERROR.replace(
+            "1 error in 3.73s", "9 passed, 1 error in 11.44s"
+        )
+        assert _parse_pytest_counts(output) == (9, 0)
+
+    def test_a_test_level_error_still_counts(self):
+        output = (
+            "5 passed, 1 error in 9.00s\n"
+            "ERROR tests/test_ingestion_orchestrator.py::TestEgress::test_x - boom\n"
+        )
+        assert _parse_pytest_counts(output) == (5, 1)
+
+    def test_a_plain_failure_always_counts(self):
+        assert _parse_pytest_counts("5 passed, 1 failed in 9.00s") == (5, 1)
+
+    def test_the_uncollected_module_is_named(self):
+        assert _uncollectable_modules(self.SECURITY_MODULE_ERROR) == (
+            "tests/test_ingestion_security.py",
+        )
+
+    def test_a_test_level_error_is_not_reported_as_an_uncollected_module(self):
+        assert _uncollectable_modules(
+            "ERROR tests/x.py::TestY::test_z - boom\n"
+        ) == ()
+
+
+class TestTheCorpusGatesParseThroughTheProduct:
+    """The gate's parse has to be the product's parse, or its answers are fiction.
+
+    ``silent_truncation`` rests on two surfaces that have to stay independent:
+    ``evaluate_quality`` answers *is it broken*, and ``document.warnings``
+    answers *did anyone find out*. Only the router writes the second one -- it
+    is the one place a quality verdict is attached to a document -- so a gate
+    that calls an adapter directly can only ever answer "nobody found out", for
+    every document, forever.
+
+    That is not hypothetical. It is why this gate reported a silent truncation
+    against a tree whose product no longer had one: ``hybrid_zh_paper.pdf`` was
+    quality-FAILed, and the warning announcing it is written by the layer the
+    gate had stepped over.
+
+    The fixture is a bare ``.txt`` on purpose -- no corpus file, no optional
+    dependency, and ``text_density`` fires on it at 32 characters, which is the
+    same rule the corpus violation named. This is the one test in the file that
+    goes through the parse seam rather than
+    :meth:`eval.gates.GateContext.with_documents`, because the seam itself is the
+    subject.
+    """
+
+    THIN_BODY = "A resolvable sentence on page 1.\n"
+
+    def _context(self, tmp_path: Path) -> GateContext:
+        corpus = tmp_path / "corpus"
+        corpus.mkdir()
+        target = corpus / "thin.txt"
+        target.write_text(self.THIN_BODY, encoding="utf-8")
+        digest = hashlib.sha256(target.read_bytes()).hexdigest()
+        (tmp_path / "manifest.yaml").write_text(
+            "schema: paperwhisperer-eval-manifest/0.2\n"
+            "created: '2026-10-12'\n"
+            "corpus_root: corpus\n"
+            f"corpus_version: sha256:{digest}\n"
+            "categories:\n"
+            "  thin:\n"
+            "    quota: 1\n"
+            "    entries:\n"
+            "      - file: thin.txt\n"
+            "        source: synthetic\n"
+            f"        bytes: {target.stat().st_size}\n"
+            f"        sha256: {digest}\n"
+            "        pages: 1\n"
+            "        text_layer: true\n"
+            f"        chars_total: {len(self.THIN_BODY)}\n"
+            "        preview: 'thin'\n",
+            encoding="utf-8",
+        )
+        context = GateContext(
+            manifest_path=tmp_path / "manifest.yaml",
+            corpus_root=corpus,
+            run_tests=False,
+        )
+        manifest, reason = context.load_manifest()
+        # Loaded here rather than left to ``_parse_documents`` so the two tests
+        # that use the entry directly fail on a malformed fixture with a
+        # sentence about the manifest instead of an IndexError from ``entries``.
+        assert manifest is not None, reason
+        return context
+
+    def test_a_quality_fail_reaches_the_warnings_a_reader_sees(self, tmp_path):
+        documents, errors = _parse_documents(self._context(tmp_path))
+
+        assert errors == []
+        assert len(documents) == 1
+        assert any("质量门禁" in warning for warning in documents[0].warnings)
+
+    def test_the_adapter_alone_does_not_announce_it(self, tmp_path):
+        """The other half, and the half that makes the first one mean something.
+
+        Without this, the test above would still pass if the adapter grew its
+        own copy of the message -- and the wiring, which is the thing that was
+        broken, would be untested.
+        """
+        from paperwhisperer.ingestion.adapters.legacy_loader import (  # noqa: PLC0415
+            LegacyDocumentParser,
+        )
+        from paperwhisperer.ingestion.gateway import ParseOptions  # noqa: PLC0415
+
+        context = self._context(tmp_path)
+        path = str(context.entries[0].path)
+        raw = LegacyDocumentParser().parse(path, ParseOptions())
+
+        assert raw.document is not None
+        assert not any("质量门禁" in warning for warning in raw.document.warnings)
+
+    def test_both_surfaces_disagree_before_the_router_runs(self, tmp_path):
+        """Why the independence matters, asserted rather than described.
+
+        The adapter's document is measurable as truncated and carries nothing a
+        reader would see. A gate reading only that document is not measuring
+        visibility; it is measuring its own inability to observe any.
+        """
+        from paperwhisperer.ingestion.adapters.legacy_loader import (  # noqa: PLC0415
+            LegacyDocumentParser,
+        )
+        from paperwhisperer.ingestion.gateway import ParseOptions  # noqa: PLC0415
+        from paperwhisperer.ingestion.quality import (  # noqa: PLC0415
+            QualitySeverity,
+            evaluate_quality,
+        )
+
+        context = self._context(tmp_path)
+        raw = LegacyDocumentParser().parse(str(context.entries[0].path), ParseOptions())
+        report = evaluate_quality(raw.document)
+
+        failing = [flag for flag in report.flags if flag.severity is QualitySeverity.FAIL]
+        assert failing, "the fixture no longer trips a FAIL rule"
+        assert raw.document.warnings == []

@@ -941,6 +941,16 @@ def _parse_documents(context: GateContext) -> tuple[list[Any], list[str]]:
     parser actually used is returned alongside the documents and printed in each
     gate's evidence: a reader must never have to guess whether a locator number
     came from the shipping parser or from the fallback.
+
+    Each attempt goes through :class:`~paperwhisperer.ingestion.gateway.ParserRouter`
+    rather than straight to the adapter, because the router is where the product
+    runs the quality gate and attaches its verdict to the document's warnings.
+    A gate that skips it measures a document shape no reader ever sees, and any
+    gate asking "was the reader told" then answers no by construction. The gate
+    still chooses *which* adapters are candidates -- it builds a router holding
+    one candidate per slot -- so ``PARSER_BACKEND`` and ``PARSER_PRIMARY`` can
+    only reorder what the gate registered, never introduce a parser it did not
+    ask for.
     """
     if context._documents is not None:
         return list(context._documents[0]), list(context._documents[1])
@@ -955,7 +965,11 @@ def _parse_documents(context: GateContext) -> tuple[list[Any], list[str]]:
     from eval.run_parser_eval import (  # noqa: PLC0415
         build_parser_slots,
     )
-    from paperwhisperer.ingestion.gateway import ParseOptions  # noqa: PLC0415
+    from paperwhisperer.ingestion.gateway import (  # noqa: PLC0415
+        ParseOptions,
+        ParserRouter,
+        media_type_for_path,
+    )
 
     wanted = tuple(context.parsers) or ("legacy",)
     slots = build_parser_slots(list(wanted))
@@ -977,14 +991,49 @@ def _parse_documents(context: GateContext) -> tuple[list[Any], list[str]]:
     documents: list[Any] = []
     errors: list[str] = []
     options = ParseOptions()
+    # One router per candidate, holding that candidate and nothing else, so the
+    # gate keeps full control of *which* adapters run and in what order while
+    # the parse itself still goes through the product's own path. That path is
+    # the point: ``ParserRouter.parse`` is what runs the quality gate and
+    # attaches its verdict to ``document.warnings``, and it is the only place
+    # that does. A gate calling ``slot.run`` gets the adapter's raw document --
+    # a shape the product never hands a reader -- and then asks whether the
+    # reader was told about a degradation the reader could never have been told
+    # about. That is a guaranteed false positive, and it is what kept
+    # ``silent_truncation`` red for a defect this tree no longer had.
+    #
+    # The gate must *not* attach the warning itself: it computes the failing
+    # flags with ``evaluate_quality`` for detection, so a visibility check on a
+    # warning this module wrote would be the gate grading its own homework. The
+    # two surfaces have to stay independent -- the router announces, the gate
+    # listens.
+    #
+    # A slot with no adapter object (a test-injected fake) falls back to its own
+    # ``run``, which is the only thing it has and needs no waiting on a router.
+    routers: dict[str, Any] = {}
+
+    def attempt(slot: Any, entry: Any) -> Any:
+        parser = getattr(slot, "parser", None)
+        if parser is None:
+            return slot.run(entry, entry.path, _GateParseOptions(options))
+        router = routers.get(slot.name)
+        if router is None:
+            router = routers[slot.name] = ParserRouter([parser])
+        return router.parse(
+            entry.path,
+            media_type_for_path(entry.path),
+            options=_GateParseOptions(options),
+        )
+
     for entry in context.entries:
         parsed = False
         # Walk the available parsers per document so a corpus entry is not lost
-        # because the first parser could not read it -- the same
-        # whole-document-degradation rule the product router follows.
+        # because the first parser could not read it -- now literally the same
+        # whole-document-degradation rule the product router follows, because it
+        # is the same code.
         for slot in available:
             try:
-                result = slot.run(entry, entry.path, _GateParseOptions(options))
+                result = attempt(slot, entry)
             except Exception as exc:  # noqa: BLE001 - a bake-off records failures
                 if slot is available[-1]:
                     errors.append(f"{entry.file}: {type(exc).__name__}: {exc}")
@@ -992,7 +1041,12 @@ def _parse_documents(context: GateContext) -> tuple[list[Any], list[str]]:
             document = getattr(result, "document", None)
             if document is None:
                 if slot is available[-1]:
-                    errors.append(f"{entry.file}: 适配器未产出文档")
+                    # ``error_message`` is the router's own sentence and says
+                    # *why* -- no candidate for this media type, every candidate
+                    # failed, and so on. A bare "produced no document" would
+                    # throw away the only part a reader can act on.
+                    reason = getattr(result, "error_message", "") or "适配器未产出文档"
+                    errors.append(f"{entry.file}: {reason}")
                 continue
             if not document.body_elements and slot is not available[-1]:
                 # An empty parse is a failure for these gates, not a result:
@@ -1010,18 +1064,35 @@ def _parse_documents(context: GateContext) -> tuple[list[Any], list[str]]:
 
 
 class _GateParseOptions:
-    """The parse options object a slot's adapter receives.
+    """The parse options object a parse attempt receives.
 
     ``eval.run_parser_eval.EvalParseOptions`` wraps a gateway ``ParseOptions``
     and adds an options hash; the legacy adapter reads ``force_ocr`` and
     ``compute_options_hash()`` off whatever it is handed. This is that same
     read-side surface, built here so a gate does not import a private shape
-    from a sibling eval module. Only the two attributes the adapter touches are
-    forwarded -- a gate should not need the eval runner's full option matrix.
+    from a sibling eval module.
+
+    Everything else is delegated to the wrapped options rather than enumerated.
+    The wrapper used to name exactly the two attributes the adapter happened to
+    touch, which stopped being true the moment anything else read it: the router
+    reads ``timeout_seconds``, and a gate routed through the router failed on
+    every document with an ``AttributeError`` that read like a corrupt corpus.
+    Delegation keeps the wrapper additive -- it adds the hash and subtracts
+    nothing -- so a new setting cannot break the gates by being read.
     """
 
     def __init__(self, options: Any) -> None:
         self._options = options
+
+    def __getattr__(self, name: str) -> Any:
+        # ``__dict__`` rather than ``self._options``: an attribute read before
+        # ``__init__`` ran (unpickling, a copy) would otherwise recurse into
+        # this method forever instead of raising the AttributeError that says
+        # what is actually wrong.
+        options = self.__dict__.get("_options")
+        if options is None:
+            raise AttributeError(name)
+        return getattr(options, name)
 
     @property
     def force_ocr(self) -> bool:
@@ -1217,6 +1288,15 @@ def _run_pytest(node_ids: Sequence[str], *, timeout: float = 600.0) -> tuple[int
     command = [
         sys.executable, "-m", "pytest", *node_ids,
         "-q", "--tb=line", "-p", "no:cacheprovider",
+        # Continued past a module that will not import, because without it one
+        # un-importable file cancels the whole run. On Windows
+        # ``tests/test_ingestion_security.py`` imports ``resource``, which has no
+        # Windows equivalent, and pytest then reported ``1 error in 3.7s`` and
+        # ran *nothing* -- so five egress tests that could have measured zero
+        # network calls were silently dropped from the measurement, and the only
+        # outcome a reader saw was a single "error". A gate whose subject is a
+        # platform-specific import must not be a gate that measures nothing.
+        "--continue-on-collection-errors",
     ]
     try:
         completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
@@ -1242,6 +1322,25 @@ def _run_pytest(node_ids: Sequence[str], *, timeout: float = 600.0) -> tuple[int
 
 _COUNT_RE = re.compile(r"(\d+)\s+(passed|failed|error|errors|skipped)")
 
+#: ``ERROR tests/x.py`` with no ``::`` -- a module that failed to import, so no
+#: test inside it ran and none of it produced an outcome. An ``ERROR`` line
+#: carrying a node id (``tests/x.py::TestY::test_z``) is a different thing: a
+#: test that was collected and then failed in setup or teardown, which *is* an
+#: outcome and must still count against the gate. The ``::`` is what separates
+#: "we never measured this" from "this measured badly".
+_COLLECTION_ERROR_RE = re.compile(r"^ERROR\s+(\S+\.py)\s*$", re.MULTILINE)
+
+
+def _uncollectable_modules(output: str) -> tuple[str, ...]:
+    """Modules pytest could not import, named so a gap is never invisible.
+
+    Reported rather than swallowed: a gate that quietly measured five of six
+    node ids reads exactly like one that measured six, and the difference is
+    the difference between "this platform cannot import the module" and "the
+    module passed".
+    """
+    return tuple(sorted(set(_COLLECTION_ERROR_RE.findall(output))))
+
 
 def _parse_pytest_counts(output: str) -> tuple[int, int]:
     """``(passed, failed)`` from pytest's summary line.
@@ -1250,13 +1349,24 @@ def _parse_pytest_counts(output: str) -> tuple[int, int]:
     temp file on every run; the summary line is the only part of pytest's
     output that is contractual. Skips are deliberately **not** counted as
     passes: a skipped egress test has not proven zero egress.
+
+    A collection error is not counted as a failure, and that is the whole point
+    of :func:`_uncollectable_modules`. pytest reports one ``error`` per module
+    it could not import, and counting those made a platform-specific import
+    failure read as a *product* violation of a zero-egress gate -- the gate went
+    red on Windows for a module that has no Windows equivalent, while the five
+    egress tests that did run were reported as zero. What remains after the
+    subtraction is a genuine test-level error, which still counts.
     """
-    passed = failed = 0
+    passed = failed = errors = 0
     for count, word in _COUNT_RE.findall(output):
         if word == "passed":
             passed = int(count)
-        elif word in {"failed", "error", "errors"}:
+        elif word == "failed":
             failed += int(count)
+        elif word in {"error", "errors"}:
+            errors += int(count)
+    failed += max(0, errors - len(_uncollectable_modules(output)))
     return passed, failed
 
 
@@ -1272,12 +1382,31 @@ def measure_egress(context: GateContext) -> GateMeasurement:
         raise MeasurementSkip("已禁用子进程门禁", "run_tests=False。")
     passed, failed, output = context.run_tests_now(EGRESS_NODE_IDS)
     total = passed + failed
+    uncollected = _uncollectable_modules(output)
     if total == 0:
+        # Two very different reasons for "nothing ran", and they must not share
+        # a sentence: a module this platform cannot import is an environment
+        # fact, while a renamed node id is a broken gate. Only the second one is
+        # somebody's mistake.
+        cause = (
+            f"未能收集的模块：{'、'.join(uncollected)}（该平台无法导入，非产品行为）。"
+            if uncollected
+            else "可能是测试被重命名或删除。"
+        )
         raise MeasurementSkip(
             "零出网测试未执行",
-            "指定的 node id 没有收集到任何用例；"
-            f"可能是测试被重命名或删除。输出尾部：{output[-400:]}",
+            f"指定的 node id 没有收集到任何用例；{cause}输出尾部：{output[-400:]}",
         )
+    # Named in the evidence, not just in a note, because the denominator is the
+    # number that actually ran: a report saying "5/5" over six pinned node ids
+    # is a report that looks complete while measuring five of them.
+    coverage = (
+        f"node id：{len(EGRESS_NODE_IDS)} 组"
+        if not uncollected
+        else f"node id：{len(EGRESS_NODE_IDS)} 组（{len(uncollected)} 组未能收集，未计入分母）"
+    )
+    notes = [f"失败输出：{output[-600:]}"] if failed else []
+    notes.extend(f"未能收集：{module}" for module in uncollected)
     return GateMeasurement(
         measurement=Measurement(
             numerator=float(passed),
@@ -1285,9 +1414,9 @@ def measure_egress(context: GateContext) -> GateMeasurement:
             direction="at_least",
             evidence=(
                 f"{passed}/{total} 个零出网测试通过",
-                f"node id：{len(EGRESS_NODE_IDS)} 组",
+                coverage,
             ),
-            notes=(f"失败输出：{output[-600:]}",) if failed else (),
+            notes=tuple(notes),
         )
     )
 
