@@ -16,6 +16,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.datastructures import Headers
+from starlette.middleware.gzip import GZipMiddleware
 
 from paperwhisperer.api import (
     routes_documents,
@@ -209,6 +211,40 @@ def stop_workers(application: FastAPI, started: list) -> None:
         logger.info("已停止 %d 个任务 worker；未完成的任务将由下一次启动回收。", stopped)
 
 
+class RangeSafeGZipMiddleware(GZipMiddleware):
+    """GZip, minus the one response shape compression turns into a lie.
+
+    A partial response carries ``Content-Range: bytes 0-5000/6793`` -- a claim
+    about *raw* file offsets. Compress the body and the claim survives while the
+    bytes no longer match it: the client decompresses 5001 bytes of gzip stream
+    and is told they are offsets 0-5000 of the original. Measured against this
+    app before the guard existed, with a 5001-byte range on a 6.8 KB script:
+
+        HTTP/1.1 206 Partial Content
+        content-range: bytes 0-5000/6793
+        content-encoding: gzip
+
+    Starlette does not exclude partials -- only ``text/event-stream`` -- and the
+    size rule does not save it either: a *small* range slips under
+    ``minimum_size`` (a 100-byte range came back uncompressed, which is luck,
+    not policy) while any range over 500 bytes is compressed. Resume-a-download
+    and any media element that seeks are the consumers that would get a corrupt
+    file.
+
+    The guard is on the request rather than the response because that is where
+    the answer is already known: a client that sends ``Range`` is asking for
+    bytes it will place at an offset, so it gets them verbatim. A range response
+    is inherently a partial transfer, so losing compression on it costs nothing
+    measurable.
+    """
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] != "http" or "range" in Headers(scope=scope):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
 def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -290,6 +326,21 @@ def create_app() -> FastAPI:
         for header, value in config.SECURITY_HEADERS.items():
             response.headers.setdefault(header, value)
         return response
+
+    # Compression, added last so it is the outermost layer and therefore sees
+    # the finished response -- including the static mount, which no middleware
+    # registered before it would cover. Measured on this tree: the page's own
+    # assets are 407 KB uncompressed and 123 KB gzipped, a 70% saving, with
+    # i18n.js alone dropping 163 KB to 50 KB.
+    #
+    # `text/event-stream` is excluded by Starlette itself
+    # (DEFAULT_EXCLUDED_CONTENT_TYPES), which is the property this app cannot do
+    # without: every streaming route here is SSE, and a buffered or re-encoded
+    # stream would break the one thing those routes exist for. Verified, not
+    # assumed -- the analyse stream still answers with no content-encoding,
+    # `x-accel-buffering: no`, and an `event: start` frame inside the first two
+    # seconds.
+    application.add_middleware(RangeSafeGZipMiddleware, minimum_size=500, compresslevel=6)
 
     application.mount(
         "/static",
