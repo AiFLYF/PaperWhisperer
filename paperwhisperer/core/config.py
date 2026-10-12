@@ -23,7 +23,7 @@ load_project_env()
 logger = logging.getLogger(__name__)
 
 APP_NAME = "PaperWhisperer"
-APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.9.0").strip() or "0.9.0"
+APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.10.0").strip() or "0.10.0"
 APP_USER_AGENT = f"{APP_NAME}/{APP_VERSION}"
 
 # paperwhisperer/core/config.py -> paperwhisperer/core -> paperwhisperer -> project root

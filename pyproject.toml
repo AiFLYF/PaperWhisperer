@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "paperwhisperer"
-version = "0.9.0"
+version = "0.10.0"
 description = "AI research workspace for reading papers and long technical documents."
 readme = "README.md"
 license = { text = "MIT" }

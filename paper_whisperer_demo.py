@@ -32,7 +32,7 @@ except ImportError:
 
 
 APP_NAME = "PaperWhisperer"
-APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.9.0").strip() or "0.9.0"
+APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.10.0").strip() or "0.10.0"
 SUPPORTED_EXTENSIONS = (".txt", ".pdf", ".docx", ".pptx")
 ALLOWED_EXTENSIONS = set(SUPPORTED_EXTENSIONS)
 SUPPORTED_FILE_TYPES_TEXT = ", ".join(SUPPORTED_EXTENSIONS)
