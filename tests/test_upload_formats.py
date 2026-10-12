@@ -264,10 +264,49 @@ class TestADeclarationOfIgnoranceIsNotAContradiction:
             files={"file": ("notes.md", io.BytesIO(MARKDOWN.encode()), "application/octet-stream")},
         )
 
+        # Not 201, and that is not a weakness of the test. Storing a document
+        # runs the chunker and the embedder, and a checkout with no embedding
+        # provider is a supported deployment rather than a broken build -- which
+        # is exactly why every other test in this repo that persists a document
+        # takes ``local_embedder_usable`` and skips without one. Asserting 201
+        # here would have made this file fail on every machine that has no
+        # embedder, which is what it did before this comment existed.
+        #
+        # What this change owns is that the upload gets past validation at all,
+        # so a metadata refusal is the failure being ruled out. The two
+        # assertions below it -- through ``validate_upload`` directly, and
+        # end-to-end with a real embedder -- split that into the part that must
+        # hold everywhere and the part that needs a provider.
+        assert response.json().get("code") not in {
+            "unsupported_file_type",
+            "invalid_upload_metadata",
+        }
+
+    def test_the_upload_edge_accepts_a_markdown_file_declaring_octet_stream(self):
+        from fastapi import UploadFile
+        from starlette.datastructures import Headers
+
+        from paperwhisperer.api.routes_v1 import validate_upload
+
+        upload = UploadFile(
+            filename="notes.md",
+            file=io.BytesIO(MARKDOWN.encode()),
+            headers=Headers({"content-type": "application/octet-stream"}),
+        )
+
+        assert validate_upload(upload) is None
+
+    def test_a_markdown_upload_is_parsed_and_indexed(self, client, local_embedder_usable):
+        response = client.post(
+            "/v1/documents",
+            files={"file": ("notes.md", io.BytesIO(MARKDOWN.encode()), "application/octet-stream")},
+        )
+
         assert response.status_code == 201
-        body = response.json()["document"]
-        assert body["status"] == "indexed"
-        assert body["source_filename"] == "notes.md"
+        document = response.json()["document"]
+        assert document["status"] == "indexed"
+        assert document["source_filename"] == "notes.md"
+        assert document["parser_name"] == "legacy"
 
     def test_a_binary_file_named_md_is_refused(self, client):
         # The extension list is not the whole gate: markdown is text, and a
