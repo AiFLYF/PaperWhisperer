@@ -51,8 +51,8 @@ retriever records and the usage ledger reports, and
 stamps onto every chunk and which the store's idempotence check compares. The
 second one is the load-bearing one, and it is read from ``core.config`` -- which
 is why this module does not merely set its own identity but requires that
-``EMBEDDING_PROVIDER``/``EMBEDDING_MODEL``/``EMBEDDING_DIMENSION`` name *it*
-while it is the configured provider. :func:`local_identity` is the single
+``EMBEDDING_LOCAL_PROVIDER``/``EMBEDDING_MODEL``/``EMBEDDING_DIMENSION`` name
+*it* while it is the configured provider. :func:`local_identity` is the single
 resolver both sides read, so a configuration that changed the provider without
 changing the index version is not expressible.
 
@@ -101,10 +101,10 @@ __all__ = [
 
 
 #: The provider name written into ``index_version``. Distinct from any netloc:
-#: :func:`paperwhisperer.llm.embeddings.provider_identity` derives a vendored
+#: :func:`paperwhisperer.core.identity.provider_identity` derives a vendored
 #: provider from its host, and a local model has no host, so it needs a name of
-#: its own. It must match the default ``EMBEDDING_PROVIDER`` in
-#: :mod:`paperwhisperer.core.config`, because the chunker reads the version from
+#: its own. It must match ``EMBEDDING_LOCAL_PROVIDER`` in
+#: :mod:`paperwhisperer.core.config`, because the chunker reads the name from
 #: there and not from this module -- see the module docstring.
 LOCAL_PROVIDER_NAME = "fastembed_local"
 

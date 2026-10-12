@@ -1211,24 +1211,30 @@ def chunk_document_from_config(
     The convenience wrapper, for the ordinary path where the running
     deployment already knows its embedding configuration. It reads
     ``EMBEDDING_MODEL`` and ``EMBEDDING_DIMENSION``, which T0.8 put in config
-    for every other consumer of the embedding endpoint, and
-    ``EMBEDDING_PROVIDER``, which does not exist yet.
+    for every other consumer of the embedding endpoint, and asks
+    :func:`paperwhisperer.core.config.embedding_provider_name` for the provider
+    name.
 
-    The provider is read with ``getattr`` and a documented default rather than
-    a direct attribute access, for the same reason
-    :func:`paperwhisperer.ingestion.quality.thresholds_from_config` does: the
-    config block and this module are being written in parallel, and a module
-    that raises ``AttributeError`` because a settings name has not landed yet
-    takes indexing down with it. The default names the wire protocol rather
-    than a vendor -- every embedding provider this project supports speaks the
-    same OpenAI-compatible one, and the value in the version string exists to
-    tell two endpoints apart, not to choose one.
+    The provider comes from that function rather than from the
+    ``EMBEDDING_PROVIDER`` constant, and the difference is the whole point: the
+    constant is computed once at import, so a name read from it cannot be
+    checked against the embedder that will fill the index -- and a test that
+    wants to verify the rule has to be able to ask it about settings it chooses.
+    The function derives the name from the same endpoint the embedder names
+    itself after, so the two are equal by construction. They used to be derived
+    independently from a constant, which under the shipped defaults made every
+    index write fail. The model and dimension are still read with ``getattr``
+    and defaults, for the reason
+    :func:`paperwhisperer.ingestion.quality.thresholds_from_config` does it: the
+    config block and this module are written in parallel, and a module that
+    raises ``AttributeError`` because a settings name has not landed yet takes
+    indexing down with it.
 
     A caller that knows its provider passes it to :func:`chunk_document`
     instead. Having configuration to read is not a reason to guess: the caller
     that can name its provider should.
     """
-    provider = str(getattr(config, "EMBEDDING_PROVIDER", "") or "openai_compatible")
+    provider = config.embedding_provider_name()
     model = str(getattr(config, "EMBEDDING_MODEL", "") or "")
     dimension = getattr(config, "EMBEDDING_DIMENSION", 0)
     try:

@@ -14,6 +14,7 @@ import threading
 from pathlib import Path
 
 from env_loader import load_project_env
+from paperwhisperer.core.identity import provider_identity
 
 load_project_env()
 
@@ -900,15 +901,53 @@ EMBEDDING_DIMENSION = (
     else parse_int_env("EMBEDDING_DIMENSION", default=1536, min_value=64, max_value=8192)
 )
 
-#: embedding provider 名，写入 index_version 参与索引版本编码。取值开放（各家
-#: 自建服务自取名字），所以这里只做小写归一不校验白名单——provider 的真实分支
-#: 在 rag/chunking.py，config 不该复制一份会漂移的清单。默认与该文件读不到
-#: 配置时的回落值一致。
-EMBEDDING_PROVIDER = (
-    EMBEDDING_LOCAL_PROVIDER
-    if EMBEDDING_LOCAL_ENABLED
-    else (os.getenv("EMBEDDING_PROVIDER", "").strip().lower() or "openai_compatible")
-)
+def embedding_provider_name(base_url: str = "") -> str:
+    """The name of the embedding space this deployment writes into.
+
+    A function rather than the bare expression it used to be, because the rule
+    is the thing that was wrong and a module constant cannot be monkeypatched
+    into agreement with its own source: a test that wants to check the rule has
+    to be able to ask it about settings it chooses.
+
+    Three answers, in priority order, and every one of them is a name some
+    embedder actually declares:
+
+    * the local tier: :data:`EMBEDDING_LOCAL_PROVIDER` (``fastembed_local``),
+      which must stay equal to ``llm/embeddings_local.LOCAL_PROVIDER_NAME``.
+      A local model has no host, so it needs a name of its own;
+    * an operator who named their space: :data:`EMBEDDING_PROVIDER`. This is
+      read by ``llm.embeddings.EmbeddingGateway`` as well, so naming it moves
+      the index *and* the embedder together -- which is the only way a name can
+      be set at all;
+    * otherwise the endpoint host, derived with the same
+      :func:`paperwhisperer.core.identity.provider_identity` and the same base
+      URL the gateway uses for ``self.provider``, so the two are equal by
+      construction.
+
+    What this replaced was the constant ``openai_compatible``, used as a
+    *default* name. That is a placeholder, not a name, and no embedder ever
+    declared it: the index said ``openai_compatible`` while the gateway said
+    ``api.openai.com``, so
+    :func:`paperwhisperer.analysis.orchestrator._assert_embedder_matches_index`
+    -- correctly -- refused every write, and with the shipped defaults every
+    upload and every registration failed. ``tests/test_rag_end_to_end.py``
+    states the invariant outright (``gateway.provider == config.EMBEDDING_PROVIDER``),
+    but it needs the local embedder, so it skips on CI and the contradiction
+    went unseen.
+    """
+    if EMBEDDING_LOCAL_ENABLED:
+        return EMBEDDING_LOCAL_PROVIDER
+    return EMBEDDING_PROVIDER or provider_identity(
+        base_url or EMBEDDING_API_BASE_URL or OPENAI_BASE_URL
+    )
+
+
+#: 操作者给这个 embedding 空间起的名字。留空表示"没起名"，此时名字由端点主机名
+#: 派生（见 :func:`embedding_provider_name`）。它写入 index_version，因此换名字
+#: 等于换索引版本；同时它也被 ``llm.embeddings.EmbeddingGateway`` 读取，
+#: 这样 index 与 embedder 永远报同一个名字——名字若只被一处读取，另一处就会
+#: 与它不一致，而 ``_assert_embedder_matches_index`` 会因此拒绝一切写入。
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "").strip().lower()
 
 #: 每次批量 embedding 的文本条数。调大减少请求数，调小降低单次超时风险。
 EMBEDDING_BATCH_SIZE = parse_int_env("EMBEDDING_BATCH_SIZE", default=64, min_value=1,
@@ -1110,7 +1149,7 @@ def describe_parser_settings() -> dict:
         "llm_max_tokens": LLM_MAX_TOKENS,
         "embedding_model": EMBEDDING_MODEL,
         "embedding_dimension": EMBEDDING_DIMENSION,
-        "embedding_provider": EMBEDDING_PROVIDER,
+        "embedding_provider": embedding_provider_name(),
         "embedding_batch_size": EMBEDDING_BATCH_SIZE,
         "embedding_max_concurrency": EMBEDDING_MAX_CONCURRENCY,
         "embedding_max_retries": EMBEDDING_MAX_RETRIES,

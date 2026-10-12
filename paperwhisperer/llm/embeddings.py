@@ -64,12 +64,12 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from urllib.parse import urlparse
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from paperwhisperer.core import config
 from paperwhisperer.core.errors import describe_llm_status_code
+from paperwhisperer.core.identity import provider_identity as _provider_identity
 from paperwhisperer.core.text import get_retry_delay_seconds
 
 logger = logging.getLogger(__name__)
@@ -128,12 +128,14 @@ def content_hash(text: str) -> str:
 def provider_identity(base_url: str) -> str:
     """A short, stable name for the vendor behind ``base_url``.
 
-    Derived from the netloc so two deployments pointing at two vendors produce
-    two different cache partitions and two different index versions without
-    anyone maintaining a provider name table.
+    Kept importable from here because this is where callers knew to look for it,
+    but the implementation moved to :mod:`paperwhisperer.core.identity`: the
+    name is now stamped into ``index_version`` by ``core/config.py`` as well, and
+    config sits at the bottom of the tree -- it cannot import this module. Two
+    copies of the rule is how the index and the gateway came to disagree in the
+    first place, so there is exactly one, one layer lower.
     """
-    host = urlparse(str(base_url or "")).netloc or str(base_url or "")
-    return host.strip().lower().rstrip("/") or "unknown-provider"
+    return _provider_identity(base_url)
 
 
 def _slug(value: str) -> str:
@@ -362,7 +364,17 @@ class EmbeddingGateway:
             model or getattr(config, "EMBEDDING_MODEL", "") or "text-embedding-3-small"
         )
         self.dimension = int(dimension or getattr(config, "EMBEDDING_DIMENSION", 1536) or 1536)
-        self.provider = provider_identity(self.base_url)
+        # An operator who named their space wins; otherwise the endpoint names
+        # it. Reading the configured name rather than only deriving one from the
+        # URL is what lets this agree with the ``index_version`` the chunker
+        # stamps: the two are compared before every index write and a
+        # disagreement refuses the write, so a name only one side knows is worse
+        # than no name at all. That is not hypothetical -- with a placeholder
+        # default the two could never agree and every upload failed.
+        self.provider = (
+            str(getattr(config, "EMBEDDING_PROVIDER", "") or "").strip().lower()
+            or provider_identity(self.base_url)
+        )
         self.batch_size = int(batch_size or _config_int(
             "EMBEDDING_BATCH_SIZE", DEFAULT_BATCH_SIZE, 1, 2048))
         self.max_concurrency = int(max_concurrency or _config_int(

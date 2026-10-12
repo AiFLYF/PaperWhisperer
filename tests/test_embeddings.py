@@ -12,7 +12,12 @@ import httpx
 import pytest
 from openai import APIConnectionError, APIStatusError
 
+from paperwhisperer.analysis.orchestrator import (
+    _assert_embedder_matches_index,
+    _embedding_index_version,
+)
 from paperwhisperer.core import config
+from paperwhisperer.core.identity import provider_identity
 from paperwhisperer.llm.embeddings import (
     RETRYABLE_STATUS_CODES,
     EmbeddingCache,
@@ -20,6 +25,7 @@ from paperwhisperer.llm.embeddings import (
     EmbeddingGateway,
     content_hash,
 )
+from paperwhisperer.llm.embeddings_local import LOCAL_PROVIDER_NAME
 
 # --------------------------------------------------------------------------
 # Scripted fake transport
@@ -300,6 +306,68 @@ class TestDimensionIdentity:
         gateway = make_gateway(dim=4)
         with pytest.raises(EmbeddingDimensionMismatchError):
             gateway.assert_same_space("")
+
+
+class TestTheIndexNamesTheSpaceTheEmbedderWillFill:
+    """The seam between the index's label and the embedder's own declaration.
+
+    ``index_version`` is what ``_assert_embedder_matches_index`` compares against
+    the embedder before a single vector is written, so a disagreement there is
+    not a cosmetic label: it refuses the write. The two halves used to be derived
+    independently -- the index from the config constant ``openai_compatible``,
+    the embedder from its endpoint's host -- and under the shipped defaults
+    (local provider off, OpenAI-compatible endpoint) they could never agree, so
+    every upload and every registration failed on a stock configuration with a
+    message about mixing two vector spaces.
+
+    Testing either half alone could not see it. These are about the seam.
+    """
+
+    def test_the_api_tier_names_the_space_after_its_endpoint(self, monkeypatch):
+        for url in ("https://api.openai.com/v1", "https://embed.internal:9000/v1"):
+            monkeypatch.setattr(config, "EMBEDDING_LOCAL_ENABLED", False)
+            monkeypatch.setattr(config, "EMBEDDING_PROVIDER", "")
+            monkeypatch.setattr(config, "EMBEDDING_API_BASE_URL", url)
+            monkeypatch.setattr(config, "EMBEDDING_MODEL", "m")
+            monkeypatch.setattr(config, "EMBEDDING_DIMENSION", 4)
+
+            assert config.embedding_provider_name() == provider_identity(url)
+
+            # And that name is the one the embedder declares, so the check the
+            # index write goes through passes rather than refusing.
+            embedder = make_gateway(dim=4)
+            assert embedder.provider == config.embedding_provider_name()
+            _assert_embedder_matches_index(embedder, _embedding_index_version())
+
+    def test_a_name_the_operator_chose_moves_both_sides(self, monkeypatch):
+        """The named case is the one a placeholder default used to break.
+
+        ``EMBEDDING_PROVIDER`` is read by the chunker that stamps the index and
+        by the gateway that declares what it will produce. If only one of them
+        read it the two would disagree, and the disagreement is not cosmetic:
+        it refuses the write. So this asserts the pair, not either half.
+        """
+        monkeypatch.setattr(config, "EMBEDDING_LOCAL_ENABLED", False)
+        monkeypatch.setattr(config, "EMBEDDING_API_BASE_URL", "https://api.openai.com/v1")
+        monkeypatch.setattr(config, "EMBEDDING_MODEL", "m")
+        monkeypatch.setattr(config, "EMBEDDING_DIMENSION", 4)
+        monkeypatch.setattr(config, "EMBEDDING_PROVIDER", "siliconflow")
+
+        assert config.embedding_provider_name() == "siliconflow"
+        embedder = make_gateway(dim=4)
+        assert embedder.provider == "siliconflow"
+        _assert_embedder_matches_index(embedder, _embedding_index_version())
+
+    def test_the_local_tier_keeps_the_name_the_local_provider_declares(self, monkeypatch):
+        # The local provider hard-codes its own name, so the only way these two
+        # can agree is for config to use the same string. The ONNX provider
+        # itself is not built here -- the extra is optional and this test must
+        # run without it.
+        monkeypatch.setattr(config, "EMBEDDING_LOCAL_ENABLED", True)
+        monkeypatch.setattr(config, "EMBEDDING_LOCAL_PROVIDER", LOCAL_PROVIDER_NAME)
+
+        assert config.embedding_provider_name() == "fastembed_local"
+        assert config.embedding_provider_name() == LOCAL_PROVIDER_NAME
 
 
 # --------------------------------------------------------------------------

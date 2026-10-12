@@ -748,7 +748,7 @@ def _embedding_index_version() -> str:
     another task, and a module that raised ``AttributeError`` because a setting
     had not landed yet would take Q&A down with it.
     """
-    provider = str(getattr(config, "EMBEDDING_PROVIDER", "") or "openai_compatible")
+    provider = config.embedding_provider_name()
     model = str(getattr(config, "EMBEDDING_MODEL", "") or "")
     dimension = int(getattr(config, "EMBEDDING_DIMENSION", 0) or 0)
     if not model or dimension <= 0:

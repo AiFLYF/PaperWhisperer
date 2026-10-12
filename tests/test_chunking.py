@@ -974,6 +974,13 @@ class TestChunkingReport:
 
 class TestConfigWrapper:
     def test_the_wrapper_reads_the_running_deployment_settings(self, monkeypatch):
+        # The API tier, pinned. ``embedding_provider_name`` answers with the
+        # local provider's name whenever EMBEDDING_LOCAL_ENABLED is on, and a
+        # developer's .env may well have it on -- so without this the assertion
+        # below would be about the tier the machine happens to be configured for
+        # rather than about the rule. The rule for this tier is that an operator
+        # who names their space gets that name in the index.
+        monkeypatch.setattr(config, "EMBEDDING_LOCAL_ENABLED", False, raising=False)
         monkeypatch.setattr(config, "EMBEDDING_MODEL", "bge-m3", raising=False)
         monkeypatch.setattr(config, "EMBEDDING_DIMENSION", 1024, raising=False)
         monkeypatch.setattr(config, "EMBEDDING_PROVIDER", "siliconflow", raising=False)
@@ -985,6 +992,20 @@ class TestConfigWrapper:
         assert parts["model"] == "bge-m3"
         assert parts["dim"] == 1024
         assert parts["provider"] == "siliconflow"
+
+    def test_an_unnamed_space_is_named_after_its_endpoint(self, monkeypatch):
+        # The same tier with no name set: the name comes from the host, which is
+        # the same rule the embedder applies to itself.
+        monkeypatch.setattr(config, "EMBEDDING_LOCAL_ENABLED", False, raising=False)
+        monkeypatch.setattr(config, "EMBEDDING_PROVIDER", "", raising=False)
+        monkeypatch.setattr(config, "EMBEDDING_API_BASE_URL", "https://api.openai.com/v1")
+        monkeypatch.setattr(config, "EMBEDDING_MODEL", "bge-m3", raising=False)
+        monkeypatch.setattr(config, "EMBEDDING_DIMENSION", 1024, raising=False)
+        doc = document(element("paragraph", prose(2), 1, 0))
+
+        chunks = chunk_document_from_config(doc)
+
+        assert index_version_parts(chunks[0].index_version)["provider"] == "api.openai.com"
 
     def test_the_wrapper_refuses_to_guess(self, monkeypatch):
         # A missing configuration is a reason to raise, not to index the corpus
