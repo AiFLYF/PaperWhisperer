@@ -1285,6 +1285,36 @@ class ParserRouter:
             return
         result.quality = report
 
+        # A FAIL verdict on an otherwise-usable result is precisely the case the
+        # silent_truncation gate exists to catch: the document parsed, so nothing
+        # failed loudly, but the quality gate says the result is degraded. The
+        # warning is added here, at the one place every parse passes through,
+        # instead of trusting each adapter to remember it. It adds a warning and
+        # does not change ``status`` — the verdict stays attached, not enforced,
+        # for the reason in the docstring above.
+        #
+        # WARN is deliberately not surfaced. Its rules describe ordinary
+        # documents — a paper whose header repeats on every page trips
+        # ``repeated_furniture``, and a single stray table shell is explicitly
+        # allowed to exist — and telling that reader their document "may be
+        # incomplete" would only train them to ignore the sentence. The gate
+        # asks for FAIL to be visible; WARN stays on ``result.quality`` for
+        # whoever chooses to look.
+        failed = list(report.failed_rules)
+        if not failed:
+            return
+        message = (
+            f"质量门禁判定该文档不完整（{'、'.join(failed[:5])}）；"
+            "结果可能存在静默截断或布局丢失，请核对引用定位。"
+        )
+        # On the document's own ``warnings`` (the surface a reader and the
+        # silent_truncation gate actually consult) as well as the result's, so
+        # the verdict is visible on whichever channel is inspected.
+        document_warnings = getattr(result.document, "warnings", None)
+        if isinstance(document_warnings, list):
+            document_warnings.append(message)
+        result.warnings.append(message)
+
     def _elapsed_ms(self, started: float) -> int:
         return max(0, int(round((self.clock() - started) * 1000)))
 

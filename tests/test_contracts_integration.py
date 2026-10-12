@@ -107,7 +107,18 @@ class FakeParser:
 
 
 def good_document(**overrides) -> ParsedDocument:
-    """A document that satisfies every contract, built the way an adapter would."""
+    """A document that satisfies every contract, built the way an adapter would.
+
+    "Every contract" includes the quality gate (T0.6), because since T0.7 the
+    gateway runs it over every usable parse and the contract layer's promise —
+    a valid document comes back unchanged — is only meaningful for a document
+    the whole pipeline accepts. A one-sentence, one-page fixture used to sit
+    *below* the density rule's floor, so it described a scan that never produced
+    a text layer rather than a good document, and the tests below were passing
+    for a reason that had nothing to do with what they claimed to pin. The
+    second paragraph is what keeps this fixture on the right side of that
+    threshold; it carries no assertion of its own.
+    """
     document = ParsedDocument(
         source_filename="paper.pdf",
         media_type=PDF_MEDIA_TYPE,
@@ -119,6 +130,19 @@ def good_document(**overrides) -> ParsedDocument:
             Element(
                 role="paragraph",
                 text="A resolvable sentence on page 1.",
+                locator=SourceLocator(kind="pdf_page", page=1),
+            ),
+            Element(
+                role="paragraph",
+                text=(
+                    "The rest of the page carries ordinary prose so that the density "
+                    "gate sees a page a reader could actually work from, rather than "
+                    "the sparse output a failed text extraction leaves behind. Nothing "
+                    "downstream reads this paragraph: it exists so that the document "
+                    "as a whole clears every quality rule, and the only thing under "
+                    "test in the contract cases is what the router does to a document "
+                    "that was already good when it arrived."
+                ),
                 locator=SourceLocator(kind="pdf_page", page=1),
             ),
             Element(
@@ -1047,6 +1071,93 @@ class TestAValidDocumentIsUntouchedByTheWiring:
         ).parse("a.pdf", PDF_MEDIA_TYPE)
 
         assert result.contract_repairs == []
+        assert result.warnings == []
+
+
+class TestAQualityFailureIsVisible:
+    """The other half of the promise above, and the reason the gateway warns.
+
+    ``TestAValidDocumentIsUntouchedByTheWiring`` pins that a good document is
+    left alone. This pins that a document the quality gate *fails* is not left
+    silently alone: ``parse`` succeeds, the status never changes, and the reader
+    is told anyway. A parse that returned a degraded document with no warning
+    anywhere is the ``silent_truncation`` gate's whole subject — the analysis
+    would confidently summarise half a paper while the screen said nothing.
+
+    Both channels are asserted because they are read by different people:
+    ``result.warnings`` is what the caller surfaces, ``document.warnings`` is
+    what survives into the stored parse and what the gate itself consults.
+    Asserting only one leaves the other able to drift away unnoticed.
+    """
+
+    def test_a_failed_rule_reaches_both_warning_channels(self):
+        # A one-page, one-sentence document is what a scan that never produced
+        # a text layer looks like: it parses, it is contract-valid, and it is
+        # empty enough for the density rule to fail it.
+        document = good_document(page_count=1, elements=[
+            Element(
+                role="paragraph",
+                text="A resolvable sentence on page 1.",
+                locator=SourceLocator(kind="pdf_page", page=1),
+            ),
+        ])
+
+        result = router_for(
+            FakeParser("legacy", outcome=ParseResult.from_document(document))
+        ).parse("a.pdf", PDF_MEDIA_TYPE)
+
+        assert result.status == PARSE_SUCCESS
+        assert result.quality is not None
+        assert "text_density" in result.quality.failed_rules
+        assert any("text_density" in warning for warning in result.warnings)
+        assert any("text_density" in warning for warning in document.warnings)
+
+    def test_a_clean_document_gains_no_warning_at_all(self):
+        # The negative case, so the warning above cannot be produced by simply
+        # always warning. ``good_document`` clears every rule; the density rule
+        # is the one that would fire if it did not.
+        document = good_document()
+
+        result = router_for(
+            FakeParser("legacy", outcome=ParseResult.from_document(document))
+        ).parse("a.pdf", PDF_MEDIA_TYPE)
+
+        assert result.quality is not None
+        assert not result.quality.failed_rules
+        assert result.warnings == []
+        assert document.warnings == []
+
+    def test_a_warning_rule_does_not_alarm_the_reader(self):
+        # ``repeated_furniture`` fires on any paper whose header repeats on
+        # every page, which is most papers. Surfacing WARN as "your document
+        # may be incomplete" would train readers to ignore the sentence, so it
+        # stays on the report for whoever looks. Furniture is ``role``
+        # ``header``/``footer`` — it is excluded from ``body_elements``, so the
+        # repeated lines contribute nothing to the density rule and the only
+        # rule that can fire here is the furniture one.
+        repeated = "Page 3 of 12 — the same line appears at the top of every page."
+        document = good_document(elements=[
+            Element(role="header", text=repeated, locator=SourceLocator(kind="pdf_page", page=1)),
+            Element(role="header", text=repeated, locator=SourceLocator(kind="pdf_page", page=1)),
+            Element(role="header", text=repeated, locator=SourceLocator(kind="pdf_page", page=1)),
+            Element(
+                role="paragraph",
+                text=(
+                    "The body text of the page, which is long enough on its own that "
+                    "the density rule is satisfied without any help from the three "
+                    "repeated lines above it, and so the only rule that could fire "
+                    "here is the furniture one."
+                ),
+                locator=SourceLocator(kind="pdf_page", page=1),
+            ),
+        ])
+
+        result = router_for(
+            FakeParser("legacy", outcome=ParseResult.from_document(document))
+        ).parse("a.pdf", PDF_MEDIA_TYPE)
+
+        assert "repeated_furniture" in result.quality.warned_rules
+        assert not result.quality.failed_rules
         assert result.warnings == []
 
     def test_the_legacy_adapter_end_to_end_still_validates(self, tmp_path):

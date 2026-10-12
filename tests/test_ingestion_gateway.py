@@ -1268,3 +1268,59 @@ def _element_with_text(document: ParsedDocument, text: str):
         if element.text == text:
             return element
     raise AssertionError(f"no element with text {text!r}")
+
+
+class TestQualityVerdictIsVisible:
+    """A quality FAIL on a usable parse must reach the reader as a warning.
+
+    The silent-truncation gate exists for the case where the analysis
+    confidently summarises half a paper and nothing says so. A verdict that is
+    only *attached* (``result.quality``) and never turned into a visible warning
+    leaves exactly that case open on the product path, so this pins the
+    warning on both surfaces a reader or a diagnostic can inspect:
+    ``ParsedDocument.warnings`` and ``ParseResult.warnings``.
+    """
+
+    @staticmethod
+    def _failing_report(rule_id: str = "text_density"):
+        class _Report:
+            failed_rules = (rule_id,)
+            warned_rules = ()
+
+        return _Report()
+
+    def test_a_failing_quality_report_surfaces_a_document_warning(self, monkeypatch):
+        from paperwhisperer.ingestion import quality as quality_module
+
+        monkeypatch.setattr(
+            quality_module, "evaluate_quality", lambda document: self._failing_report()
+        )
+
+        result = success_result("body")
+        router = ParserRouter([])
+        router._attach_quality(result)
+
+        document_warnings = result.document.warnings
+        assert any("质量门禁" in w and "text_density" in w for w in document_warnings), (
+            f"the quality FAIL did not reach the document's warnings: {document_warnings}"
+        )
+        assert any("质量门禁" in w for w in result.warnings), (
+            f"the quality FAIL did not reach the result's warnings: {result.warnings}"
+        )
+
+    def test_a_clean_quality_report_adds_no_warning(self, monkeypatch):
+        class _Report:
+            failed_rules = ()
+            warned_rules = ()
+
+        from paperwhisperer.ingestion import quality as quality_module
+
+        monkeypatch.setattr(quality_module, "evaluate_quality", lambda document: _Report())
+
+        result = success_result("body")
+        router = ParserRouter([])
+        before_doc = list(result.document.warnings)
+        before_res = list(result.warnings)
+        router._attach_quality(result)
+        assert result.document.warnings == before_doc
+        assert result.warnings == before_res

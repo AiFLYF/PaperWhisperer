@@ -1126,6 +1126,18 @@ def measure_locator_resolvable(context: GateContext) -> GateMeasurement:
         if document.body_elements
         and all(element.locator.is_resolvable for element in document.body_elements)
     )
+    # Named separately from `empty_docs`: a document that has body text but an
+    # unresolvable locator somewhere in it is counted in the denominator as
+    # unresolved too, and it is the failure mode a parser swap actually leaves
+    # behind (every zero-body document is fixed, and a handful of documents
+    # still fail on a stray element). Reporting only the empty ones names none of
+    # them, which is how a 50/52 failure can arrive with no document named.
+    unresolvable_docs = [
+        document.source_filename or "?"
+        for document in documents
+        if document.body_elements
+        and not all(element.locator.is_resolvable for element in document.body_elements)
+    ]
     document_coverage = documents_resolvable / len(documents) if documents else 0.0
     element_coverage = resolvable / total_elements
 
@@ -1148,6 +1160,11 @@ def measure_locator_resolvable(context: GateContext) -> GateMeasurement:
         evidence.append(
             f"零正文元素文档 {len(empty_docs)} 份，按未解析计入分母"
             f"（{'、'.join(empty_docs[:5])}）：产不出可引用内容即视为不可解析"
+        )
+    if unresolvable_docs:
+        evidence.append(
+            f"正文元素含不可解析 locator 的文档 {len(unresolvable_docs)} 份"
+            f"（{'、'.join(unresolvable_docs[:5])}）：有正文但至少一个元素定位不到"
         )
     evidence.append(
         f"解析文档 {len(documents)} 份，解析器 {'、'.join(context.parsers) or 'legacy'}"
