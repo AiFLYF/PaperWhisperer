@@ -601,11 +601,20 @@ def scenario_worker_race(workdir: Path) -> ScenarioResult:
         outputs = [proc.communicate(timeout=120) for proc in procs]
         claims: list[str] = []
         errors: list[str] = []
-        for out, err in outputs:
+        diagnostics: list[str] = []
+        for proc, (out, err) in zip(procs, outputs, strict=True):
             if out.strip():
                 claims.extend(json.loads(out.strip()).get("claimed") or [])
             if err.strip():
-                errors.append(err.strip().splitlines()[-1])
+                # Stderr is not a crash signal. A worker that logs a warning --
+                # the numpy-less vector fallback is the one that does it here --
+                # is still a worker that exited 0, and counting any output on
+                # stderr as a crash made this check fail on every machine without
+                # the optional accelerator. The exit code decides; the last line
+                # is kept so a real failure is readable.
+                diagnostics.append(err.strip().splitlines()[-1])
+                if proc.returncode != 0:
+                    errors.append(err.strip().splitlines()[-1])
         duplicates = len(claims) - len(set(claims))
         attempts = {
             job_id: store.get_job(job_id).attempts for job_id in set(claims)
@@ -619,6 +628,7 @@ def scenario_worker_race(workdir: Path) -> ScenarioResult:
             "duplicate_claims": duplicates,
             "attempts_after": attempts,
             "errors": errors,
+            "diagnostics": diagnostics,
         }
         result.checks["reached"] = len(procs) == 6 and any(claims)
         result.checks["exactly_one_worker_per_job"] = duplicates == 0
@@ -1577,7 +1587,19 @@ def scenario_duplicate_submit(workdir: Path) -> ScenarioResult:
         ]
         outputs = [proc.communicate(timeout=120) for proc in procs]
         replies = [json.loads(out.strip()) for out, _ in outputs if out.strip()]
-        errors = [err.strip() for _, err in outputs if err.strip()]
+        # Same rule as the worker race above: only a non-zero exit is an error.
+        # The submitter logs a warning on a machine without the vector
+        # accelerator, and that is not a failure to submit.
+        errors = [
+            err.strip()
+            for proc, (_, err) in zip(procs, outputs, strict=True)
+            if err.strip() and proc.returncode != 0
+        ]
+        diagnostics = [
+            err.strip()
+            for _, err in outputs
+            if err.strip()
+        ]
 
         job_ids = {reply["job_id"] for reply in replies}
         fresh = [reply for reply in replies if not reply["deduplicated"]]
@@ -1594,6 +1616,7 @@ def scenario_duplicate_submit(workdir: Path) -> ScenarioResult:
             "sample_notice": sorted(notices)[0] if notices else "",
             "distinct_notices": len(notices),
             "errors": errors,
+            "diagnostics": diagnostics,
         }
         result.checks["reached"] = len(replies) == 6
         result.checks["one_job_id_for_all_six"] = len(job_ids) == 1
