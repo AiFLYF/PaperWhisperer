@@ -41,6 +41,7 @@ repository, it costs nothing, and it was failing when this file was written.
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import json
 import os
@@ -409,6 +410,17 @@ def test_the_reparse_table_names_a_parser_the_registry_actually_registers():
 
     This test needs no server and no parse. It is the cheapest possible guard
     against the same drift, and it is ungated because it is free.
+
+    An entry whose adapter is not installed on this machine is exempt, and the
+    distinction is the one ``build_parser_catalog``'s own docstring draws: a
+    parser this deployment cannot run is *absent* from the catalog rather than
+    present and failing, and a menu entry for one is answered by the route with
+    409 ``parser_unavailable``. That is product behaviour, not drift — so
+    comparing it against the catalog would fail on every checkout that has not
+    installed docling's extra (torch chain, hundreds of MB), which is most of
+    them, and the guard would be read as a broken build rather than as the
+    exemption it is. Everything else still has to be registered, which is what
+    caught the cloud reparse whose name nothing produced.
     """
     monkey = dict(config.__dict__)
     monkey["DOCUMENT_PRIVACY_MODE"] = "allow_cloud"
@@ -424,8 +436,11 @@ def test_the_reparse_table_names_a_parser_the_registry_actually_registers():
         for key, value in original.items():
             setattr(config, key, value)
 
+    docling_installed = importlib.util.find_spec("docling") is not None
     for selection, entry in routes_v1.REPARSE_PARSERS.items():
         if not entry.parser_name:
+            continue
+        if not docling_installed and entry.parser_name.startswith("docling"):
             continue
         assert entry.parser_name in catalog, (
             f"reparse 菜单里的 {selection!r} 要求解析器 {entry.parser_name!r}，"
