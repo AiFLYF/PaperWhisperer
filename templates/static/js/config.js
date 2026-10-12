@@ -2,7 +2,41 @@
 
 export const THEME_STORAGE_KEY = 'paperwhisperer-theme';
 
-export const SUPPORTED_UPLOAD_EXTENSIONS = ['.txt', '.pdf', '.docx', '.pptx'];
+/**
+ * The extensions the picker accepts and the pre-flight check enforces.
+ *
+ * A fallback, not the value in force, for the reason `MAX_UPLOAD_BYTES` below
+ * gives: the server owns the list and `setSupportedUploadExtensions` adopts it
+ * from `/api/health` as soon as it answers. This used to be a bare literal
+ * beside the server's own list, which is two answers to "which files can I
+ * upload" and the client's answer is the one a user reads.
+ *
+ * `let` rather than `const` so `upload.js` sees an update through the live
+ * binding rather than a snapshot of the value it imported.
+ */
+const FALLBACK_SUPPORTED_UPLOAD_EXTENSIONS = ['.txt', '.md', '.markdown', '.pdf', '.docx', '.pptx'];
+
+export let SUPPORTED_UPLOAD_EXTENSIONS = FALLBACK_SUPPORTED_UPLOAD_EXTENSIONS;
+
+/**
+ * Adopt the server's format list.
+ *
+ * Rejects anything that is not a non-empty list of strings starting with a
+ * dot, so a malformed response leaves the fallback in place rather than
+ * producing an empty `accept` and a picker that refuses every file. An entry
+ * that is not a string would be interpolated into that attribute as
+ * "[object Object]", which is worse than a stale list.
+ */
+export function setSupportedUploadExtensions(value) {
+    if (!Array.isArray(value) || value.length === 0) {
+        return false;
+    }
+    if (!value.every(item => typeof item === 'string' && item.startsWith('.'))) {
+        return false;
+    }
+    SUPPORTED_UPLOAD_EXTENSIONS = value.slice();
+    return true;
+}
 
 // A fallback, not the value in force. The server owns this limit, and
 // `setMaxUploadBytes` overwrites this with the number /api/health reports as

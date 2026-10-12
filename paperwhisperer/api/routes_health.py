@@ -24,6 +24,13 @@ async def health_check():
     copy of the upload ceiling. It does not any more: the browser learns the
     number from this endpoint, so an operator raising ``MAX_UPLOAD_BYTES`` does
     not leave the client quoting a stale maximum to the user.
+
+    ``supported_extensions`` is echoed for the same reason and one more. The
+    browser filters the file picker with it and quotes it back when a drop is
+    refused, and a format list that lives in two languages is how a deployment
+    that accepts ``.md`` still tells users it does not. The list is the same
+    :data:`~paperwhisperer.core.formats.EXTENSION_MEDIA_TYPES` the gate enforces,
+    serialised rather than restated.
     """
     runtime_folders = {
         "uploads": config.UPLOAD_FOLDER,
@@ -39,6 +46,7 @@ async def health_check():
             "uptime_seconds": max(0, round(time.time() - APP_STARTED_AT, 3)),
             "max_upload_bytes": config.MAX_UPLOAD_BYTES,
             "max_document_pages": config.MAX_DOCUMENT_PAGES,
+            "supported_extensions": list(config.SUPPORTED_EXTENSIONS),
             "folders": {
                 name: {
                     "exists": os.path.isdir(path),

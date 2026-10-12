@@ -5,7 +5,7 @@
  */
 import { state } from './state.js';
 import { bindClick, copyText, toggleAIList, updateStatus } from './dom.js';
-import { setMaxUploadBytes } from './config.js';
+import { SUPPORTED_UPLOAD_EXTENSIONS, setMaxUploadBytes, setSupportedUploadExtensions } from './config.js';
 import { apiRequest } from './api.js';
 import { initializeI18n, t } from './i18n.js';
 import { initializeRuntime } from './runtime.js';
@@ -36,16 +36,17 @@ function bindDelegatedClick(elementId, handler) {
 }
 
 /**
- * Adopt the server's upload ceiling so the pre-flight check quotes the number
- * the server will actually enforce.
+ * Adopt the server's upload contract: the size ceiling and the format list, so
+ * the pre-flight check refuses exactly what the server would refuse.
  *
  * Deliberately not awaited: the file picker is usable before this resolves, and
  * a client that has to finish a health call before accepting a file is worse
- * than one that briefly quotes a fallback. setMaxUploadBytes rejects a bad
- * value, so a health endpoint that is down or malformed leaves the fallback in
- * place rather than switching the check off.
+ * than one that briefly quotes a fallback. Both setters reject a bad value, so
+ * a health endpoint that is down or malformed leaves the fallbacks in place
+ * rather than switching a check off — an empty format list would make the
+ * picker refuse every file the user has.
  */
-async function syncUploadLimitFromServer() {
+async function syncUploadContractFromServer() {
     try {
         const payload = await apiRequest('/api/health', {
             method: 'GET',
@@ -54,12 +55,24 @@ async function syncUploadLimitFromServer() {
             operation: 'health'
         });
         setMaxUploadBytes(payload?.max_upload_bytes);
+        if (setSupportedUploadExtensions(payload?.supported_extensions)) {
+            // Keep the picker's own filter in step with the list just adopted.
+            // The two are not redundant: `accept` decides what the file dialog
+            // will let the user *choose*, and it is fixed at parse time from the
+            // template's literal, so without this a deployment that added a
+            // format would still have a dialog that greys those files out.
+            const picker = document.getElementById('file');
+            if (picker) {
+                picker.accept = SUPPORTED_UPLOAD_EXTENSIONS.join(',');
+            }
+        }
+        setSupportedUploadExtensions(payload?.supported_extensions);
     } catch {
         // Offline, aborted, non-JSON, or a body over the size cap. Every one of
-        // those is a reason the fallback constant stands, and none of them is a
+        // those is a reason the fallback constants stand, and none of them is a
         // reason to interrupt the reader: this is a background probe for a
-        // number, not the operation they asked for. `setMaxUploadBytes` also
-        // rejects a bad value, so a malformed one cannot switch the check off.
+        // contract, not the operation they asked for. Both setters also reject
+        // a bad value, so a malformed one cannot switch a check off.
     }
 }
 
@@ -121,7 +134,7 @@ function initialize() {
     // would be silently stripped by that restore.
     initializeChatDelegates();
     initializeExportFormats();
-    syncUploadLimitFromServer();
+    syncUploadContractFromServer();
 
     document.getElementById('file')?.addEventListener('change', handleFileSelection);
     document.getElementById('paperSearchInput')?.addEventListener('keydown', handlePaperSearchKeyPress);

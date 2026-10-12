@@ -101,7 +101,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from paperwhisperer.core import config
+from paperwhisperer.core import config, formats
 
 from .schema import ParsedDocument, SourceLocator
 
@@ -149,12 +149,12 @@ LEGACY_PARSER_NAME = "legacy"
 #: The values are the IANA registrations rather than the shorter aliases
 #: browsers accept, because adapters compare them against what an upload
 #: reports and ``application/x-pdf`` would then miss.
-MEDIA_TYPE_BY_EXTENSION = {
-    ".txt": "text/plain",
-    ".pdf": "application/pdf",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-}
+#:
+#: The table itself lives in :mod:`paperwhisperer.core.formats`, which is the
+#: one place it is written down; this name is kept because the routing code and
+#: its tests read it here. It is the same mapping object, not a copy -- a copy
+#: is what put the upload gate and the router on different format lists.
+MEDIA_TYPE_BY_EXTENSION = formats.EXTENSION_MEDIA_TYPES
 
 #: Default ceiling on a single parser call. Mirrors ``PARSER_TIMEOUT_SECONDS``
 #: but is read through a function so an import-time snapshot cannot go stale

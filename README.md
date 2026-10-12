@@ -210,7 +210,7 @@ make gates          # 跑发布门禁，出 eval/reports/release_gates.{md,json}
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `file` | 是 | `.txt`、`.pdf`、`.docx`、`.pptx`。 |
+| `file` | 是 | `.txt`、`.md`、`.markdown`、`.pdf`、`.docx`、`.pptx`。 |
 | `api_key` | 否 | 请求级 API key，未传时读取环境变量。 |
 | `generate_mermaid` | 否 | 是否生成 Mermaid 可视化图，默认 `true`。 |
 | `generate_evaluation` | 否 | 是否生成批判性评价，默认 `true`。 |

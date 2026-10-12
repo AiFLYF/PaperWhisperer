@@ -70,6 +70,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from paperwhisperer.core import config
+from paperwhisperer.core.formats import canonical_media_type
 
 from .gateway import (
     PARSE_FAILED,
@@ -1541,7 +1542,22 @@ def parse_document(
         tests that need a specific refusal.
     """
     path = str(file_path)
-    resolved_media_type = str(media_type or media_type_for_path(path) or "")
+    # The declared type is normalised through the shared alias table before it
+    # is used to route, and the extension answers when the table has no opinion
+    # ("" means exactly that -- an untaught type, or none declared at all).
+    #
+    # This is where the two halves of an upload are reconciled. The edge accepts
+    # a declared ``text/markdown`` (and ``application/x-pdf``, and
+    # ``text/x-python``) as a legitimate spelling and validates it; adapters then
+    # compare media types literally, so a declared alias that reached them
+    # unchanged matched nothing and the document failed with no parser even
+    # named in the attempt trail. Routing on the canonical form keeps the "an
+    # alias is accepted" promise the edge already makes.
+    #
+    # A type whose meaning depends on the filename -- ``application/zip`` is the
+    # real one, legitimate for both ``.docx`` and ``.pptx`` -- is deliberately
+    # absent from the table, so it lands on the extension instead of on a guess.
+    resolved_media_type = canonical_media_type(media_type) or str(media_type_for_path(path) or "")
     base_options = options if options is not None else default_options()
     resolved_cache = cache if cache is not None else build_default_parse_cache()
     active_router = router if router is not None else build_default_router()

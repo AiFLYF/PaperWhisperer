@@ -519,6 +519,16 @@ def build_sample_documents(root):
     text.write_text("First paragraph.\n\nSecond paragraph, longer than the first.\n",
                     encoding="utf-8")
 
+    markdown = root / "notes.md"
+    markdown.write_text(
+        "# Findings\n\n"
+        "Prose under a level-one heading, long enough to be a paragraph.\n\n"
+        "## Method\n\n"
+        "```python\n# a comment, not a heading\nprint('x')\n```\n\n"
+        "Body under the section.\n",
+        encoding="utf-8",
+    )
+
     docx_path = root / "report.docx"
     document = DocxDocument()
     document.add_heading("Introduction", level=1)
@@ -539,7 +549,7 @@ def build_sample_documents(root):
     ).text_frame.text = "Body"
     presentation.save(pptx_path)
 
-    return [text, docx_path, pptx_path]
+    return [text, markdown, docx_path, pptx_path]
 
 
 @pytest.fixture(autouse=True)

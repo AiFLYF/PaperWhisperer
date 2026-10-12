@@ -71,6 +71,20 @@ _HEADING_STYLE_RE = re.compile(r"^(?:heading|标题)\s*(\d+)$", re.IGNORECASE)
 #: separate a real slide title from the first line of body text.
 _TITLE_PLACEHOLDER_TYPES = (13, 1)  # CENTER_TITLE, TITLE
 
+#: An ATX heading: one to six ``#``, then a space, then the title. The space is
+#: required by CommonMark (a bare ``##`` at end of line also counts, hence the
+#: optional group) and it is what separates a heading from ``#hashtag``, which
+#: is body text. Matching ``#`` alone would turn every shell prompt and issue
+#: reference in a README into a section of the paper.
+_MD_HEADING_RE = re.compile(r"^(#{1,6})(?:[ \t]+(.*?))?[ \t]*$")
+
+#: A code fence, opening or closing. Only the marker and its length are read:
+#: a closing fence is a run of the same character at least as long as the one
+#: that opened it, so ````` ``` ````` closes and ````` ```` ````` does not.
+#: Without that state, a ``#`` comment inside a fenced block becomes a heading
+#: and the reconstructed outline describes the example rather than the section.
+_MD_FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
+
 
 def _docx_heading_level(paragraph: DocxParagraph) -> int | None:
     """Heading level for a DOCX paragraph, or ``None`` if it is body text."""
@@ -225,6 +239,90 @@ class LegacyDocumentParser:
             )
         if not document.elements:
             document.warnings.append("TXT 文档没有解析出任何正文内容。")
+        return document
+
+    def _parse_markdown(self, file_path: str) -> ParsedDocument:
+        """Emit headings and paragraphs, keeping the ``#`` levels as structure.
+
+        Markdown is read as text, but not as *plain* text. A ``#`` line becomes
+        a ``heading`` element carrying a ``level`` and a ``heading_path`` -- the
+        same shape the DOCX reader emits for a Word heading -- so the chunker
+        can carry the section a passage came from into its citation rather than
+        the reader having to infer the outline back out of the prose. Everything
+        that is not a heading arrives as ``paragraph``, as it does for text.
+
+        Offsets are into the *cleaned* text and the element text is the source
+        slice, markers included. Dropping the ``#`` would read better in a
+        quotation, and it would also mean the text no longer starts where
+        ``offset_start`` says it does. These offsets are the citation handle,
+        and a heading whose text begins three characters late is a trap for
+        whoever aligns a quote against it next. The markers are dropped in the
+        one place they would otherwise follow a reader around instead: the
+        ``heading_path`` entries are titles.
+
+        A fenced code block is a single element and its contents are never
+        scanned for headings.
+
+        Known and deliberate gap: setext headings -- a title underlined with
+        ``===`` or ``---`` -- are read as body text. ``---`` is also a thematic
+        break and the delimiter that opens YAML front matter, so honouring the
+        form would misread ordinary documents to support a style most editors
+        no longer write.
+        """
+        media_type = media_type_for_path(file_path)
+        text = clean_extracted_text(DocumentLoader.load_txt(file_path))
+        document = self._new_document(file_path, media_type)
+
+        heading_stack: list[tuple[int, str]] = []
+        for role, start, end, level in _markdown_blocks(text):
+            if role == "heading":
+                # A heading replaces every same-or-higher level already on the
+                # stack, which is what makes the path a path rather than a log.
+                while heading_stack and heading_stack[-1][0] >= level:
+                    heading_stack.pop()
+                heading_stack.append((level, _markdown_title(text[start:end])))
+                path = tuple(title for _, title in heading_stack)
+                # Never split: a heading line is short by construction, and one
+                # element per heading keeps the outline one entry per heading.
+                document.elements.append(
+                    Element(
+                        role="heading",
+                        text=text[start:end].strip(),
+                        level=level,
+                        heading_path=path,
+                        locator=SourceLocator(
+                            kind="txt_offset",
+                            offset_start=start,
+                            offset_end=end,
+                            heading_path=path,
+                        ),
+                    )
+                )
+                continue
+
+            path = tuple(title for _, title in heading_stack)
+            block = text[start:end]
+            # The same fixed budget the plain-text reader uses, so one long
+            # section does not become one element no embedding window fits.
+            for piece_start, piece_end in _txt_spans(block):
+                chunk = block[piece_start:piece_end].strip()
+                if not chunk:
+                    continue
+                document.elements.append(
+                    Element(
+                        role="paragraph",
+                        text=chunk,
+                        heading_path=path,
+                        locator=SourceLocator(
+                            kind="txt_offset",
+                            offset_start=start + piece_start,
+                            offset_end=start + piece_end,
+                            heading_path=path,
+                        ),
+                    )
+                )
+        if not document.elements:
+            document.warnings.append("Markdown 文档没有解析出任何正文内容。")
         return document
 
     def _parse_pdf(self, file_path: str) -> ParsedDocument:
@@ -435,6 +533,80 @@ class LegacyDocumentParser:
         return document
 
 
+def _markdown_title(line: str) -> str:
+    """The title of an ATX heading line, without its ``#`` markers."""
+    match = _MD_HEADING_RE.match(str(line or "").strip())
+    return (match.group(2) or "").strip() if match else str(line or "").strip()
+
+
+def _markdown_blocks(text: str) -> list[tuple[str, int, int, int]]:
+    """Classify ``text`` into ``(role, start, end, level)`` blocks, in order.
+
+    ``role`` is ``"heading"`` or ``"paragraph"``; ``level`` is the ATX level and
+    ``0`` for a paragraph. The offsets are character ranges into ``text``, so
+    they reach a locator unchanged.
+
+    A block is a run of consecutive non-blank lines, which is what a markdown
+    paragraph is: a blank line ends one. Headings and code fences break the run
+    they interrupt rather than joining it, and a fenced block is one block whose
+    interior is never examined -- an indented ``#`` comment is a comment.
+    """
+    blocks: list[tuple[str, int, int, int]] = []
+    cursor = 0
+    paragraph_start = -1
+    fence_char = ""
+    fence_length = 0
+    fence_start = 0
+
+    def close_paragraph(end: int) -> None:
+        nonlocal paragraph_start
+        if paragraph_start >= 0 and end > paragraph_start:
+            blocks.append(("paragraph", paragraph_start, end, 0))
+        paragraph_start = -1
+
+    for raw_line in text.split("\n"):
+        line_start = cursor
+        line_end = line_start + len(raw_line)
+        cursor = line_end + 1  # the "\n" that split() consumed
+        line = raw_line.strip()
+
+        if fence_char:
+            fence = _MD_FENCE_RE.match(line)
+            if fence and fence.group(1)[0] == fence_char and len(fence.group(1)) >= fence_length:
+                blocks.append(("paragraph", fence_start, line_end, 0))
+                fence_char = ""
+            continue
+
+        fence = _MD_FENCE_RE.match(line)
+        if fence:
+            close_paragraph(line_start)
+            fence_char = fence.group(1)[0]
+            fence_length = len(fence.group(1))
+            fence_start = line_start
+            continue
+
+        if not line:
+            close_paragraph(line_start)
+            continue
+
+        heading = _MD_HEADING_RE.match(line)
+        if heading:
+            close_paragraph(line_start)
+            blocks.append(("heading", line_start, line_end, len(heading.group(1))))
+            continue
+
+        if paragraph_start < 0:
+            paragraph_start = line_start
+
+    if fence_char:
+        # An unclosed fence runs to the end of the file rather than swallowing
+        # the block it opened: those lines are still text a reader can cite.
+        blocks.append(("paragraph", fence_start, len(text), 0))
+    else:
+        close_paragraph(len(text))
+    return blocks
+
+
 def _txt_spans(text: str, size: int = TXT_ELEMENT_CHARS) -> list[tuple[int, int]]:
     """Split ``text`` into ``(start, end)`` spans of at most ``size`` chars.
 
@@ -497,17 +669,27 @@ def _slide_notes(slide) -> str:
 
 
 #: Media types the legacy loader can read, resolved through the gateway's own
-#: extension table so the adapter and the router cannot disagree.
+#: extension table so the adapter and the router cannot disagree. The extension
+#: list comes from :mod:`paperwhisperer.core.formats` for the same reason: this
+#: set used to be a literal ``{.txt, .pdf, .docx, .pptx}`` while the upload gate
+#: grew a fifth entry, and an adapter that does not declare a format it reads is
+#: an adapter the router never asks.
 _SUPPORTED_MEDIA_TYPES = frozenset(
     media_type_for_path(f"sample{extension}")
-    for extension in (".txt", ".pdf", ".docx", ".pptx")
+    for extension in config.SUPPORTED_EXTENSIONS
 )
 
 #: Extension to the builder that handles it. A dict rather than a chain of
 #: ``if`` statements so adding a format is one line, and so the support check
 #: above and the dispatch below are driven by the same keys.
+#:
+#: What reads a file is chosen here, by extension, and not by media type --
+#: which is why a markdown file can be recorded as ``text/plain`` (see
+#: ``core.formats``) and still reach the markdown reader.
 _EXTENSION_BY_FORMAT = {
     ".txt": LegacyDocumentParser._parse_txt,
+    ".md": LegacyDocumentParser._parse_markdown,
+    ".markdown": LegacyDocumentParser._parse_markdown,
     ".pdf": LegacyDocumentParser._parse_pdf,
     ".docx": LegacyDocumentParser._parse_docx,
     ".pptx": LegacyDocumentParser._parse_pptx,

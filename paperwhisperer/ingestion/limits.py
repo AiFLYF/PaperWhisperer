@@ -103,8 +103,8 @@ value that looks like a limit.
 Where archives actually enter
 ----------------------------
 
-``config.ALLOWED_EXTENSIONS`` is ``{.txt, .pdf, .docx, .pptx}``. ``.zip`` is not
-in it, so an upload *named* ``.zip`` is refused by
+``config.ALLOWED_EXTENSIONS`` is ``{.txt, .md, .markdown, .pdf, .docx, .pptx}``.
+``.zip`` is not in it, so an upload *named* ``.zip`` is refused by
 :func:`~paperwhisperer.core.text.build_safe_upload_filename` before any
 decompression logic runs. Asked whether that is a correct defence, the honest
 answer has two halves:

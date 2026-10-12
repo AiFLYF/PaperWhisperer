@@ -8,6 +8,15 @@ from datetime import datetime
 
 from env_loader import load_project_env
 
+# The accepted formats, from the one table that defines them. This file used to
+# carry its own trio and a demo that accepts a different set from the server it
+# feeds is a demo that teaches the wrong thing; ``core.formats`` imports nothing
+# but ``os``, so the single-file demo stays single-file.
+from paperwhisperer.core.formats import (
+    ALLOWED_EXTENSIONS,
+    SUPPORTED_FILE_TYPES_TEXT,
+)
+
 load_project_env()
 
 try:
@@ -33,9 +42,6 @@ except ImportError:
 
 APP_NAME = "PaperWhisperer"
 APP_VERSION = os.getenv("PAPERWHISPERER_VERSION", "0.10.0").strip() or "0.10.0"
-SUPPORTED_EXTENSIONS = (".txt", ".pdf", ".docx", ".pptx")
-ALLOWED_EXTENSIONS = set(SUPPORTED_EXTENSIONS)
-SUPPORTED_FILE_TYPES_TEXT = ", ".join(SUPPORTED_EXTENSIONS)
 
 
 def parse_int_env(name, default, min_value=1, max_value=32):

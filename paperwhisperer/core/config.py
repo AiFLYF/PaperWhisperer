@@ -14,6 +14,7 @@ import threading
 from pathlib import Path
 
 from env_loader import load_project_env
+from paperwhisperer.core import formats
 from paperwhisperer.core.identity import provider_identity
 
 load_project_env()
@@ -44,9 +45,14 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 }
 
-SUPPORTED_EXTENSIONS = (".txt", ".pdf", ".docx", ".pptx")
-ALLOWED_EXTENSIONS = frozenset(SUPPORTED_EXTENSIONS)
-SUPPORTED_FILE_TYPES_TEXT = ", ".join(SUPPORTED_EXTENSIONS)
+#: Re-exported rather than defined here. The table these come from is
+#: :mod:`paperwhisperer.core.formats`, because four other layers need the same
+#: answer and only one of them is allowed to import this module -- see that
+#: module for why the list used to be five lists. The names stay because the
+#: whole codebase reads them from here.
+SUPPORTED_EXTENSIONS = formats.SUPPORTED_EXTENSIONS
+ALLOWED_EXTENSIONS = formats.ALLOWED_EXTENSIONS
+SUPPORTED_FILE_TYPES_TEXT = formats.SUPPORTED_FILE_TYPES_TEXT
 
 READING_QUEUE_LIMIT = 30
 

@@ -99,6 +99,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from paperwhisperer.core import formats
+
 from .schema import (
     DEFAULT_DISPLAY_WHEN_UNKNOWN,
     ELEMENT_ROLES,
@@ -162,33 +164,32 @@ _FIELDS_BY_KIND = {
 
 _ALL_POSITIONAL_FIELDS = set().union(*_FIELDS_BY_KIND.values()) - {"heading_path"}
 
-#: Extension → IANA media type, the same set the gateway routes on. Copied
-#: rather than imported from ``gateway`` so this module stays free of the
-#: parser registry and the config: a contract that pulls in the registry to
-#: check a string cannot be imported by the thing deciding whether to invoke
-#: the registry. Kept as a module constant rather than a class attribute
-#: because Pydantic reads an underscore-prefixed class attribute as a private
-#: attribute, not a table.
-_UPLOAD_MEDIA_TYPES = {
-    ".pdf": "application/pdf",
-    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    ".txt": "text/plain",
-}
+#: Extension → IANA media type, the same set the gateway routes on. Imported
+#: from :mod:`paperwhisperer.core.formats` rather than from ``gateway``, for the
+#: reason the copy below used to give: this module must stay free of the parser
+#: registry, and a contract that pulls in the registry to check a string cannot
+#: be imported by the thing deciding whether to invoke the registry.
+#: ``core.formats`` is neither the registry nor the config -- it is the bottom
+#: of the tree, one table, and the copy that used to live here is exactly what
+#: let a declared ``text/markdown`` be accepted as ``text/plain`` by this module
+#: while the router saw ``text/markdown`` and found no adapter for it.
+#:
+#: Kept as a module constant rather than a class attribute because Pydantic
+#: reads an underscore-prefixed class attribute as a private attribute, not a
+#: table.
+_UPLOAD_MEDIA_TYPES = formats.EXTENSION_MEDIA_TYPES
 
 #: Every media type a client may legitimately send, mapped to the canonical
 #: registration. ``application/x-pdf`` is here because browsers send it and an
 #: adapter comparing against the IANA spelling will not match it, which is how a
 #: PDF silently takes the plain-text path.
-_UPLOAD_MEDIA_TYPE_ALIASES = {
-    "application/pdf": "application/pdf",
-    "application/x-pdf": "application/pdf",
-    "text/plain": "text/plain",
-    "text/x-python": "text/plain",
-    "text/markdown": "text/plain",
-    _UPLOAD_MEDIA_TYPES[".docx"]: _UPLOAD_MEDIA_TYPES[".docx"],
-    _UPLOAD_MEDIA_TYPES[".pptx"]: _UPLOAD_MEDIA_TYPES[".pptx"],
-}
+_UPLOAD_MEDIA_TYPE_ALIASES = formats.MEDIA_TYPE_ALIASES
+
+#: Declarations that say "I do not know what this is" rather than naming a type.
+#: Imported from the shared table for the reason above it: a header that means
+#: one thing to the remote-download check and another to the upload contract is
+#: how the two came to disagree about ``application/octet-stream``.
+_NO_CLAIM_MEDIA_TYPES = formats.NO_CLAIM_MEDIA_TYPES
 
 
 class _Contract(BaseModel):
@@ -1189,6 +1190,15 @@ class UploadRequestContract(_Contract):
         if not declared:
             # A client that declares nothing has not disagreed with the
             # extension, it has said nothing, and the extension is enough.
+            return ""
+        if declared in _NO_CLAIM_MEDIA_TYPES:
+            # The same statement in a longer spelling: ``application/octet-stream``
+            # is what a client sends when it does not know what it is holding,
+            # not a second claim about the file. Refusing it refused every
+            # ``.md`` upload from a Windows browser, which has no MIME
+            # registration to offer for the extension. The magic-byte check
+            # downstream is the defence that actually holds here; see
+            # ``core.formats.NO_CLAIM_MEDIA_TYPES``.
             return ""
         if declared not in _UPLOAD_MEDIA_TYPE_ALIASES:
             raise ValueError(f"unsupported media type {value!r}")

@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import urllib.parse
 
-from paperwhisperer.core import config
+from paperwhisperer.core import config, formats
 
 _REJECTED_CONTENT_TYPES = frozenset({
     "application/json",
@@ -19,18 +19,19 @@ _REJECTED_CONTENT_TYPES = frozenset({
     "text/xml",
 })
 
-_GENERIC_BINARY_CONTENT_TYPES = frozenset({
-    "application/octet-stream",
-    "binary/octet-stream",
-    "application/download",
-    "application/x-download",
-    "application/force-download",
-})
+_GENERIC_BINARY_CONTENT_TYPES = formats.NO_CLAIM_MEDIA_TYPES
 
 _ALLOWED_CONTENT_TYPES_BY_EXT = {
     ".pdf": frozenset({"application/pdf", "application/x-pdf", "application/acrobat",
             "application/vnd.pdf"}),
     ".txt": frozenset({"text/plain", "text/markdown"}),
+    # Markdown is listed beside text rather than as its own entry because that
+    # is how the pipeline handles it: ``core.formats`` records ``.md`` as
+    # ``text/plain``, and the reader is chosen by extension. A client that
+    # declares ``text/markdown`` for a ``.md`` upload is describing the file
+    # correctly and must not be told otherwise.
+    ".md": frozenset({"text/plain", "text/markdown", "text/x-markdown"}),
+    ".markdown": frozenset({"text/plain", "text/markdown", "text/x-markdown"}),
     ".docx": frozenset({
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/zip",
@@ -44,6 +45,12 @@ _ALLOWED_CONTENT_TYPES_BY_EXT = {
 }
 
 _ZIP_MAGIC_PREFIXES = (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08")
+
+#: Extensions whose payload is text, so any ``text/*`` a server declares for
+#: them is credible and a NUL byte in the first 2 KB is not. Markdown belongs
+#: here with plain text: a ``.md`` file that is not text is not a markdown file,
+#: and the two are read by the same code path.
+_PLAIN_TEXT_EXTENSIONS = frozenset({".txt", ".md", ".markdown"})
 
 
 def normalize_content_type(value) -> str:
@@ -87,7 +94,7 @@ def validate_remote_content_type(file_name: str, content_type) -> None:
     allowed_for_ext = _ALLOWED_CONTENT_TYPES_BY_EXT.get(ext, frozenset())
     if normalized in _GENERIC_BINARY_CONTENT_TYPES or normalized in allowed_for_ext:
         return
-    if ext == ".txt" and normalized.startswith("text/"):
+    if ext in _PLAIN_TEXT_EXTENSIONS and normalized.startswith("text/"):
         return
     raise ValueError(f"Remote content type is not compatible with {ext or 'the selected'} file.")
 
@@ -113,7 +120,7 @@ def validate_document_file_signature(file_name: str, sample, source_name: str) -
         raise ValueError(f"The {source_name} does not look like a valid PDF.")
     if ext in {".docx", ".pptx"} and not sample.startswith(_ZIP_MAGIC_PREFIXES):
         raise ValueError(f"The {source_name} does not look like a valid {ext[1:].upper()} file.")
-    if ext == ".txt" and b"\x00" in sample[:2048]:
+    if ext in _PLAIN_TEXT_EXTENSIONS and b"\x00" in sample[:2048]:
         raise ValueError(f"The {source_name} appears to be binary.")
 
 
