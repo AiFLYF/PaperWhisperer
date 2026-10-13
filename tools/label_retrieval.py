@@ -599,9 +599,68 @@ def _preview(text: str, limit: int = 320) -> str:
 # Decision log -- append-only
 # --------------------------------------------------------------------------
 
+#: Anything a filesystem may refuse, folded to ``_``. The colon is here for a
+#: concrete reason rather than defensively: an annotator id is namespaced
+#: (``agent:a``, ``human:ann`` -- see docs/LABELLING.md) and the separator is a
+#: colon, while the log's *name* was the id verbatim. So every annotator the
+#: documented commands produce had a filename Windows refuses, which meant the
+#: decision logs could not be checked out there at all, and ``export`` then
+#: quietly produced an empty gate input -- a tool that reports "no decisions"
+#: where a Linux checkout reports 53. The id is a fact inside the log; the
+#: filename is only where it is written, and it is allowed to be a rendering.
+_FILENAME_UNSAFE = re.compile(r"[^A-Za-z0-9._-]+")
+
+
+def _filename_for(annotator: str) -> str:
+    """The annotator's id as a filename component.
+
+    Lossy on purpose: ``agent:a`` and ``agent_a`` collide. That is acceptable
+    because the *name* is never read back as the id -- :func:`_annotators_on_disk`
+    recovers it from the log's own records, where it cannot be a rendering.
+    """
+    stem = _FILENAME_UNSAFE.sub("_", str(annotator or "")).strip("._-")
+    return stem or "annotator"
+
 
 def _log_path(annotator: str, kind: str = "relevance") -> Path:
-    return ANNOTATIONS_DIR / f"{annotator}.{kind}.jsonl"
+    return ANNOTATIONS_DIR / f"{_filename_for(annotator)}.{kind}.jsonl"
+
+
+def _annotators_on_disk() -> list[str]:
+    """Every annotator with a relevance log, by the id the log itself records.
+
+    Not derived from the filename. ``_log_path`` folds a colon to an underscore,
+    so reversing it from the name would report ``agent_a`` for a log whose every
+    row says ``agent:a`` -- and the id is what ``collect_export`` writes into
+    ``annotated_by`` and what :func:`_annotator_kind` classifies, so a wrong one
+    here is wrong in the gate's input file.
+
+    The id is a field of every record, so it is read from there. A log whose rows
+    are all unreadable falls back to the sanitised stem rather than being
+    dropped, so a truncated file still shows up in ``status``.
+    """
+    if not ANNOTATIONS_DIR.is_dir():
+        return []
+    found: set[str] = set()
+    for path in sorted(ANNOTATIONS_DIR.glob("*.relevance.jsonl")):
+        annotator = ""
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            lines = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            annotator = str(row.get("annotator") or "")
+            if annotator:
+                break
+        found.add(annotator or path.name.split(".")[0])
+    return sorted(name for name in found if name)
 
 
 def read_decisions(annotator: str, kind: str = "relevance") -> list[dict[str, Any]]:
@@ -1445,9 +1504,8 @@ def annotator_status(worklist: Worklist, annotator: str) -> dict[str, Any]:
 def cmd_status(args: argparse.Namespace) -> int:
     worklist = Worklist.load(Path(args.worklist) if args.worklist else WORKLIST_PATH)
     names = list(args.annotator or [])
-    if not names and ANNOTATIONS_DIR.is_dir():
-        names = sorted({path.name.split(".")[0]
-                        for path in ANNOTATIONS_DIR.glob("*.relevance.jsonl")})
+    if not names:
+        names = _annotators_on_disk()
     if not names:
         print("还没有任何标注者日志。")
         return 0
@@ -1733,12 +1791,9 @@ def cmd_export(args: argparse.Namespace) -> int:
     worklist = Worklist.load(Path(args.worklist) if args.worklist else WORKLIST_PATH)
     annotators = list(args.annotator or [])
     if not annotators:
-        if not ANNOTATIONS_DIR.is_dir():
+        annotators = _annotators_on_disk()
+        if not annotators:
             raise SystemExit("还没有任何标注者日志。")
-        annotators = sorted({path.name.split(".")[0]
-                             for path in ANNOTATIONS_DIR.glob("*.relevance.jsonl")})
-    if not annotators:
-        raise SystemExit("找不到标注者。")
 
     payload, pending, warnings = collect_export(
         worklist, annotators, accept_assistant=args.accept_assistant_labels

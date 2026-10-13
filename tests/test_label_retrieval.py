@@ -302,6 +302,98 @@ def test_a_corrupt_log_line_does_not_lock_the_session(tmp_path: Path) -> None:
     assert [row["subject_id"] for row in rows] == ["q001"]
 
 
+def test_a_colon_namespaced_annotator_gets_a_name_a_filesystem_accepts(
+    tmp_path: Path,
+) -> None:
+    """``agent:a`` is the documented id, and the colon is its namespace separator.
+
+    The log's name used to be the id verbatim, so every annotator the commands in
+    docs/LABELLING.md produce had a filename Windows refuses. That is not a
+    cosmetic problem: the four tracked decision logs could not be checked out on
+    Windows at all, and the tool then reported "no decisions" on a checkout that
+    holds 53 of them. The id is a fact inside the log; the filename is only where
+    it is written, and it is allowed to be a rendering.
+    """
+    path = L._log_path("agent:a")
+    assert ":" not in path.name
+    assert path.name == "agent_a.relevance.jsonl"
+
+    L.append_decision("agent:a", {"annotator": "agent:a", "subject_id": "q001",
+                                  "element_ids": ["el_0000"]})
+    assert [row["annotator"] for row in L.read_decisions("agent:a")] == ["agent:a"]
+    assert (L.ANNOTATIONS_DIR / "agent_a.relevance.jsonl").is_file()
+
+
+def test_the_annotator_is_named_by_the_log_not_by_its_filename(tmp_path: Path) -> None:
+    """The property that makes decoupling the name from the id safe.
+
+    ``cmd_status`` and ``cmd_export`` recovered the id with
+    ``path.name.split(".")[0]``, which is sound only for ids that survive the
+    round trip unchanged -- true while the name *was* the id, false the moment it
+    is a rendering of it. So the id is read from the records, where it is a field
+    and cannot drift. A file called ``agent_a.relevance.jsonl`` whose rows say
+    ``agent:a`` is reported as ``agent:a``.
+    """
+    L.ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    (L.ANNOTATIONS_DIR / "agent_a.relevance.jsonl").write_text(
+        json.dumps({"annotator": "agent:a", "subject_id": "q001"}) + "\n",
+        encoding="utf-8",
+    )
+
+    assert L._annotators_on_disk() == ["agent:a"]
+
+
+def test_an_unreadable_log_still_names_its_annotator(tmp_path: Path) -> None:
+    """A truncated log is listed, not silently dropped.
+
+    ``status`` enumerates annotators to tell someone what is still pending. An
+    annotator whose log is half-written has *more* pending than one whose log is
+    complete, so omitting them is the wrong answer to the only question being
+    asked. The fallback is the sanitised stem, which is why this is a degradation
+    rather than a loss.
+    """
+    L.ANNOTATIONS_DIR.mkdir(parents=True, exist_ok=True)
+    (L.ANNOTATIONS_DIR / "agent_a.relevance.jsonl").write_text(
+        '{"annotator": "agent:a", "subj\n', encoding="utf-8"
+    )
+
+    assert L._annotators_on_disk() == ["agent_a"]
+
+
+def test_the_export_attributes_to_the_annotator_the_log_names(
+    tmp_path: Path, worklist: L.Worklist
+) -> None:
+    """End to end, on the shape the committed labels actually have.
+
+    Two colon-namespaced annotators, nobody confirming -- which is what the 53
+    rows of eval/labels/retrieval_labels.yaml are. The committed file carries
+    ``annotated_by: agent:a``. Before the filename was decoupled from the id, a
+    checkout whose logs were named with underscores exported
+    ``annotated_by: agent_a`` and nothing complained: a gate input whose
+    provenance names annotators that do not exist, produced without an error.
+
+    Regenerating that committed file is the check this stands in for -- the new
+    routing reproduces it byte for byte, the old one could not.
+    """
+    chosen = [str(worklist.candidates_for("q001")[0]["window_id"])]
+    for annotator in ("agent:a", "agent:b"):
+        L.append_decision(annotator, _record(annotator, worklist, "q001", chosen))
+
+    out = tmp_path / "labels.yaml"
+    assert L.main(["export", "--worklist", str(worklist.path),
+                   "--accept-assistant-labels", "--out", str(out),
+                   "--pending-out", str(tmp_path / "pending.yaml")]) == 0
+
+    text = out.read_text(encoding="utf-8")
+    assert "annotated_by: agent:a,agent:b" in text
+    # `mixed` rather than `assistant`: both ids start with `agent:`, so
+    # `_annotator_kind` classified each of them. An id recovered from the
+    # filename (`agent_a`) still falls through to "assistant", so this line is
+    # not the assertion that catches the regression -- the two above it are.
+    assert "annotated_by_kind: mixed" in text
+    assert "agent_a" not in text
+
+
 def test_interactive_loop_records_element_ids_and_resumes(worklist: L.Worklist) -> None:
     stream = io.StringIO("1,3\nnone\n")  # q001: pick two, q002: none of these
     args = _args(annotator="human:ann", answers=None, review=False, limit=0, agent=False,

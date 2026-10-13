@@ -85,6 +85,10 @@ q      保存退出
   `latest_decisions` 取每条 query 的最后一行做"当前答案"。
   改了主意 → 追加一行 `action: revise`；重看后没改 → 追加一行
   `action: reaffirm`（**重看本身也是信息**，被记录而非丢弃）。
+  日志文件名是标注者 ID 的**渲染**，不是 ID 本身：`agent:a` 写在
+  `eval/labels/annotations/agent_a.relevance.jsonl`，因为冒号在 Windows 上
+  不是合法文件名字符。ID 原样保存在每一行的 `annotator` 字段里，导出与
+  一致性报告都以它为准——所以按文件名去猜标注者是谁是会猜错的。
 - **坏行不锁死。** 写坏的一行跳过，其余照常读——中断的会话能续。
 - **复核模式。** `--review` 只显示已决定过的 query，且预填上次答案，
   一条一条往下过。
