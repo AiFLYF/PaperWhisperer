@@ -1275,6 +1275,27 @@ def sample_usage() -> ResourceUsage:
     )
 
 
+def usage_sampling_available() -> bool:
+    """Whether :func:`sample_usage` can report a real number on this platform.
+
+    ``False`` where neither ``/proc/self/statm`` nor ``resource.getrusage``
+    exists -- Windows. The sampler does not guess there: it reports
+    ``available=False`` with zeroed counters, and :meth:`ResourceGuard.verdict`
+    *deliberately* returns without refusing in that case, because a ceiling
+    checked against a number nobody measured would be a ceiling claiming
+    compliance it never verified.
+
+    That makes this a platform question rather than an error, and callers should
+    read it the way they read :func:`sandbox_available`: layer 0 and layer 1's
+    admission checks stay correct without it, and only the *number* is missing.
+    Layer 2 is the same question asked about enforcement.
+
+    Derived from the sampler rather than from a second copy of the platform
+    test, so the two cannot disagree about whether a measurement happened.
+    """
+    return sample_usage().available
+
+
 class ResourceGuard:
     """Samples the process footprint while a parse runs and records the peak.
 

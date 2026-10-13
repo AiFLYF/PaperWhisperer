@@ -23,7 +23,6 @@ import json
 import logging
 import os
 import pickle
-import resource
 import socket
 import sys
 import time
@@ -285,6 +284,10 @@ class TestDuration:
 class TestCooperativeObservation:
     """Layer 1 detects. It does not enforce, and the docstring says so."""
 
+    @pytest.mark.skipif(
+        not L.usage_sampling_available(),
+        reason="平台读不到本进程占用（既无 /proc/self/statm 也无 getrusage）",
+    )
     def test_guard_samples_the_process(self):
         with L.ResourceGuard() as guard:
             payload = bytearray(8 * 1024 * 1024)
@@ -295,6 +298,10 @@ class TestCooperativeObservation:
         assert usage.peak_rss_bytes >= usage.rss_bytes - 8 * 1024 * 1024
         assert usage.wall_seconds > 0
 
+    @pytest.mark.skipif(
+        not L.usage_sampling_available(),
+        reason="平台读不到本进程占用；verdict 在没有测量时不拒绝，这是刻意的",
+    )
     def test_verdict_raises_when_the_ceiling_was_exceeded(self):
         """The guard's only enforcement-shaped power: refuse the *result*.
 
@@ -302,6 +309,13 @@ class TestCooperativeObservation:
         is turn an over-budget run into a failed result rather than a
         good-looking document. That is weaker than not running the parse, and
         it is why :func:`L.run_guarded` exists.
+
+        Gated on the *sampler* rather than on the sandbox: ``verdict`` refuses a
+        ceiling only against a number it actually measured, and where no
+        measurement is possible it returns without raising -- stated in
+        ``verdict`` itself. So on a platform without ``/proc`` there is no
+        over-budget figure to reach a ceiling with, which is the platform's
+        answer and not a property of this guard.
         """
         guard = L.ResourceGuard(L.ParserLimits(max_memory_bytes=1), parser_name="docling")
         guard.start()
@@ -414,6 +428,8 @@ class TestHardIsolation:
         web worker serves* raise ``MemoryError``, and cannot be raised back. So
         the child OOMs and this process keeps its own limits.
         """
+        import resource  # noqa: PLC0415 - POSIX only; the class above is skipped without it
+
         before = resource.getrlimit(resource.RLIMIT_AS)
         limits = L.ParserLimits(max_memory_bytes=256 * 1024 * 1024, timeout_seconds=30)
         with pytest.raises(L.ParserLimitExceeded):
@@ -1457,17 +1473,62 @@ class TestSbom:
     def test_it_does_not_claim_a_resolved_version(self, sbom):
         """The load-bearing honesty property of this file.
 
-        There is no lockfile, so ``pyproject.toml`` carries ``>=`` floors and
-        nothing else. A consumer reading ``component.version`` as "the version
+        ``component.version`` is the ``>=`` floor ``pyproject.toml`` carries,
+        even now that ``uv.lock`` exists. A consumer reading it as "the version
         deployed" is wrong, and a CVE matcher built on it produces arbitrary
-        results — so the floor is the value and the environment's own version
-        is demoted to a property.
+        results — so the floor is the value, and the two versions that are *not*
+        floors are demoted to properties: ``pw:locked_version`` (what the lock
+        resolved for this repository) and ``pw:environment_resolved_version``
+        (what the machine running the generator happens to have installed).
         """
         for component in sbom["components"]:
             properties = {p["name"]: p["value"] for p in component["properties"]}
             assert component["version"] == properties["pw:declared_specifier"]
             assert ">=" in component["version"] or "==" in component["version"]
             assert "pw:environment_resolved_version" in properties
+
+    def test_every_component_carries_the_lock_beside_the_floor(self, sbom):
+        """Two versions that are not floors, and they answer different questions.
+
+        A floor plus "what this machine has installed" leaves the interesting
+        one unanswered on a machine that never installed the extras: which
+        version does this *project* ship against? ``docling`` is the case that
+        makes the point — the lock resolves 2.131.0 while
+        ``pw:environment_resolved_version`` says ``not-installed``.
+
+        The value is checked against the lock itself rather than against a
+        literal, because a literal here would be a second copy of the lock.
+        """
+        from tools.run_injection_eval import LOCKED_VERSION_PROPERTY, read_locked_versions
+
+        locked = read_locked_versions()
+        assert locked, "uv.lock 读不出任何版本；pw:locked_version 会全部退化成 not-locked"
+
+        for component in sbom["components"]:
+            properties = {p["name"]: p["value"] for p in component["properties"]}
+            assert LOCKED_VERSION_PROPERTY in properties
+            assert properties[LOCKED_VERSION_PROPERTY] == (
+                ",".join(locked.get(component["name"], ())) or "not-locked"
+            )
+
+    def test_an_absent_or_broken_lock_is_reported_rather_than_raised(self, tmp_path):
+        """``not-locked`` has to be reachable, or it is decoration.
+
+        A checkout without ``uv.lock`` must still produce a document — the one
+        thing an SBOM generator is supposed to be able to say is *that* you have
+        no lock, and a generator that dies on a missing lock can never say it.
+        Same for a lock it cannot parse: refusing to emit anything is the worse
+        failure, because the document is what carries the disclaimer.
+        """
+        from tools.run_injection_eval import read_locked_versions
+
+        assert read_locked_versions(tmp_path / "absent.lock") == {}
+
+        broken = tmp_path / "broken.lock"
+        broken.write_text("version = 1\n[[package]\nname = ", encoding="utf-8")
+        assert read_locked_versions(broken) == {}
+
+        assert read_locked_versions(PROJECT_ROOT / "uv.lock").get("docling")
 
     def test_the_scope_is_stated_in_the_document(self, sbom):
         properties = {p["name"]: p["value"] for p in sbom["metadata"]["properties"]}
