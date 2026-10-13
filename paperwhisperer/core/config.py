@@ -986,6 +986,14 @@ EMBEDDING_PRICE_PER_MTOK = parse_optional_number_env(
     "EMBEDDING_PRICE_PER_MTOK", 0.0, 1_000_000.0
 )
 
+#: 每百万 token 的对话模型价格，同一个约定：留空（None）是「未定价」而不是
+#: 「免费」。`LLMUsage.cost` 据此返回 None 或一个数——见 llm/client.py。
+#: 之所以和上面那一项并列而不是分散在 llm/ 里：两处价格散开，就会出现
+#: 「embedding 记了成本、对话没记」这种看起来像功能缺失实际是配置缺失的事。
+OPENAI_PRICE_PER_MTOK = parse_optional_number_env(
+    "OPENAI_PRICE_PER_MTOK", 0.0, 1_000_000.0
+)
+
 # --------------------------------------------------------------------------
 # RAG chunking
 # --------------------------------------------------------------------------

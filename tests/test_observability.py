@@ -1237,3 +1237,58 @@ class TestTheExporterSeam:
         _full_run(obs)
         obs.flush()
         assert obs.exporter.corrupt == 1
+
+
+class TestTheLlmHalfOfCost:
+    """``record_embedding_usage`` has existed since the metrics were written.
+
+    Its other half did not, because there was no ``LLMUsage`` to feed it with:
+    ``complete()`` returned a ``str`` and discarded ``response.usage``. Both
+    halves exist now, and they are asserted the same way on purpose -- two cost
+    paths that disagree about what "unknown" means are worse than one.
+    """
+
+    def test_tokens_are_counted_and_the_cost_follows_the_price(self, obs):
+        from paperwhisperer.llm.client import LLMUsage
+
+        obs.record_llm_usage(
+            LLMUsage(model="m", prompt_tokens=120, completion_tokens=30,
+                     cached_prompt_tokens=40, price_per_mtok=1.0)
+        )
+        assert obs.metrics.llm_tokens.get(direction="input") == 120
+        assert obs.metrics.llm_tokens.get(direction="output") == 30
+        assert obs.metrics.llm_tokens.get(direction="cached") == 40
+        assert obs.metrics.cost_total.total == pytest.approx(0.00015)
+
+    def test_a_completion_nobody_priced_is_never_recorded_as_zero(self, obs):
+        from paperwhisperer.llm.client import LLMUsage
+
+        obs.record_llm_usage(LLMUsage(model="m", prompt_tokens=120, completion_tokens=30))
+        assert obs.metrics.cost_total.total == 0.0
+        assert obs.metrics.cost_unpriced.get(source="llm", reason="unpriced") == 1
+        event = obs.trace.events(name="cost.unpriced")[0]
+        assert event.level == "WARNING"
+        assert event.fields["source"] == "llm"
+
+    def test_a_provider_that_reports_no_usage_is_a_different_reason(self, obs):
+        """Not priced and not measured are two problems with two fixes.
+
+        The first is "configure OPENAI_PRICE_PER_MTOK"; the second is "this
+        endpoint sends no usage block". Merging them into one counter answers
+        neither, which is the same argument ``record_cost`` already makes.
+        """
+        from paperwhisperer.llm.client import LLMUsage
+
+        obs.record_llm_usage(
+            LLMUsage(model="m", tokens_reported=False, price_per_mtok=1.0)
+        )
+        assert obs.metrics.cost_unpriced.get(source="llm", reason="tokens_unreported") == 1
+        assert obs.metrics.cost_total.total == 0.0
+
+    def test_a_disabled_facade_counts_nothing(self):
+        from paperwhisperer.core import observability as O_mod
+        from paperwhisperer.llm.client import LLMUsage
+
+        disabled = O_mod.Observability(enabled=False)
+        disabled.record_llm_usage(LLMUsage(model="m", prompt_tokens=5, price_per_mtok=1.0))
+        assert disabled.metrics.cost_total.total == 0.0

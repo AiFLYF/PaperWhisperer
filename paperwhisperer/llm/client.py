@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
@@ -44,6 +46,144 @@ STREAM_RETRY_PROBE_CHUNKS = 1
 #: page or a proxy misbehaving, and parsing it costs memory the request has no
 #: reason to spend. Read by :meth:`LLMClient._parse_stream_frame`.
 STREAM_FRAME_MAX_CHARS = 65_536
+
+
+@dataclass(frozen=True, slots=True)
+class LLMUsage:
+    """Everything a cost ledger needs to know about one completion.
+
+    The counterpart of :class:`paperwhisperer.llm.embeddings.EmbeddingUsage`,
+    and shaped like it on purpose: one immutable object handed to the caller, a
+    ``cost`` that returns ``None`` when the number cannot be known, and an
+    ``as_analysis_run_columns`` for the row ``analysis_runs`` will eventually
+    hold. Two cost types in one codebase that disagree about what ``None`` means
+    are worse than one cost type -- a dashboard would average them into a
+    plausible lie.
+
+    Until this existed, ``complete()`` returned a ``str`` and threw
+    ``response.usage`` away, so nothing in the product could answer "what did
+    this analysis cost" or "which section is expensive" at all.
+    """
+
+    model: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    #: Served from the provider's cache. Reported *inside* ``prompt_tokens`` by
+    #: the providers that report it, so it is not added to it: a cached prompt
+    #: is billed at a discount rather than for free, and summing the two would
+    #: double-count the same tokens.
+    cached_prompt_tokens: int = 0
+    #: Reasoning tokens. Also inside ``completion_tokens`` where reported
+    #: separately, and the reason a run that returned three words can still be
+    #: the expensive one.
+    reasoning_tokens: int = 0
+    #: False when the provider reported no usage block. Many
+    #: OpenAI-compatible gateways send none, and an absent block is not a
+    #: zero-cost run -- it is an unknown one.
+    tokens_reported: bool = True
+    price_per_mtok: float | None = None
+
+    @property
+    def total_tokens(self) -> int:
+        return self.prompt_tokens + self.completion_tokens
+
+    @property
+    def cost(self) -> float | None:
+        """Cost in the account's currency, or ``None`` if it cannot be known.
+
+        ``None`` for "unpriced" and ``None`` for "not reported" are the same
+        answer for the same reason: neither is a number, and reporting ``0.0``
+        for either would let a cost view claim a free run that was never
+        measured.
+        """
+        if self.price_per_mtok is None or not self.tokens_reported:
+            return None
+        return self.total_tokens * self.price_per_mtok / 1_000_000
+
+    def merge(self, other: LLMUsage) -> LLMUsage:
+        """Accumulate another completion into this one (counters add up)."""
+        if not isinstance(other, LLMUsage):
+            return self
+        return LLMUsage(
+            model=self.model or other.model,
+            prompt_tokens=self.prompt_tokens + other.prompt_tokens,
+            completion_tokens=self.completion_tokens + other.completion_tokens,
+            cached_prompt_tokens=self.cached_prompt_tokens + other.cached_prompt_tokens,
+            reasoning_tokens=self.reasoning_tokens + other.reasoning_tokens,
+            tokens_reported=self.tokens_reported and other.tokens_reported,
+            price_per_mtok=(
+                other.price_per_mtok if other.price_per_mtok is not None else self.price_per_mtok
+            ),
+        )
+
+    def as_analysis_run_columns(self) -> dict:
+        """Columns ``analysis_runs`` should carry for an LLM run.
+
+        The same contract ``EmbeddingUsage.as_analysis_run_columns`` offers, so
+        one row can hold both sides of a run's cost. ``llm_tokens_reported`` is
+        a column rather than something inferred: a row with zero tokens and
+        ``tokens_reported=False`` means "not measured", and reading it as
+        "nothing was spent" is exactly the mistake this object exists to
+        prevent.
+        """
+        return {
+            "llm_model": self.model,
+            "llm_prompt_tokens": self.prompt_tokens,
+            "llm_completion_tokens": self.completion_tokens,
+            "llm_cached_prompt_tokens": self.cached_prompt_tokens,
+            "llm_reasoning_tokens": self.reasoning_tokens,
+            "llm_tokens_reported": self.tokens_reported,
+            "llm_cost": self.cost,
+        }
+
+
+def _usage_from_response(response, model: str, price_per_mtok: float | None) -> LLMUsage:
+    """Read a completion's ``usage`` block, tolerating a provider that omits it.
+
+    Every field is read through ``getattr`` because the OpenAI-compatible field
+    is a convention and not a contract: gateways routinely drop the ``*_details``
+    sub-objects, some report ``total_tokens`` only, and some report nothing. A
+    ledger that raises on the first of those collects nothing at all.
+
+    ``price_per_mtok`` is passed in rather than read from config so a caller
+    that knows better (a per-model price table) can supply it, and so the tests
+    do not have to mutate a module global to price a run.
+    """
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return LLMUsage(model=model, tokens_reported=False, price_per_mtok=price_per_mtok)
+
+    def _int(name: str) -> int:
+        value = getattr(usage, name, None)
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    prompt_details = getattr(usage, "prompt_tokens_details", None)
+    completion_details = getattr(usage, "completion_tokens_details", None)
+    cached = _int_from(prompt_details, "cached_tokens") if prompt_details is not None else 0
+    reasoning = (
+        _int_from(completion_details, "reasoning_tokens")
+        if completion_details is not None else 0
+    )
+    return LLMUsage(
+        model=str(getattr(usage, "model", None) or model),
+        prompt_tokens=_int("prompt_tokens"),
+        completion_tokens=_int("completion_tokens"),
+        cached_prompt_tokens=cached,
+        reasoning_tokens=reasoning,
+        tokens_reported=True,
+        price_per_mtok=price_per_mtok,
+    )
+
+
+def _int_from(holder, name: str) -> int:
+    value = getattr(holder, name, None)
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 
@@ -77,6 +217,11 @@ class LLMClient:
         self.request_timeout = config.OPENAI_REQUEST_TIMEOUT_SECONDS
         self.max_retries = config.OPENAI_MAX_RETRIES
         self.max_concurrency = config.MAX_LLM_CONCURRENCY
+        # Read at construction for the same reason the embedding gateway reads
+        # its price there: the usage object is built per request, and a config
+        # module global re-read per request is a value that can change between
+        # two halves of one analysis.
+        self.price_per_mtok = config.OPENAI_PRICE_PER_MTOK
         self.client = (
             OpenAI(api_key=self.api_key, base_url=self.base_url)
             if self.api_key
@@ -261,6 +406,7 @@ class LLMClient:
         max_retries: int | None = None,
         model: str | None = None,
         temperature: float | None = None,
+        usage_sink: Callable[[LLMUsage], None] | None = None,
     ) -> str:
         """Run a non-streaming completion, retrying transient failures.
 
@@ -270,6 +416,15 @@ class LLMClient:
         low temperature, and until this existed the only route to one was
         mutating a module global around the call — which two concurrent
         requests cannot both do. Callers that omit it are unaffected.
+
+        ``usage_sink`` receives the completion's :class:`LLMUsage` on success,
+        and is a callback rather than a second return value because the return
+        is a ``str`` at thirteen call sites and in a dozen test assertions —
+        changing it would be a migration, not a feature. A caller that wants
+        the cost passes one in; a caller that does not is unaffected. It is
+        called only for a completion that actually produced text, so a retried
+        request reports the attempt that succeeded and not the ones that
+        burned tokens before it.
         """
         self._require_client()
         retries = self.max_retries if max_retries is None else max_retries
@@ -297,7 +452,12 @@ class LLMClient:
                 if not (200 <= status_code < 300):
                     raise ValueError(describe_llm_status_code(status_code))
 
-                return self._extract_completion_text(response)
+                text = self._extract_completion_text(response)
+                if usage_sink is not None:
+                    usage_sink(_usage_from_response(
+                        response, model or self.model, self.price_per_mtok
+                    ))
+                return text
             except NonRetryableError as exc:
                 # A final answer, not a blip. Re-sending an identical prompt
                 # can only produce an identical final answer, so retrying here

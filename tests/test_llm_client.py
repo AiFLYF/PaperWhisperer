@@ -70,6 +70,9 @@ def make_client(raw_behaviours=None, stream_behaviours=None, **overrides):
     instance.request_timeout = 60
     instance.max_retries = 3
     instance.max_concurrency = 5
+    # Mirrors what the real constructor reads. A test that omits it gets an
+    # unpriced run, which is the shipped default and the interesting case.
+    instance.price_per_mtok = None
     for name, value in overrides.items():
         setattr(instance, name, value)
     instance.client = FakeOpenAI(
@@ -428,3 +431,166 @@ class TestClientConfiguration:
         assert LLMClient._parse_stream_delta({"choices": []}) == ""
         assert LLMClient._parse_stream_delta({"choices": [{"delta": {}}]}) == ""
         assert LLMClient._parse_stream_delta({"choices": [{"delta": {"content": "x"}}]}) == "x"
+
+
+# --------------------------------------------------------------------------
+# Usage collection
+# --------------------------------------------------------------------------
+
+
+class _Details:
+    def __init__(self, **fields):
+        self.__dict__.update(fields)
+
+
+class _Usage:
+    """The ``usage`` block a provider sends, or withholds."""
+
+    def __init__(self, prompt=0, completion=0, cached=0, reasoning=0, model=None):
+        self.prompt_tokens = prompt
+        self.completion_tokens = completion
+        self.total_tokens = prompt + completion
+        self.prompt_tokens_details = _Details(cached_tokens=cached)
+        self.completion_tokens_details = _Details(reasoning_tokens=reasoning)
+        if model is not None:
+            self.model = model
+
+
+class FakeCompletionWithUsage(FakeCompletion):
+    def __init__(self, content, usage):
+        super().__init__(content)
+        self.usage = usage
+
+
+class FakeRawResponseWithUsage(FakeRawResponse):
+    def __init__(self, content, usage, status_code=200):
+        super().__init__(content, status_code=status_code)
+        self._completion = FakeCompletionWithUsage(content, usage)
+
+
+class TestUsageCollection:
+    """``complete()`` used to return a ``str`` and discard ``response.usage``.
+
+    Everything downstream of cost -- the ``analysis_runs`` columns, the cost view
+    in docs/SLO.md, any "is this feature too expensive" question -- was reading
+    from a source that had nothing in it. These pin the collection down.
+    """
+
+    def test_a_completion_reports_its_tokens_to_the_sink(self):
+        seen: list = []
+        client = make_client([
+            FakeRawResponseWithUsage("the answer", _Usage(prompt=120, completion=30)),
+        ])
+        assert client.complete("s", "u", usage_sink=seen.append) == "the answer"
+        assert len(seen) == 1
+        usage = seen[0]
+        assert (usage.prompt_tokens, usage.completion_tokens) == (120, 30)
+        assert usage.total_tokens == 150
+        assert usage.model == "test-model"
+        assert usage.tokens_reported is True
+
+    def test_a_caller_without_a_sink_is_unaffected(self):
+        """The callback is opt-in, and opting out must not cost anything.
+
+        ``complete()`` returns ``str`` at thirteen call sites and in a dozen
+        test assertions. A second return value would have made this a migration
+        rather than a feature.
+        """
+        client = make_client([
+            FakeRawResponseWithUsage("the answer", _Usage(prompt=120, completion=30)),
+        ])
+        assert client.complete("s", "u") == "the answer"
+
+    def test_a_provider_with_no_usage_block_reports_unknown_not_zero(self):
+        """An absent block is not a free run.
+
+        Many OpenAI-compatible gateways send no ``usage`` at all. Reporting
+        zeroes there would let a cost view show a run that cost nothing when
+        what is true is that nobody measured it -- the exact confusion
+        ``EmbeddingUsage`` already refuses to make.
+        """
+        seen: list = []
+        client = make_client([FakeRawResponse("the answer")])
+        assert client.complete("s", "u", usage_sink=seen.append) == "the answer"
+        assert seen[0].tokens_reported is False
+        assert seen[0].cost is None
+
+    def test_cost_is_none_until_a_price_is_configured(self):
+        seen: list = []
+        client = make_client([
+            FakeRawResponseWithUsage("ok", _Usage(prompt=1_000_000, completion=0)),
+        ], price_per_mtok=0.5)
+        client.complete("s", "u", usage_sink=seen.append)
+        # 1,000,000 prompt tokens at 0.5 per million is exactly 0.5.
+        assert seen[0].cost == pytest.approx(0.5)
+
+    def test_cached_and_reasoning_tokens_are_not_added_to_the_totals(self):
+        """The double-count this shape exists to avoid.
+
+        OpenAI reports ``cached_tokens`` *inside* ``prompt_tokens`` and
+        ``reasoning_tokens`` *inside* ``completion_tokens``. Summing them into
+        the totals would bill the same tokens twice and make a cache look like
+        a discount that costs extra.
+        """
+        seen: list = []
+        client = make_client([
+            FakeRawResponseWithUsage(
+                "ok", _Usage(prompt=100, completion=50, cached=40, reasoning=20),
+            ),
+        ], price_per_mtok=1.0)
+        client.complete("s", "u", usage_sink=seen.append)
+        usage = seen[0]
+        assert usage.total_tokens == 150
+        assert (usage.cached_prompt_tokens, usage.reasoning_tokens) == (40, 20)
+
+    def test_usage_accumulates_across_completions(self):
+        """A run is many completions, and the ledger is one row per run."""
+        from paperwhisperer.llm.client import LLMUsage
+
+        first = LLMUsage(model="m", prompt_tokens=10, completion_tokens=5)
+        second = LLMUsage(model="m", prompt_tokens=7, completion_tokens=3,
+                          cached_prompt_tokens=7)
+        merged = first.merge(second)
+        assert (merged.prompt_tokens, merged.completion_tokens) == (17, 8)
+        assert merged.cached_prompt_tokens == 7
+        # One side unpriced leaves the merged object unpriced, not priced at
+        # the other side's rate by accident.
+        assert first.merge(LLMUsage(model="m")).price_per_mtok is None
+
+    def test_a_retry_reports_the_attempt_that_succeeded(self):
+        """Only the successful completion is reported.
+
+        A retry burns tokens too, and they are real money. But the usage object
+        describes *a* completion, and reporting the failed attempt's block
+        would attribute one request's tokens to another's text. The retry's
+        cost is the transport's to account for, not this object's.
+        """
+        seen: list = []
+        client = make_client([
+            FakeRawResponse("first fails with a 500", status_code=500),
+            FakeRawResponseWithUsage("second succeeds", _Usage(prompt=9, completion=4)),
+        ])
+        assert client.complete("s", "u", usage_sink=seen.append) == "second succeeds"
+        assert len(seen) == 1
+        assert seen[0].prompt_tokens == 9
+
+    def test_the_columns_an_analysis_run_should_carry(self):
+        from paperwhisperer.llm.client import LLMUsage
+
+        usage = LLMUsage(model="m", prompt_tokens=10, completion_tokens=5,
+                         cached_prompt_tokens=4, reasoning_tokens=2, price_per_mtok=2.0)
+        columns = usage.as_analysis_run_columns()
+        assert columns["llm_model"] == "m"
+        assert columns["llm_prompt_tokens"] == 10
+        assert columns["llm_completion_tokens"] == 5
+        assert columns["llm_cost"] == pytest.approx(0.00003)
+
+        # A row with no measurement must be distinguishable from a cheap row,
+        # and the two are distinguished by an explicit flag rather than by
+        # reading zero tokens as "nothing was spent". ``tokens_reported``
+        # defaults to True, the same as EmbeddingUsage's does, because a
+        # provider that reports zero really did say zero -- "unknown" is
+        # produced only where the provider sent no usage block at all.
+        unreported = LLMUsage(model="m", tokens_reported=False)
+        assert unreported.as_analysis_run_columns()["llm_tokens_reported"] is False
+        assert unreported.as_analysis_run_columns()["llm_cost"] is None

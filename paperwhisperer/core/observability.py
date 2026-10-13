@@ -2374,6 +2374,43 @@ class Observability:
             **extra,
         )
 
+    def record_llm_usage(self, usage: Any, **extra: Any) -> None:
+        """Count one completion from an ``LLMUsage``.
+
+        The embedding half of this pair has existed since the metrics were
+        written; this is the other half, and until ``LLMUsage`` existed there
+        was nothing to feed it with. The shape is deliberately the same,
+        including which numbers are counted unconditionally and which are
+        allowed to be unknown:
+
+        * tokens always, because a provider that reports a usage block reports
+          them and they are the only figure that needs no price configured;
+        * ``cached_prompt_tokens`` separately, because a run that cost less
+          than its token count suggests did so for a reason a reader can see;
+        * cost through :meth:`record_cost`, which keeps "no price configured"
+          and "provider reported nothing" apart. Those are different problems
+          -- set a price; investigate the endpoint -- and one counter would
+          answer neither.
+        """
+        if not self.enabled:
+            return
+        self.metrics.llm_tokens.inc(
+            int(getattr(usage, "prompt_tokens", 0) or 0), direction="input"
+        )
+        self.metrics.llm_tokens.inc(
+            int(getattr(usage, "completion_tokens", 0) or 0), direction="output"
+        )
+        self.metrics.llm_tokens.inc(
+            int(getattr(usage, "cached_prompt_tokens", 0) or 0), direction="cached"
+        )
+        reported = bool(getattr(usage, "tokens_reported", True))
+        self.record_cost(
+            source="llm",
+            cost=getattr(usage, "cost", None),
+            reason="" if reported else "tokens_unreported",
+            **extra,
+        )
+
     # -- grounding ---------------------------------------------------------
 
     def record_citation_verification(self, verification: Any, **extra: Any) -> None:
@@ -2819,6 +2856,11 @@ def record_embedding_usage(usage: Any, **kwargs: Any) -> None:
     observability.record_embedding_usage(usage, **kwargs)
 
 
+def record_llm_usage(usage: Any, **kwargs: Any) -> None:
+    """见 :meth:`Observability.record_llm_usage`——记录一次对话模型用量。"""
+    observability.record_llm_usage(usage, **kwargs)
+
+
 def record_job_queue(counts: Mapping[str, int]) -> None:
     """见 :meth:`Observability.record_job_queue`——用队列普查覆盖 gauge。"""
     observability.record_job_queue(counts)
@@ -2863,4 +2905,5 @@ __all__ += [
     "record_job_duration",
     "record_job_queue",
     "record_job_submitted",
+    "record_llm_usage",
 ]
