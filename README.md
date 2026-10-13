@@ -82,14 +82,19 @@ pip install -e ".[parse]"
 
 ### 2. 可复现安装
 
-仓库带 `uv.lock`（传递依赖全 pin，含各 extra）。要精确复现 bake-off 那样的环境：
+上面的 `make install` 解析的是 pyproject 里的 `>=` 下限，**不读锁文件**，所以同一条命令在不同时间装的不是同一套版本。需要一个可被归属的环境时用锁：
 
 ```bash
-uv lock            # 改完 pyproject.toml 后刷新
-uv sync --frozen   # 按锁文件安装
+make install-locked   # uv sync --locked --extra dev --extra hosted --extra render
+uv lock               # 改完 pyproject.toml 后刷新
+make lock-check       # 锁过期就报错
 ```
 
-目前 CI 仍走 `pip install -e ".[dev]"`，没有 `uv sync --frozen`；也就是说**依赖锁还没进任何构建路径**，`docling>=2.0` 跨 2.x 的浮动仍是 bake-off 报告不可复现的主要原因。这一点是已知的，见 `docs/OPTIMIZATION_2026.md`。
+`uv.lock` pin 住全部 170 个传递依赖，含各 extra（docling 及其 torch 链、`pypdfium2`、`psycopg`）。
+
+**CI 的两个 job 都改成 `uv sync --locked` 了**，所以"改了 pyproject 却没跑 `uv lock`"会让构建失败，而不是安静地装一套没人记录过的版本——这正是锁的意义。用 `--locked` 而不是 `--frozen`：后者不检查锁与 pyproject 是否一致，装完还是一片绿。
+
+这修掉了本项目最实质的可复现性缺陷：`docling>=2.0` 跨 2.x 的 minor 会改变 DoclingDocument 的输出形状，而决定生产默认解析路由的 `docs/PARSER_BAKE_OFF.md` 需要一份能被复现的环境。
 
 ### 3. 配置环境变量
 
@@ -349,7 +354,7 @@ make restore-drill           # 备份本 checkout → 恢复到临时目录 → 
 - 没有入站速率限制；Semantic Scholar / arXiv 的出站限速是有的。
 - Paper Search 的 `Add` 更适合公开 PDF 直链；只有落地页时可能需要手动下载。
 - 分析质量与所选模型和 API 服务稳定性相关。
-- 依赖未锁进构建路径：CI 用 `pip install -e`，`uv.lock` 存在但没被使用，见"快速开始"第 2 节。
+- `OBSERVABILITY_ENABLED` 默认关闭，指标与追踪是空操作；要采集得显式打开。
 - 引用精度与 Recall@K 两道门禁仍是 BLOCKED：缺的不是 harness，而是一份**经人工确认**的标注集。详见 `docs/RELEASE_GATES.md`。
 
 ## 文档

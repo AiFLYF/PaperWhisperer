@@ -1,4 +1,4 @@
-.PHONY: help install install-parse install-render dev lock lock-help test lint format check check-deps \
+.PHONY: help install install-locked install-parse install-render dev lock-help lock-check test lint format check check-deps \
 	check-frontend check-stores check-compose serve clean parity \
 	compose-config compose-up compose-smoke compose-down compose-logs \
 	backup restore verify-backup restore-drill restore-hosted \
@@ -42,10 +42,20 @@ help:  ## Show available targets
 # a pointer file (`-e .`) that adds no requirements of its own, so the two cannot
 # disagree -- see the header of that file for the drift it used to hide.
 #
-# This does NOT lock versions. Every dependency is a `>=` floor, so no install
-# here is byte-reproducible. `make lock-help` explains what a lock needs.
+# This resolves pyproject's `>=` floors and does NOT read `uv.lock`, so a given
+# run of it is not reproducible. That is fine on a personal machine and wrong
+# anywhere a result has to be attributed: `docling>=2.0` spans 2.x minors that
+# change DoclingDocument's output, which is what made the T0.9 bake-off report
+# unreproducible. Use `make install-locked` when the version set is the point.
 install:  ## Install runtime dependencies (unpinned; not reproducible)
 	$(PYTHON) -m pip install -r requirements.txt
+
+# The same project, installed at the versions uv.lock records. The lock covers
+# all 170 transitive packages including the extras that are easy to forget --
+# docling and its torch chain, pypdfium2, psycopg -- so this is the target to
+# reach for when a measurement has to be attributable to an environment.
+install-locked:  ## Install exactly what uv.lock pins (dev + hosted + render)
+	uv sync --locked --extra dev --extra hosted --extra render
 
 install-parse:  ## Install the project plus the docling parse extra (pulls torch)
 	$(PYTHON) -m pip install -e ".[parse]"
@@ -64,23 +74,31 @@ install-render:  ## Install the project plus the render extra (PDF page images)
 dev:  ## Install runtime + development dependencies
 	$(PYTHON) -m pip install -e ".[dev]"
 
-lock-help:  ## Explain the dependency-locking state and how to add a lock
-	@echo "There is no lock file, and this Makefile does not generate one."
+lock-help:  ## Explain the dependency-locking state and how to use the lock
+	@echo "The lock is uv.lock, and it is tracked. It pins all 170 transitive"
+	@echo "packages, including the extras that are easy to forget: docling and"
+	@echo "its torch chain, pypdfium2 for page rendering, psycopg for Hosted."
 	@echo
-	@echo "Why: 'make install' is the only install path that reads a file, and"
-	@echo "that file is a pointer to pyproject.toml, whose deps are all '>='"
-	@echo "floors. Generating a real lock means picking a resolver and making"
-	@echo "CI and every contributor use it, so the pin set is actually the thing"
-	@echo "being installed. Neither pip-tools nor poetry is available here, and"
-	@echo "uv is present on this machine but absent from CI -- a lock file that"
-	@echo "nothing enforces is decoration, not reproducibility."
+	@echo "    make install-locked   install exactly what the lock records"
+	@echo "    make lock-check       fail if the lock has gone stale"
+	@echo "    uv lock               refresh it after editing pyproject.toml"
 	@echo
-	@echo "The sharpest current hazard is 'docling>=2.0': 2.x minors change"
-	@echo "DoclingDocument output, so the T0.9 bake-off report cannot be"
-	@echo "reproduced from it. Until a lock exists, record the resolved docling"
-	@echo "version alongside the bake-off output:"
-	@echo "    $(PYTHON) -m pip freeze > context/bakeoff-constraints.txt"
-	@echo "run in an environment where the [parse] extra is actually installed."
+	@echo "CI installs with 'uv sync --locked', so an edit to pyproject.toml that"
+	@echo "was not followed by 'uv lock' fails the build instead of quietly"
+	@echo "installing a set nobody recorded. That is the whole point: a lock file"
+	@echo "nothing enforces is a decoration."
+	@echo
+	@echo "'make install' stays the unpinned pip path -- it resolves the '>='"
+	@echo "floors and ignores the lock. Correct for a personal machine, wrong for"
+	@echo "anything you intend to reproduce later."
+	@echo
+	@echo "The hazard that motivated the lock is 'docling>=2.0': 2.x minors change"
+	@echo "DoclingDocument output, so the T0.9 bake-off report can only be"
+	@echo "reproduced from a pinned environment. Reproduce it with"
+	@echo "'make install-locked', not with 'make install'."
+
+lock-check:  ## Verify uv.lock is up to date with pyproject.toml
+	@uv lock --check
 
 # Guards the invariant that makes the dependency list maintainable: a single
 # source of truth. Cheap, and it fails the moment someone helpfully adds a

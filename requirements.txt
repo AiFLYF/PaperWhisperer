@@ -11,20 +11,22 @@
 # name back into this file would reintroduce the second source of truth, and
 # `make check-deps` fails the build if you try.
 #
-# There is no lock file. Dependencies are `>=` floors, not pinned versions, so
-# `make install` is NOT reproducible -- see the T0.8 handoff notes. Two
-# consequences worth knowing before relying on this:
+# There IS a lock file: `uv.lock`, tracked at the repository root. Nothing in
+# this file reads it -- `pip install -r requirements.txt` resolves the `>=`
+# floors and ignores it -- so `make install` is NOT reproducible. Use
+# `make install-locked` when the version set is the thing being relied on.
 #
-#   * `docling>=2.0` (the `parse` extra) is unpinned across a 2.x range whose
-#     minors change DoclingDocument output. T0.9's bake-off report is therefore
-#     not reproducible from this file; it needs a pinned environment, recorded.
-#   * A lock file cannot be generated from this checkout as it stands: docling
-#     is not installed here, so `pip freeze` would emit a pin set that silently
-#     omits the parse extra -- the exact failure this file was rewritten to
-#     prevent. Generating one requires an environment where the extras are
-#     actually installed.
+#   * `docling>=2.0` (the `parse` extra) spans a 2.x range whose minors change
+#     DoclingDocument output, so T0.9's bake-off report can only be reproduced
+#     from the lock, never from this file.
+#   * An earlier version of this header said a lock could not be generated from
+#     this checkout, because docling is not installed here and `pip freeze`
+#     would therefore omit the parse extra. That was true of `pip freeze` and
+#     never true of `uv lock`, which resolves from pyproject.toml's metadata
+#     rather than from the environment it runs in -- which is why the lock
+#     covers docling and its torch chain on a machine that has neither.
 #
-# See `make lock-help` for the intended lock workflow.
+# See `make lock-help`.
 -e .
 
 # The VERSION LOCK is `uv.lock`, generated from this project's pyproject.toml.
@@ -32,9 +34,10 @@
 # forget: docling and its torch chain, pypdfium2 for page rendering, psycopg
 # for the Hosted tier. Reproduce with:
 #
-#     uv lock                 # refresh, after changing pyproject.toml
-#     uv sync --frozen        # install exactly what the lock says
+#     uv lock                  # refresh, after changing pyproject.toml
+#     uv sync --locked         # install exactly what the lock records, or fail
 #
-# Until this file existed, `docling>=2.0` was the largest reproducibility
-# hazard in the project: docling 2.x minors change DoclingDocument's output
-# shape, and T0.9's bake-off requires a report that can be reproduced.
+# `--locked` rather than `--frozen`, and CI uses it: `--frozen` installs the
+# lock without checking it against pyproject.toml, so a dependency added there
+# and never locked would install nothing and say nothing. `--locked` fails
+# instead, which is the only version of this that keeps the lock honest.

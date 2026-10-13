@@ -45,13 +45,22 @@ WORKDIR /build
 COPY pyproject.toml requirements.txt README.md ./
 COPY paperwhisperer ./paperwhisperer
 # `env_loader` is a top-level module, not a package, and `paperwhisperer.core.
-# config` imports it at module scope. Copied here rather than picked up by the
-# install because pyproject's `[tool.setuptools] packages` lists packages only,
-# so a wheel of this project does not contain it. Without this line the image
-# builds cleanly and then dies on its first import with
-# `ModuleNotFoundError: No module named 'env_loader'` -- which is exactly how
-# this was found. The real fix is a `py-modules` entry, which is not this
-# file's to make; see docs/DEPLOYMENT.md.
+# config` imports it at module scope. Without it the image builds cleanly and
+# then dies on its first import with `ModuleNotFoundError: No module named
+# 'env_loader'` -- which is exactly how this was found.
+#
+# The install does carry it now: pyproject's `[tool.setuptools] py-modules`
+# ships it in the wheel, so `pip install .` above puts a copy in site-packages.
+# Verified from a wheel, in a directory that did not contain the repository:
+# `import paperwhisperer.core.config` resolves `env_loader` out of the install.
+#
+# The COPY stays anyway, and not as a habit: it is the only one of the two
+# paths that has ever been exercised *in this image*. Nothing in CI builds the
+# image, so dropping it would trade a line of duplication for a failure that
+# only shows up on an operator's first request to a container that reported
+# itself healthy. Remove it when a Docker build runs somewhere that would go
+# red -- which is the same condition under which the `psycopg` workaround above
+# should go.
 COPY env_loader.py ./
 COPY web_app.py logo.ico ./
 COPY templates ./templates

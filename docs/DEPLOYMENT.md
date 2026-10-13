@@ -462,42 +462,49 @@ MAKE EXIT=0
 
 ### 6.3 与本任务无关但被它发现的问题
 
-这些在别处，不在本任务的路径内，**未修改**，列在这里供对应负责人处理：
+这些在别处，不在本任务的路径内。**除第 4 条外全部已修**，每条附核实方式——
+"已修"这句话本身也会过期，所以它需要和结论一样可复核。
 
-1. **`paperwhisperer/infra/jobs.py` 的 PostgreSQL job 表建不起来。** `_POSTGRES_SCHEMA` 用同一个 `{table}` 占位符同时充当**表名**和**索引名**：
+1. ~~**`paperwhisperer/infra/jobs.py` 的 PostgreSQL job 表建不起来。**~~ **已修。** `_POSTGRES_SCHEMA` 曾经用同一个 `{table}` 占位符同时充当**表名**和**索引名**：
 
    ```python
    "CREATE INDEX IF NOT EXISTS {table}_state ON {table} (state, created_at, job_id)",
    ```
 
-   而 `self.table` 是 schema 全限定的（`public.store_jobs`），PostgreSQL 不允许在 `CREATE INDEX` 里限定索引名：
+   而表名是 schema 全限定的（`public.store_jobs`），PostgreSQL 不允许在 `CREATE INDEX` 里限定索引名，于是 Hosted 档一调用 `build_job_store()` 就抛 `psycopg.errors.SyntaxError`。
+
+   现在拆成两个占位符，定义处上方有注释写明约定——`{table}` 是 schema 全限定的表名，`{index}` 是不带 schema 的索引名：
 
    ```
-   ERROR:  syntax error at or near "."
-   LINE 1: CREATE INDEX IF NOT EXISTS public.store_jobs_state ON public...
+   grep -n "{index}_state ON {table}" paperwhisperer/infra/jobs.py
    ```
 
-   同一文件里的 `postgres_backend.py` 是对的：索引名不带 schema、表名带。所以 Hosted 档目前**只有 job 表建不起来**，一调用 `build_job_store()` 就抛 `psycopg.errors.SyntaxError`。修法是拆成两个占位符（`{table}` 用于 `ON` 之后，`{index}` 不带 schema）。**注意这个 bug 在没有 PostgreSQL 的环境下不可能被发现**——这也说明 T2.1 那条「PG 实现是 SQLite 实现的翻译」在没有服务器时是未经检验的断言。
+   原文的最后一句话仍然成立：**这个 bug 在没有 PostgreSQL 的环境下不可能被发现**。它的回归防线因此只能是 CI 里那个带 pg 服务的 gates job，不可能是本机的 `make check`。
 
-2. **`pyproject.toml` 没有 `psycopg`，所以 Hosted 档的 app 启动后无法打开自己的数据库。** `paperwhisperer/infra/stores/postgres_backend.py` 的 `load_driver()` 在两个驱动都缺失时抛出：
+2. ~~**`pyproject.toml` 没有 `psycopg`，所以 Hosted 档的 app 启动后无法打开自己的数据库。**~~ **已修。** `load_driver()` 在两个驱动都缺失时抛：
 
    ```
    RuntimeError: Hosted 档位需要 PostgreSQL 驱动：请安装 psycopg[binary]（推荐）或 psycopg2-binary
    ```
 
-   本文件在镜像里显式装了 `psycopg[binary]>=3.11` 绕过它——**这是权宜之计，不是修复**：正确做法是在 pyproject 里加一个 `hosted` extra，并让 `docker/pg/init` 或镜像从它安装。
+   pyproject 现在有 `hosted` extra（`psycopg[binary]>=3.1` + `numpy`），README 的 extra 表也列了它。
 
-   这个问题特别难查，因为它有一个假象：容器是 healthy 的、端口有响应、`/api/health` 返回 200，**然后第一条读文档的请求才炸**。`/api/health` 不碰 store 也不碰数据库。
+   镜像里那句 `pip install ... "psycopg[binary]>=3.1"` **保留，是刻意的不是残留**：镜像**就是** Hosted 档，装整个 extra 会把 numpy 一并带进一个只需要驱动的层。Dockerfile 里对应位置有注释说明这个取舍。
+
+   这个问题难查的原因没有变，而且它是本节里唯一仍然值得每个部署者记住的一条：容器是 healthy 的、端口有响应、`/api/health` 返回 200，**然后第一条读文档的请求才炸**。`/api/health` 不碰 store 也不碰数据库。
 
    因此 compose 的 app healthcheck 现在额外做了一次 `build_stores()` 并断言 `tier == 'hosted' and backend == 'postgres'`（`docker-compose.yml` 里有注释说明原因）。这也是 CI job 里那一步断言存在的理由——只 curl `/api/health` 的冒烟测试**证明不了这一档是通的**。
 
-3. **`env_loader` 是一个顶层模块，不在 wheel 里。** `paperwhisperer/core/config.py` 在模块作用域 `from env_loader import load_project_env`，而 `env_loader.py` 在仓库根目录，`pyproject.toml` 的 `[tool.setuptools] packages` 只列 package。后果：**任何非 editable 安装（`pip install .`、构建 wheel、容器镜像）都会在第一次 import 时挂掉**：
+3. ~~**`env_loader` 是一个顶层模块，不在 wheel 里。**~~ **已修。** 原文记录的是：`paperwhisperer/core/config.py` 在模块作用域 `from env_loader import load_project_env`，而 `env_loader.py` 在仓库根目录，`[tool.setuptools] packages` 只列 package，于是**任何非 editable 安装都会在第一次 import 时挂掉**（`ModuleNotFoundError: No module named 'env_loader'`），镜像里靠显式 `COPY env_loader.py` 绕过。
+
+   pyproject 现在有 `[tool.setuptools] py-modules = ["env_loader"]`，所以 wheel 是带的。核对方式（不需要装任何东西，也不需要仓库在 `sys.path` 上）：
 
    ```
-   ModuleNotFoundError: No module named 'env_loader'
+   pip install --target /tmp/x --no-deps dist/paperwhisperer-*.whl
+   cd /tmp && PYTHONPATH=/tmp/x python -c "import paperwhisperer.core.config"
    ```
 
-   本文件的镜像里显式 `COPY env_loader.py` 绕过。正确修复是在 pyproject 加 `py-modules = ["env_loader"]`。日常的 `make dev` / `pip install -e .` 察觉不到这个问题，因为 editable 安装把仓库根放进了 `sys.path`。
+   Dockerfile 里那条 `COPY env_loader.py` **保留**，理由不是习惯：CI 不构建镜像，所以它是两条路径里**唯一在镜像里被跑过**的那条，删掉就等于用一行重复换取一个只在运维第一次请求时才暴露的故障。等某处的 Docker 构建会红时再删——与上面 `psycopg` 那条权宜之计的删除条件是同一个。
 
 4. **`numpy` 不在基础依赖里，向量检索因此退化。** 容器内 `build_stores().describe()` 的实测输出：
 
@@ -508,15 +515,24 @@ MAKE EXIT=0
 
    退化本身是被支持的、有文档的（`sqlite_backend.py` 明确说 numpy 缺席是「有记录的悬崖」而非损坏），但计划第 3 节的档位表把个人档的向量检索写作「SQLite BLOB + **numpy** 暴力检索」，所以按计划它是预期存在的。要么把 numpy 加进基础依赖，要么在部署文档里写明个人档在容器里跑时的这个代价（这是**宿主**档不受影响的，宿主档走 pgvector）。
 
-5. **`OBSERVABILITY_LOG_LEVEL='info'` 会被拒绝。** app 容器每次启动都打一行：
+5. ~~**`OBSERVABILITY_LOG_LEVEL='info'` 会被拒绝。**~~ **已修，且根因不是本机配置。** 当时每个 app 容器启动都打一行：
 
    ```
    OBSERVABILITY_LOG_LEVEL='info' is not a valid value; expected one of DEBUG, INFO, WARNING, ERROR. Falling back to 'INFO'.
    ```
 
-   小写 `'info'` 不在允许值里。容器的环境变量默认值不对——这行来自本机的 `.env`（`docker compose` 会自动读取它），所以**它可能是本机配置的问题而不是代码的问题**，但 compose 文件传入的任何 env 都值得检查一遍大小写。
+   根因在代码里：`_coerce_choice` 把输入归一化成**小写**再和允许值比较，而这一处传进去的允许值元组是**大写**的——于是每一个合法值都判为非法，每次启动都打一条回落告警。原文那句"可能是本机配置的问题"是错的，而这正是它值得记一笔的原因：一条只会出现在启动日志里的告警，很容易被归因成环境问题，然后永远没人去读那个元组。
 
-6. **仓库没有 `.dockerignore`，构建上下文是整个仓库（约 104 MB）。** 每次 `docker compose up --build` 都会把 `.git`、`eval/corpus/`、`context/parse_cache/`、`uploads/` 一起发给 Docker daemon。本机上还发生过一次 `python:3.11-slim` 拉取反复 `unexpected EOF`，上下文大不是原因，但它是「本机 Docker 不可靠」时多出来的一个变量。
+   现在允许值是小写元组、结果 `.upper()` 上界返回，定义处有注释写明这个坑。核实：
+
+   ```
+   OBSERVABILITY_LOG_LEVEL=info python -c "from paperwhisperer.core import config; print(config.OBSERVABILITY_LOG_LEVEL)"
+   # INFO，且不应出现任何回落告警
+   ```
+
+6. ~~**仓库没有 `.dockerignore`，构建上下文是整个仓库（约 104 MB）。**~~ **已修。** 当时每次 `docker compose up --build` 都会把 `.git`、`eval/corpus/`、`context/parse_cache/`、`uploads/` 一起发给 Docker daemon。
+
+   仓库根现在有 `.dockerignore`（已入库）。原文提到的 `python:3.11-slim` 拉取 `unexpected EOF` 与上下文大小无关，那条判断不变：它只是"本机 Docker 不可靠"时多出来的一个变量，缩小上下文不会修好它。
 
    建议新增 `.dockerignore`（本任务没有该路径，未创建）：
 

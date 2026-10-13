@@ -32,12 +32,12 @@ SBOM, and the difference is most of what follows:
 
 * It lists what ``pyproject.toml`` *asks for* — the base dependencies and each
   optional extra — as CycloneDX components with their declared specifier.
-* **Every version is a ``>=`` floor, not a resolved version.** There is no
-  lockfile, so the version a deployment actually runs is unknowable from this
-  repository. A consumer that reads ``component.version`` as "the version in
-  use" will be wrong, and a vulnerability scanner matching on it will produce
-  arbitrary results. The declared specifier is carried in an explicit
-  ``properties`` entry so the distinction is not left to inference.
+* **``component.version`` is a ``>=`` floor, not a resolved version.** A
+  consumer that reads it as "the version in use" will be wrong, and a
+  vulnerability scanner matching on it will produce arbitrary results. The
+  declared specifier is carried in an explicit ``properties`` entry so the
+  distinction is not left to inference, and the ``uv.lock`` resolution for the
+  same distribution sits beside it as ``pw:locked_version``.
 * **The installed environment is reported separately, and separately is the
   operative word.** ``importlib.metadata`` knows what is on *this* machine,
   which in CI is not the environment the wheel ships into and specifically is
@@ -46,25 +46,30 @@ SBOM, and the difference is most of what follows:
 * **No transitive closure.** ``openai`` pulls in ``httpx``, ``pydantic``,
   ``anyio`` and more; none of them appear. An SBOM with no transitive
   dependencies describes roughly a tenth of a Python environment.
-* **No licences and no integrity hashes.** ``pyproject.toml`` declares neither,
-  and inventing them would be worse than omitting them.
+* **No licences and no integrity hashes.** ``uv.lock`` carries a ``sha256`` for
+  every artifact it resolved and ``pyproject.toml`` declares no licences, and
+  neither is copied in: the hash that matters is of the bytes a deployment
+  actually installed, and this document describes declared dependencies rather
+  than an installed set. A lock's hash quoted here would read as "verified"
+  while verifying nothing.
 * **No vulnerability data at all.** CVE correlation is a scanner's job, and it
   is the job this generator is least qualified for, precisely because the
   versions it would match against are floors.
 
 A real ``cyclonedx-py`` run in a pinned environment would add: the full
-transitive graph, resolved versions, hashes from the installed distributions,
+transitive graph from the lock, hashes read off the installed distributions,
 licence metadata, and (with a scanner) matched advisories. The gap is
 enumerated at the end of every run so it is stated where it is read.
 
 The lockfile
 ------------
 
-There is no lockfile and this tool does not create one. Introducing ``pip-tools``
-or ``uv lock`` is a decision for the project owner, not a side effect of a
-security task: a lockfile pins ``docling``'s model behaviour, which changes
-parse output, and T0.9's bake-off numbers depend on that output. ``make
-lock-help`` documents the intended workflow; this file only reports the absence.
+The project has one: ``uv.lock``, tracked at the repository root, pinning every
+package it resolved. This tool reads it and never writes it -- refreshing a lock
+is ``uv lock``, and doing that as a side effect of running an evaluation would
+repin ``docling``, whose model behaviour changes parse output, and T0.9's
+bake-off numbers depend on that output. ``make lock-help`` documents the
+workflow.
 """
 
 from __future__ import annotations
@@ -94,6 +99,18 @@ _SERIAL_NAMESPACE = uuid.UUID("6f1d4c1a-9a2e-5b7c-8d3f-0a1b2c3d4e5f")
 # --------------------------------------------------------------------------
 
 
+def _normalize_name(name: str) -> str:
+    """PEP 503 normalisation, which is also what a purl wants.
+
+    Module-level rather than a method because :func:`read_locked_versions` keys
+    ``uv.lock``'s names with the same rule; two spellings of "is this the same
+    distribution" is how a lock entry ends up looking absent.
+    """
+    return "".join(
+        char if char.isalnum() or char in {".", "-", "_"} else "-" for char in str(name).lower()
+    ).replace("_", "-")
+
+
 @dataclass(frozen=True, slots=True)
 class DeclaredDependency:
     """One entry from ``pyproject.toml``'s dependency list.
@@ -111,9 +128,7 @@ class DeclaredDependency:
     @property
     def normalized_name(self) -> str:
         """PEP 503 normalisation, which is also what a purl wants."""
-        return "".join(
-            char if char.isalnum() or char in {".", "-", "_"} else "-" for char in self.name.lower()
-        ).replace("_", "-")
+        return _normalize_name(self.name)
 
     @property
     def purl(self) -> str:
@@ -209,6 +224,44 @@ def _installed_version(name: str) -> str:
         return ""
 
 
+#: The version lock the project committed to. Read, never written: resolving is
+#: ``uv lock``'s job, and running an evaluation should not repin anything.
+LOCKFILE = PROJECT_ROOT / "uv.lock"
+
+#: Property name carrying the lock's answer. A constant because the tests and
+#: ``sbom_limitations`` both have to name it, and a string spelled twice is a
+#: string that eventually disagrees with itself.
+LOCKED_VERSION_PROPERTY = "pw:locked_version"
+
+
+def read_locked_versions(lockfile: Path = LOCKFILE) -> dict[str, tuple[str, ...]]:
+    """``{normalized name: (version, ...)}`` from ``uv.lock``; ``{}`` if absent.
+
+    A tuple rather than one string because the lock resolves *per Python
+    version*: ``numpy`` appears three times, selected by ``resolution-markers``,
+    and collapsing that to a single number would invent a pin the lock does not
+    make. Virtually every distribution has exactly one entry.
+
+    A missing or unreadable lock yields an empty map rather than an exception.
+    The SBOM has a documented answer for an unlocked tree (``not-locked``), and
+    a generator that refuses to start without a lock cannot tell you *that* you
+    have none -- which is the one thing it is supposed to be able to say.
+    """
+    import tomllib  # noqa: PLC0415 - 3.11+; the project requires >= 3.10 but runs 3.13
+
+    try:
+        data = tomllib.loads(lockfile.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    found: dict[str, set[str]] = {}
+    for entry in data.get("package") or ():
+        name = entry.get("name")
+        version = entry.get("version")
+        if name and version:
+            found.setdefault(_normalize_name(name), set()).add(str(version))
+    return {name: tuple(sorted(versions)) for name, versions in found.items()}
+
+
 def build_sbom(pyproject: Path = PROJECT_ROOT / "pyproject.toml") -> dict[str, Any]:
     """A CycloneDX 1.5 SBOM over the declared dependencies.
 
@@ -218,6 +271,7 @@ def build_sbom(pyproject: Path = PROJECT_ROOT / "pyproject.toml") -> dict[str, A
     like a dependency change.
     """
     dependencies, project = read_declared_dependencies(pyproject)
+    locked = read_locked_versions()
     root_ref = f"pkg:pypi/{project['name']}@{project['version']}"
 
     components: list[dict[str, Any]] = []
@@ -236,6 +290,16 @@ def build_sbom(pyproject: Path = PROJECT_ROOT / "pyproject.toml") -> dict[str, A
                 {
                     "name": "pw:environment_resolved_version",
                     "value": installed or "not-installed",
+                },
+                {
+                    # What the lock resolved *for this repository*, which is a
+                    # different fact from the floor above it and from what the
+                    # generating machine happens to have. Comma-separated when
+                    # the lock carries several entries selected by
+                    # `resolution-markers`; `not-locked` when there is no lock
+                    # or the distribution is not in it.
+                    "name": LOCKED_VERSION_PROPERTY,
+                    "value": ",".join(locked.get(item.normalized_name, ())) or "not-locked",
                 },
             ],
         })
@@ -270,8 +334,9 @@ def build_sbom(pyproject: Path = PROJECT_ROOT / "pyproject.toml") -> dict[str, A
                 {
                     "name": "pw:sbom_scope",
                     "value": (
-                        "declared-only: no transitive closure, no lockfile, "
-                        "component.version carries a >= floor rather than a resolved version"
+                        "declared-only: direct dependencies whose component.version is "
+                        "the >= specifier, with the uv.lock resolution reported as "
+                        "pw:locked_version; no transitive closure, no hashes, no licences"
                     ),
                 },
             ],
@@ -292,18 +357,22 @@ def sbom_limitations(bom: dict[str, Any]) -> list[str]:
     """What a real scanner would add that this cannot. Enumerated, not implied."""
     return [
         f"只声明 {len(bom.get('components') or ())} 个直接依赖，"
-        "没有传递闭包——一个 Python 环境的实际成分远不止这些。",
-        "component.version 是 pyproject.toml 里的 >= 下限，不是部署中实际安装的版本；"
-        "仓库没有 lockfile（见 requirements.txt 与 make lock-help），因此真实版本"
-        "无法从本仓库推出。CVE 匹配在这个基础上没有意义。",
+        "没有传递闭包——一个 Python 环境的实际成分远不止这些；"
+        "完整的闭包在 uv.lock 里，本工具只展开 pyproject.toml 声明的那一层。",
+        "component.version 是 pyproject.toml 里的 >= 下限，不是某个部署装到的东西。"
+        "仓库的 lockfile（uv.lock）解析结果记在 pw:locked_version 属性里，"
+        "但那描述的是本仓库的解析环境，不是产物落地的环境；"
+        "把两者分开读是对的，混起来做 CVE 匹配仍会得到不精确的结果。",
         "环境实际安装的版本记录在 pw:environment_resolved_version 属性里，"
         "它描述的是生成 SBOM 的这台机器，不是产物要投放的环境；"
         "例如本机没有安装 docling（parse extra），该属性即为 not-installed。",
-        "没有许可证信息：pyproject.toml 未逐个声明依赖的许可证，此处不臆造。",
-        "没有完整性哈希（sha256 of the wheel/sdist）：需要从已安装的分发包读取，"
-        "而本仓库没有可校验的已安装环境。",
+        "没有许可证信息：pyproject.toml 未逐个声明依赖的许可证，uv.lock 里也没有，"
+        "此处不臆造。",
+        "没有完整性哈希（sha256 of the wheel/sdist）：uv.lock 里每个包都有，"
+        "但那是锁定时刻公开产物的哈希，不是本次部署实际安装的字节；"
+        "搬进来会被读成「已校验」，而它没有校验任何东西。",
         "没有漏洞数据：cyclonedx-py / osv-scanner 才做这一步，"
-        "而它们匹配的是解析后的版本，正是本文件拿不到的东西。",
+        "而它们匹配的是解析后的版本，本文件的 pw:locked_version 只是它的一个输入。",
         "没有文件级清单（file-level SBOM）：本 SBOM 描述的是产品，不是它的源码树。",
     ]
 
@@ -375,9 +444,10 @@ def cmd_sbom(args: argparse.Namespace) -> int:
         for item in sbom_limitations(bom):
             print(f"  - {item}", file=sys.stderr)
         print(file=sys.stderr)
-        print("依赖锁定：仓库当前没有 lockfile，本工具不会创建。"
-              "生成 lockfile 会固定 docling 的解析行为（进而影响 bake-off 数字），"
-              "这是项目负责人的决定，见 `make lock-help`。", file=sys.stderr)
+        print("依赖锁定：版本锁是 uv.lock，本工具只读不写。"
+              "刷新它用 `uv lock`，不要在跑评测时顺手重建——那会重新固定 docling，"
+              "进而改动解析输出与 T0.9 的 bake-off 数字。见 `make lock-help`。",
+              file=sys.stderr)
     return 0
 
 
